@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>소리는 빛이다 — 파동 프로토타입 v0.1</title>
+<style>
+  html,body{margin:0;height:100%;background:#03050a;overflow:hidden;
+    font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif}
+  body{display:flex;align-items:center;justify-content:center}
+  canvas{display:block;cursor:crosshair;touch-action:none}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+"use strict";
+/* ============================================================
+   소리는 빛이다 — 파동 프로토타입 v0.1
+   단일 법칙: 소리는 빛처럼 퍼지고, 벽에 막히고, 닿은 것을 드러낸다.
+   - 클릭: 돌 던지기(미끼) / Space: 클랩 / WASD: 이동(발소리)
+   - 감지기 1개: 사냥꾼이 아니라 "들은 지점으로 가는 것"
+   - 소리 게이트 1개: 인원이 아니라 소리 에너지가 쌓이면 열림
+   - 잡히면 즉사 없음: 비명 파동(위치 공개) + 시작점 리스폰
+   ============================================================ */
+
+// ---------- 상수 ----------
+const W=960, H=600, TAU=Math.PI*2;
+const RAYS=540;          // 파동 하나가 쏘는 광선 수 (점선 소나 느낌의 밀도)
+const WAVE_SPEED=400;    // 파동 전파 속도 px/s
+const SPX=150, SPY=300;  // 플레이어 시작점
+const GX=760, GY=290;    // 게이트 중점
+const FONT='Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif';
+
+// ---------- 캔버스 ----------
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+const mem=document.createElement('canvas');   // 잔상(기억) 레이어 — 파동이 닿은 것이 잠시 남는다
+const mctx=mem.getContext('2d');
+
+function resize(){
+  const dpr=Math.min(2, window.devicePixelRatio||1);
+  const s=Math.min(window.innerWidth/W, window.innerHeight/H);
+  cv.style.width=(W*s)+'px'; cv.style.height=(H*s)+'px';
+  cv.width=Math.max(2,Math.round(W*s*dpr)); cv.height=Math.max(2,Math.round(H*s*dpr));
+  mem.width=cv.width; mem.height=cv.height;  // 리사이즈 시 잔상 초기화(허용)
+  ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0);
+  mctx.setTransform(mem.width/W,0,0,mem.height/H,0,0);
+}
+window.addEventListener('resize',resize); resize();
+
+function toLogical(e){
+  const r=cv.getBoundingClientRect();
+  return {x:(e.clientX-r.left)*W/r.width, y:(e.clientY-r.top)*H/r.height};
+}
+
+// ---------- 맵 ----------
+function seg(x1,y1,x2,y2,kind){return {x1,y1,x2,y2,kind:kind||'wall'};}
+const walls=[
+  // 외곽
+  seg(40,40,920,40), seg(920,40,920,560), seg(920,560,40,560), seg(40,560,40,40),
+  // 왼쪽 방 세로벽 (가운데 통로 220~340)
+  seg(320,40,320,220), seg(320,340,320,560),
+  // 중앙 기둥(방)
+  seg(480,240,640,240), seg(640,240,640,360), seg(640,360,480,360), seg(480,360,480,240),
+  // 오른쪽 방 벽 (게이트 자리 250~330 비움)
+  seg(760,40,760,250), seg(760,330,760,560),
+  // 위쪽 세로 토막 + 아래쪽 가로 토막 (동선 변주)
+  seg(480,40,480,140),
+  seg(560,460,760,460),
+];
+const gate={seg:seg(760,250,760,330,'gate'), charge:0, need:100, open:false, glow:0, openFx:0};
+const exitPad={x:850,y:300,r:26,lit:0};
+function blockers(){ return gate.open ? walls : walls.concat([gate.seg]); }
+
+// ---------- 상태 ----------
+const player={x:SPX,y:SPY,r:10,lit:0,stepAcc:0};
+const det={x:560,y:120,r:9,state:'wander',tx:560,ty:120,interest:0,flash:0,lingerT:0,wanderT:0,investT:0};
+const waves=[], stones=[];
+let stats={t:0,caught:0,sounds:0};
+let phase='title';           // title | play | win
+let now=0, titleT=0.4, clapCd=0, stoneCd=0, shake=0, redFx=0, gateBlipCd=0;
+const keys=new Set();
+
+// ---------- 기하 ----------
+// 광선(P + tD) vs 선분(A + u(B-A)) 교차 거리. 없으면 Infinity
+function raySeg(px,py,dx,dy,s){
+  const sx=s.x2-s.x1, sy=s.y2-s.y1;
+  const den=dx*sy-dy*sx;
+  if(Math.abs(den)<1e-9) return Infinity;
+  const t=((s.x1-px)*sy-(s.y1-py)*sx)/den;
+  const u=((s.x1-px)*dy-(s.y1-py)*dx)/den;
+  return (t>1e-4 && u>=0 && u<=1) ? t : Infinity;
+}
+
+// 한 점에서 전 방향 광선 발사 → 광선별 최단 벽 거리 (파동 생성 시 1회 계산)
+function castAll(x,y){
+  const segs=blockers();
+  const hits=new Float32Array(RAYS);
+  const isGate=new Uint8Array(RAYS);
+  for(let i=0;i<RAYS;i++){
+    const a=i*TAU/RAYS, dx=Math.cos(a), dy=Math.sin(a);
+    let best=Infinity, g=0;
+    for(let k=0;k<segs.length;k++){
+      const t=raySeg(x,y,dx,dy,segs[k]);
+      if(t<best){ best=t; g=(segs[k].kind==='gate')?1:0; }
+    }
+    hits[i]=best; isGate[i]=g;
+  }
+  return {hits,isGate};
+}
+
+// 원형 개체 vs 벽 충돌 (밀어내기 → 벽 타고 미끄러짐)
+function collideCircle(o){
+  const segs=blockers();
+  for(let k=0;k<segs.length;k++){
+    const s=segs[k];
+    const vx=s.x2-s.x1, vy=s.y2-s.y1;
+    const wx=o.x-s.x1, wy=o.y-s.y1;
+    const L2=vx*vx+vy*vy;
+    let t=L2>0 ? (wx*vx+wy*vy)/L2 : 0;
+    t=Math.max(0,Math.min(1,t));
+    const cx=s.x1+vx*t, cy=s.y1+vy*t;
+    let dx=o.x-cx, dy=o.y-cy;
+    const d=Math.hypot(dx,dy);
+    if(d<o.r+2 && d>1e-6){ const push=(o.r+2-d); o.x+=dx/d*push; o.y+=dy/d*push; }
+    else if(d<=1e-6){ o.x+=0.5; }
+  }
+}
+
+function moveToward(o,tx,ty,step){
+  const dx=tx-o.x, dy=ty-o.y, d=Math.hypot(dx,dy);
+  if(d<1e-4) return;
+  const s=Math.min(step,d);
+  o.x+=dx/d*s; o.y+=dy/d*s;
+}
+
+// ---------- 파동 ----------
+const COLORS={
+  cyan:a=>`rgba(150,235,255,${a})`,   // 클랩(플레이어 소리)
+  dim:a=>`rgba(120,200,235,${a})`,    // 발소리·잔파동
+  amber:a=>`rgba(255,210,140,${a})`,  // 돌 착지
+  red:a=>`rgba(255,95,80,${a})`,      // 비명(발각)
+  green:a=>`rgba(130,255,170,${a})`,  // 게이트 열림
+};
+
+function spawnWave(x,y,o){
+  const c=castAll(x,y);
+  waves.push({x,y,r:0,pr:0,str:o.str,maxR:o.maxR,color:o.color,kind:o.kind,
+              hits:c.hits,isGate:c.isGate,stamped:new Uint8Array(RAYS)});
+}
+
+// 파동 전선이 (ex,ey)에 "도달"하는 프레임에만 세기 반환. 벽에 가려지면 0.
+function frontHits(w,ex,ey){
+  const dx=ex-w.x, dy=ey-w.y;
+  const d=Math.hypot(dx,dy);
+  if(d<=1e-3) return 0;
+  if(!(w.pr<d && d<=w.r) || d>w.maxR) return 0;
+  let a=Math.atan2(dy,dx); if(a<0)a+=TAU;
+  const i=Math.round(a/TAU*RAYS)%RAYS;
+  if(w.hits[i] < d-3) return 0;   // 중간에 벽이 있으면 소리가 못 닿음
+  return Math.max(0, w.str*(1-d/w.maxR));
+}
+
+// ---------- 잔상 레이어 ----------
+function fadeMem(dt){
+  mctx.save(); mctx.setTransform(1,0,0,1,0,0);
+  mctx.globalCompositeOperation='destination-out';
+  mctx.fillStyle=`rgba(0,0,0,${Math.min(0.3,1.15*dt)})`;   // 약 2초 잔상
+  mctx.fillRect(0,0,mem.width,mem.height);
+  mctx.restore();
+}
+function clearMem(){
+  mctx.save(); mctx.setTransform(1,0,0,1,0,0);
+  mctx.clearRect(0,0,mem.width,mem.height);
+  mctx.restore();
+}
+function stampWallPoint(x,y,s,isGate){
+  const col=isGate?'rgba(255,110,100,':'rgba(185,225,255,';
+  mctx.globalCompositeOperation='lighter';
+  mctx.fillStyle=col+Math.min(0.85,s*0.95)+')';
+  mctx.beginPath(); mctx.arc(x,y,2.1,0,TAU); mctx.fill();
+  mctx.fillStyle=col+Math.min(0.3,s*0.3)+')';
+  mctx.beginPath(); mctx.arc(x,y,4.5,0,TAU); mctx.fill();
+}
+function stampDet(a){
+  mctx.globalCompositeOperation='lighter';
+  mctx.fillStyle=`rgba(255,150,70,${Math.min(0.9,a)})`;
+  mctx.beginPath(); mctx.arc(det.x,det.y,3.5,0,TAU); mctx.fill();
+  mctx.strokeStyle=`rgba(255,120,60,${Math.min(0.5,a*0.6)})`; mctx.lineWidth=1.5;
+  mctx.beginPath(); mctx.arc(det.x,det.y,8,0,TAU); mctx.stroke();
+}
+function stampExit(s){
+  mctx.globalCompositeOperation='lighter';
+  mctx.strokeStyle=`rgba(130,255,170,${Math.min(0.7,s)})`; mctx.lineWidth=2;
+  mctx.beginPath(); mctx.arc(exitPad.x,exitPad.y,exitPad.r,0,TAU); mctx.stroke();
+  if(s>0.15){
+    mctx.fillStyle=`rgba(130,255,170,${Math.min(0.6,s*0.7)})`;
+    mctx.font=`12px ${FONT}`; mctx.textAlign='center'; mctx.textBaseline='middle';
+    mctx.fillText('출구',exitPad.x,exitPad.y);
+  }
+}
+function stampGateOpenLine(){
+  mctx.globalCompositeOperation='lighter';
+  mctx.strokeStyle='rgba(130,255,170,0.9)'; mctx.lineWidth=3;
+  mctx.beginPath(); mctx.moveTo(gate.seg.x1,gate.seg.y1); mctx.lineTo(gate.seg.x2,gate.seg.y2); mctx.stroke();
+}
+
+// ---------- 오디오 (합성음, M으로 음소거) ----------
+let AC=null, master=null, detGain=null, NOISE=null, muted=false;
+function initAudio(){
+  if(AC) return;
+  try{
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    master=AC.createGain(); master.gain.value=0.5; master.connect(AC.destination);
+    NOISE=AC.createBuffer(1,AC.sampleRate,AC.sampleRate);
+    const d=NOISE.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+    // 감지기 근접음 루프: 다가올수록 낮은 웅웅거림이 커진다 (귀로 듣는 위치 정보)
+    const src=AC.createBufferSource(); src.buffer=NOISE; src.loop=true;
+    const f=AC.createBiquadFilter(); f.type='lowpass'; f.frequency.value=200;
+    detGain=AC.createGain(); detGain.gain.value=0;
+    src.connect(f); f.connect(detGain); detGain.connect(master); src.start();
+  }catch(e){}
+}
+function blip(freq,dur,gain,type){
+  if(!AC||muted) return;
+  const o=AC.createOscillator(), g=AC.createGain(), t=AC.currentTime;
+  o.type=type||'sine'; o.frequency.value=freq;
+  g.gain.setValueAtTime(gain,t);
+  g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t+dur+0.02);
+}
+function noiseHit(dur,gain,f0,f1){
+  if(!AC||muted) return;
+  const s=AC.createBufferSource(); s.buffer=NOISE; s.loop=true;
+  const bp=AC.createBiquadFilter(); bp.type='bandpass';
+  bp.frequency.value=(f0+f1)/2; bp.Q.value=0.8;
+  const g=AC.createGain(), t=AC.currentTime;
+  g.gain.setValueAtTime(gain,t);
+  g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  s.connect(bp); bp.connect(g); g.connect(master); s.start(t); s.stop(t+dur+0.03);
+}
+function stepS(run){ noiseHit(0.05, run?0.20:0.11, 150, 600+Math.random()*300); }
+function clapS(){ noiseHit(0.10,0.35,1200,6000); blip(190,0.09,0.12,'triangle'); }
+function whipS(){ noiseHit(0.05,0.06,2500,8000); }
+function thudS(){ blip(82,0.16,0.3,'sine'); noiseHit(0.04,0.15,90,350); }
+function gateBlipS(f){ blip(230+330*f,0.08,0.14,'triangle'); }
+function gateOpenS(){ blip(140,0.5,0.28,'sawtooth'); blip(280,0.35,0.2,'triangle'); blip(70,0.7,0.3,'sine'); }
+function shriekS(){
+  if(!AC||muted) return;
+  const o=AC.createOscillator(), g=AC.createGain(), t=AC.currentTime;
+  o.type='sawtooth';
+  o.frequency.setValueAtTime(950,t);
+  o.frequency.exponentialRampToValueAtTime(140,t+0.55);
+  g.gain.setValueAtTime(0.45,t);
+  g.gain.exponentialRampToValueAtTime(0.001,t+0.6);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t+0.62);
+  noiseHit(0.4,0.25,300,3000);
+}
+function winS(){
+  blip(520,0.15,0.2,'triangle');
+  setTimeout(()=>blip(660,0.2,0.2,'triangle'),140);
+  setTimeout(()=>blip(880,0.3,0.22,'triangle'),300);
+}
+function toggleMute(){ muted=!muted; if(master) master.gain.value=muted?0:0.5; }
+function updDetAudio(){
+  if(!AC||!detGain) return;
+  let g=0;
+  if(phase==='play' && det.state==='invest' && !muted){
+    const d=Math.hypot(det.x-player.x,det.y-player.y);
+    g=Math.max(0,0.20*(1-d/460));
+  }
+  detGain.gain.setTargetAtTime(g,AC.currentTime,0.12);
+}
+
+// ---------- 행동 ----------
+function clap(){
+  if(phase!=='play'||clapCd>0) return;
+  clapCd=0.5;
+  spawnWave(player.x,player.y,{str:1.0,maxR:420,color:'cyan',kind:'clap'});
+  stats.sounds++; clapS();
+}
+function throwStone(tx,ty){
+  if(phase!=='play'||stoneCd>0) return;
+  stoneCd=0.45;
+  let dx=tx-player.x, dy=ty-player.y;
+  const dd=Math.hypot(dx,dy)||1; dx/=dd; dy/=dd;
+  const want=Math.min(dd,380);              // 최대 사거리
+  let best=Infinity, hitGate=false;
+  const segs=blockers();
+  for(let k=0;k<segs.length;k++){
+    const t=raySeg(player.x,player.y,dx,dy,segs[k]);
+    if(t<best){ best=t; hitGate=(segs[k].kind==='gate'); }
+  }
+  const fly=Math.max(10, Math.min(want, best-6));
+  stones.push({x:player.x,y:player.y,dx,dy,left:fly,
+               hitGate:(best-6<=want)&&hitGate});   // 게이트에 직격했는가
+  spawnWave(player.x,player.y,{str:0.18,maxR:70,color:'dim',kind:'toss'}); // 던지는 것도 소리다
+  stats.sounds++; whipS();
+}
+function hearDet(s,w){
+  if(phase!=='play') return;
+  det.flash=Math.max(det.flash,Math.min(1,s*1.4));
+  stampDet(Math.min(1,s*1.3));               // 파동이 감지기의 위치를 드러낸다
+  if(det.state==='linger') return;           // 두리번거리는 동안엔 잠시 둔감
+  if(s>det.interest*0.55){                   // 더 크거나 비슷한 최신 소리로 갈아탐
+    det.interest=Math.min(1,s);
+    det.tx=w.x; det.ty=w.y;
+    det.state='invest'; det.investT=7;
+  }
+}
+function onCaught(){
+  stats.caught++; shake=0.7; redFx=1;
+  spawnWave(det.x,det.y,{str:1.1,maxR:1500,color:'red',kind:'shriek'}); // 죽음도 소리다 — 전부 드러난다
+  shriekS();
+  player.x=SPX; player.y=SPY; player.stepAcc=0;
+  det.state='linger'; det.lingerT=2.4; det.interest=0;
+}
+function openGate(){
+  gate.open=true; gate.openFx=1;
+  stampGateOpenLine();
+  spawnWave(GX,GY,{str:0.8,maxR:320,color:'green',kind:'gateopen'}); // 문 여는 것도 소리다
+  gateOpenS();
+}
+function pickWander(){
+  det.tx=340+Math.random()*400;
+  det.ty=70+Math.random()*470;
+  det.wanderT=2.5+Math.random()*2;
+}
+function demoWave(){
+  let p={x:0,y:0}, tries=0;
+  do{ p={x:90+Math.random()*780, y:90+Math.random()*420}; tries++; }
+  while(tries<8 && p.x>470&&p.x<650&&p.y>230&&p.y<370);
+  spawnWave(p.x,p.y,{str:0.5,maxR:250,color:'dim',kind:'demo'});
+}
+function start(){
+  if(phase!=='title') return;
+  phase='play';
+  stats={t:0,caught:0,sounds:0};
+  initAudio();
+  if(AC&&AC.state==='suspended') AC.resume();
+  // 시작하자마자 공짜 클랩 한 번 — "눈을 뜨는" 순간
+  spawnWave(player.x,player.y,{str:1.0,maxR:420,color:'cyan',kind:'clap'});
+  clapS();
+}
+function restart(){
+  phase='play';
+  player.x=SPX; player.y=SPY; player.lit=0; player.stepAcc=0;
+  det.x=560; det.y=120; det.state='wander'; det.interest=0; det.flash=0; pickWander();
+  gate.open=false; gate.charge=0; gate.glow=0; gate.openFx=0;
+  waves.length=0; stones.length=0;
+  stats={t:0,caught:0,sounds:0};
+  clearMem();
+  spawnWave(player.x,player.y,{str:1.0,maxR:420,color:'cyan',kind:'clap'});
+  clapS();
+}
+
+// ---------- 갱신 ----------
+function updPlayer(dt){
+  player.lit=Math.max(0,player.lit-dt*1.5);
+  if(phase!=='play') return;
+  let mx=0,my=0;
+  if(keys.has('w')||keys.has('arrowup'))    my--;
+  if(keys.has('s')||keys.has('arrowdown'))  my++;
+  if(keys.has('a')||keys.has('arrowleft'))  mx--;
+  if(keys.has('d')||keys.has('arrowright')) mx++;
+  const run=keys.has('shift');
+  const spd=run?215:130;
+  if(mx||my){
+    const l=Math.hypot(mx,my); mx/=l; my/=l;
+    player.x+=mx*spd*dt; player.y+=my*spd*dt;
+    player.stepAcc+=spd*dt;
+    const need=run?52:42;
+    if(player.stepAcc>=need){
+      player.stepAcc=0;
+      spawnWave(player.x,player.y,{str:run?0.55:0.34,maxR:run?200:120,color:'dim',kind:'step'});
+      stepS(run);
+    }
+  } else {
+    player.stepAcc=Math.min(player.stepAcc,20);
+  }
+  collideCircle(player);
+  if(Math.hypot(player.x-exitPad.x,player.y-exitPad.y)<exitPad.r+player.r-4){
+    phase='win'; winS();
+  }
+}
+
+function updDet(dt){
+  det.flash=Math.max(0,det.flash-dt*6);
+  if(phase!=='play') return;
+  if(det.state==='invest'){
+    det.investT-=dt;
+    det.interest=Math.max(0.12,det.interest-dt*0.07);   // 오래 못 찾으면 식는다
+    const spd=55+165*det.interest;                       // 큰 소리일수록 빨리 온다
+    moveToward(det,det.tx,det.ty,spd*dt);
+    if(Math.hypot(det.tx-det.x,det.ty-det.y)<14 || det.investT<=0){
+      det.state='linger'; det.lingerT=1.6;
+    }
+  } else if(det.state==='linger'){
+    det.lingerT-=dt;
+    det.x+=Math.cos(now*3)*8*dt; det.y+=Math.sin(now*2.3)*8*dt;   // 두리번
+    if(det.lingerT<=0){ det.state='wander'; pickWander(); }
+  } else {
+    det.wanderT-=dt;
+    if(det.wanderT<=0) pickWander();
+    moveToward(det,det.tx,det.ty,34*dt);
+    if(Math.hypot(det.tx-det.x,det.ty-det.y)<10) pickWander();
+  }
+  collideCircle(det);
+  if(Math.hypot(det.x-player.x,det.y-player.y)<det.r+player.r+2) onCaught();
+}
+
+function updStones(dt){
+  for(let i=stones.length-1;i>=0;i--){
+    const st=stones[i];
+    const step=Math.min(st.left,700*dt);
+    st.x+=st.dx*step; st.y+=st.dy*step; st.left-=step;
+    if(st.left<=0.01){
+      stones.splice(i,1);
+      spawnWave(st.x,st.y,{str:0.7,maxR:260,color:'amber',kind:'stone'});
+      thudS();
+      if(st.hitGate&&!gate.open){ gate.charge+=20; gate.glow=1; }  // 직격 보너스
+    }
+  }
+}
+
+function updWaves(dt){
+  for(let i=waves.length-1;i>=0;i--){
+    const w=waves[i];
+    w.pr=w.r; w.r+=WAVE_SPEED*dt;
+    // 전선이 이번 프레임에 벽을 통과했으면 그 지점에 잔상 스탬프
+    for(let k=0;k<RAYS;k++){
+      const hd=w.hits[k];
+      if(!w.stamped[k] && hd>w.pr && hd<=w.r && hd<=w.maxR){
+        w.stamped[k]=1;
+        const s=Math.max(0,w.str*(1-hd/w.maxR));
+        if(s>0.02){
+          const a=k*TAU/RAYS;
+          stampWallPoint(w.x+Math.cos(a)*hd, w.y+Math.sin(a)*hd, s, w.isGate[k]===1);
+        }
+      }
+    }
+    if(phase==='play'){
+      // 게이트 충전: 도달한 소리 세기만큼. 발소리도 조금씩 충전된다 (모든 소리는 소리다)
+      if(!gate.open && w.kind!=='gateopen'){
+        const s=frontHits(w,GX,GY);
+        if(s>0.03){
+          gate.charge+=s*40; gate.glow=1;
+          if(gateBlipCd<=0){ gateBlipS(Math.min(1,gate.charge/gate.need)); gateBlipCd=0.12; }
+          if(gate.charge>=gate.need) openGate();
+        }
+      }
+      // 감지기 청각 (자기 비명은 무시)
+      if(w.kind!=='shriek'){
+        const s=frontHits(w,det.x,det.y);
+        if(s>0.045) hearDet(s,w);
+      }
+      // 플레이어·출구가 파동에 닿으면 빛난다
+      const sp=frontHits(w,player.x,player.y);
+      if(sp>0) player.lit=Math.min(1,player.lit+sp*0.8);
+      const se=frontHits(w,exitPad.x,exitPad.y);
+      if(se>0.03){ exitPad.lit=Math.min(1,exitPad.lit+se*1.2); stampExit(se); }
+    }
+    if(w.r>w.maxR+40) waves.splice(i,1);
+  }
+}
+
+function updGate(dt){
+  if(!gate.open) gate.charge=Math.max(0,gate.charge-4*dt);   // 안 먹이면 천천히 식는다
+  gate.glow=Math.max(0,gate.glow-dt*0.7);
+  gate.openFx=Math.max(0,gate.openFx-dt*0.8);
+}
+
+function update(dt){
+  now+=dt;
+  if(phase==='play') stats.t+=dt;
+  if(phase==='title'){ titleT-=dt; if(titleT<=0){ titleT=1.25; demoWave(); } }
+  fadeMem(dt);
+  clapCd=Math.max(0,clapCd-dt);
+  stoneCd=Math.max(0,stoneCd-dt);
+  gateBlipCd=Math.max(0,gateBlipCd-dt);
+  shake=Math.max(0,shake-dt*1.6);
+  redFx=Math.max(0,redFx-dt*1.2);
+  exitPad.lit=Math.max(0,exitPad.lit-dt*0.9);
+  updPlayer(dt); updDet(dt); updStones(dt); updWaves(dt); updGate(dt);
+  updDetAudio();
+}
+
+// ---------- 그리기 ----------
+// 파동 전선: 살아있는(아직 벽에 안 닿은) 광선 구간만 호로 잇는다
+function drawFront(w,radius,cf,alpha,width){
+  if(radius<=1||alpha<=0.008) return;
+  ctx.strokeStyle=cf(alpha); ctx.lineWidth=width; ctx.lineCap='round';
+  ctx.beginPath();
+  let rs=-1;
+  for(let i=0;i<=RAYS;i++){
+    const alive = i<RAYS && radius<w.hits[i];
+    if(alive&&rs<0){ rs=i; }
+    else if(!alive&&rs>=0){
+      const a0=rs*TAU/RAYS, a1=i*TAU/RAYS;
+      ctx.moveTo(w.x+Math.cos(a0)*radius, w.y+Math.sin(a0)*radius);
+      ctx.arc(w.x,w.y,radius,a0,a1);
+      rs=-1;
+    }
+  }
+  ctx.stroke();
+}
+
+function hud(){
+  ctx.globalCompositeOperation='source-over';
+  ctx.textBaseline='top';
+  ctx.textAlign='left';
+  ctx.fillStyle='rgba(190,215,235,0.5)';
+  ctx.font=`13px ${FONT}`;
+  ctx.fillText(`시간 ${stats.t.toFixed(1)}s   발각 ${stats.caught}   소리 ${stats.sounds}`,14,12);
+  ctx.textAlign='center';
+  ctx.fillStyle='rgba(160,185,205,0.35)';
+  ctx.font=`12px ${FONT}`;
+  ctx.fillText('WASD 이동 · Shift 달리기 · Space 클랩 · 클릭 돌 던지기 · R 재시작 · M 소리',W/2,H-30);
+}
+
+function titleScreen(){
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='rgba(2,4,9,0.55)'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  ctx.fillStyle='rgba(200,240,255,0.95)'; ctx.font=`700 44px ${FONT}`;
+  ctx.fillText('소리는 빛이다', W/2, 205);
+  ctx.fillStyle='rgba(150,200,225,0.6)'; ctx.font=`14px ${FONT}`;
+  ctx.fillText('파동 프로토타입 v0.1', W/2, 236);
+  ctx.fillStyle='rgba(190,215,235,0.8)'; ctx.font=`16px ${FONT}`;
+  ctx.fillText('어둠 속, 소리가 유일한 빛이다.', W/2, 300);
+  ctx.fillText('무언가가 당신의 소리를 듣고 움직인다. 소리로 문을 열고, 출구를 찾아라.', W/2, 326);
+  ctx.fillStyle='rgba(160,185,205,0.6)'; ctx.font=`13px ${FONT}`;
+  ctx.fillText('WASD 이동 · Shift 달리기 · Space 클랩 · 클릭 돌 던지기 · M 소리 끄기', W/2, 386);
+  const pa=0.5+0.35*Math.sin(now*4);
+  ctx.fillStyle=`rgba(220,245,255,${pa})`; ctx.font=`15px ${FONT}`;
+  ctx.fillText('클릭하거나 아무 키나 눌러 시작  (PC 권장)', W/2, 428);
+}
+
+function winScreen(){
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='rgba(2,4,9,0.6)'; ctx.fillRect(0,0,W,H);
+  ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  ctx.fillStyle='rgba(140,255,180,0.95)'; ctx.font=`700 40px ${FONT}`;
+  ctx.fillText('탈출', W/2, 268);
+  ctx.fillStyle='rgba(200,230,245,0.85)'; ctx.font=`16px ${FONT}`;
+  ctx.fillText(`시간 ${stats.t.toFixed(1)}s · 발각 ${stats.caught} · 소리 ${stats.sounds}`, W/2, 306);
+  ctx.fillStyle='rgba(160,185,205,0.6)'; ctx.font=`14px ${FONT}`;
+  ctx.fillText('R — 다시 시작', W/2, 344);
+}
+
+function render(){
+  ctx.save();
+  ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0);
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='#03050a'; ctx.fillRect(0,0,W,H);
+  if(shake>0) ctx.translate((Math.random()-0.5)*9*shake,(Math.random()-0.5)*9*shake);
+
+  // 잔상(기억) 레이어
+  ctx.drawImage(mem,0,0,W,H);
+
+  // 파동
+  ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<waves.length;i++){
+    const w=waves[i];
+    const base=Math.max(0,Math.min(0.85,w.str*(1-w.r/w.maxR)));
+    if(base>0.01){
+      const cf=COLORS[w.color]||COLORS.cyan;
+      drawFront(w,w.r,cf,base,3);          // 본 전선
+      drawFront(w,w.r,cf,base*0.22,10);    // 부드러운 번짐
+      if(w.r>20) drawFront(w,w.r-16,cf,base*0.3,1.5);  // 꼬리 잔결
+    }
+  }
+
+  // 날아가는 돌 (내 손을 떠난 건 나는 안다)
+  ctx.fillStyle='rgba(220,220,230,0.35)';
+  for(let i=0;i<stones.length;i++){
+    ctx.beginPath(); ctx.arc(stones[i].x,stones[i].y,2.2,0,TAU); ctx.fill();
+  }
+
+  // 감지기 순간 플래시 (파동이 지나가는 찰나만)
+  if(det.flash>0.01){
+    ctx.fillStyle=`rgba(255,150,70,${Math.min(0.9,det.flash)})`;
+    ctx.beginPath(); ctx.arc(det.x,det.y,4,0,TAU); ctx.fill();
+    ctx.strokeStyle=`rgba(255,120,60,${Math.min(0.5,det.flash*0.5)})`; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(det.x,det.y,10,0,TAU); ctx.stroke();
+  }
+
+  // 게이트 게이지 (최근에 소리를 먹었을 때만 보임)
+  if(!gate.open && gate.glow>0.01){
+    const f=Math.min(1,gate.charge/gate.need);
+    const a=gate.glow*0.85;
+    ctx.strokeStyle=`rgba(255,120,110,${a*0.6})`; ctx.lineWidth=1;
+    ctx.strokeRect(740.5,250.5,8,79);
+    const hF=76*f;
+    ctx.fillStyle=`hsla(${f*120},85%,60%,${a})`;
+    ctx.fillRect(742,328-hF,5,hF);
+  }
+  // 게이트 열림 플래시
+  if(gate.openFx>0.01){
+    ctx.strokeStyle=`rgba(130,255,170,${gate.openFx*0.9})`; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(gate.seg.x1,gate.seg.y1); ctx.lineTo(gate.seg.x2,gate.seg.y2); ctx.stroke();
+  }
+
+  // 출구 (파동이 닿았을 때만 맥동)
+  if(exitPad.lit>0.01){
+    const p=0.85+0.15*Math.sin(now*6);
+    ctx.strokeStyle=`rgba(130,255,170,${exitPad.lit*0.8})`; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(exitPad.x,exitPad.y,exitPad.r*p,0,TAU); ctx.stroke();
+  }
+
+  // 플레이어 (자기 자신은 희미하게 늘 보인다 — 완전 암흑 접근성 타협)
+  ctx.fillStyle=`rgba(180,240,255,${0.06+player.lit*0.25})`;
+  ctx.beginPath(); ctx.arc(player.x,player.y,12,0,TAU); ctx.fill();
+  ctx.fillStyle=`rgba(255,255,255,${0.35+player.lit*0.4})`;
+  ctx.beginPath(); ctx.arc(player.x,player.y,3.5,0,TAU); ctx.fill();
+
+  // 피격 붉은 화면
+  ctx.globalCompositeOperation='source-over';
+  if(redFx>0.01){
+    ctx.fillStyle=`rgba(255,40,30,${redFx*0.22})`;
+    ctx.fillRect(0,0,W,H);
+  }
+
+  hud();
+  if(phase==='title') titleScreen();
+  if(phase==='win') winScreen();
+  ctx.restore();
+}
+
+// ---------- 입력 ----------
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k)) e.preventDefault();
+  if(phase==='title'){ start(); return; }
+  if(k==='r'){ restart(); return; }
+  if(k==='m'){ toggleMute(); return; }
+  if(k===' '){ clap(); return; }
+  keys.add(k);
+});
+window.addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
+window.addEventListener('blur',()=>keys.clear());
+cv.addEventListener('pointerdown',e=>{
+  if(phase==='title'){ start(); return; }
+  if(phase==='win') return;
+  const p=toLogical(e);
+  throwStone(p.x,p.y);
+});
+
+// ---------- 루프 ----------
+let last=performance.now();
+function frame(ts){
+  const dt=Math.min(0.05,(ts-last)/1000);
+  last=ts;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

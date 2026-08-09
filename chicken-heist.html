@@ -1,0 +1,1142 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>양계장 습격 — 웹 프로토타입 v0.1</title>
+<style>
+  html,body{margin:0;height:100%;background:#8fc7e8;overflow:hidden;
+    font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
+    -webkit-user-select:none;user-select:none;color:#2b2119;}
+  #gl{position:fixed;inset:0;display:block;}
+  .ov{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;pointer-events:none;}
+  #title{background:rgba(24,16,10,0.5);pointer-events:auto;cursor:pointer;color:#fff4e2;}
+  #title h1{font-size:46px;font-weight:800;color:#ffe08a;margin:0 0 6px;letter-spacing:-1px;}
+  #title .sub{font-size:14px;color:rgba(255,236,205,0.6);margin-bottom:30px;}
+  #title .desc{font-size:17px;color:rgba(255,245,230,0.92);line-height:1.75;margin-bottom:26px;}
+  #title .keys{font-size:13px;color:rgba(255,230,195,0.6);margin-bottom:24px;line-height:1.8;}
+  #title .go{font-size:15px;color:#fff6e6;animation:pulse 1.4s ease-in-out infinite;}
+  #title .pc{font-size:13px;color:rgba(255,180,140,0.9);margin-top:16px;display:none;}
+  @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
+  #pauseOv{background:rgba(24,16,10,0.55);display:none;pointer-events:auto;cursor:pointer;color:#fff4e2;}
+  #pauseOv .t{font-size:20px;}
+  #winOv{background:rgba(24,16,10,0.62);display:none;color:#fff4e2;}
+  #winOv .t{font-size:44px;font-weight:800;color:#ffe08a;margin-bottom:16px;}
+  #winOv .s{font-size:17px;color:rgba(255,245,230,0.9);margin-bottom:8px;line-height:1.9;}
+  #winOv .r{font-size:14px;color:rgba(255,230,195,0.55);margin-top:14px;}
+  #hud{position:fixed;top:14px;left:16px;font-size:14px;font-weight:600;
+    color:#fff6e6;text-shadow:0 1px 3px rgba(0,0,0,0.55);pointer-events:none;line-height:1.7;}
+  #hud .big{font-size:20px;font-weight:800;color:#ffe08a;}
+  #prompt{position:fixed;left:0;right:0;bottom:96px;text-align:center;font-size:15px;font-weight:600;
+    color:#fff6e6;text-shadow:0 1px 4px rgba(0,0,0,0.6);pointer-events:none;}
+  #help{position:fixed;bottom:14px;left:0;right:0;text-align:center;font-size:12px;
+    color:rgba(255,250,240,0.55);text-shadow:0 1px 3px rgba(0,0,0,0.5);pointer-events:none;}
+  #pw{position:fixed;left:50%;bottom:64px;width:220px;height:9px;margin-left:-110px;display:none;
+    background:rgba(0,0,0,0.35);border-radius:5px;overflow:hidden;pointer-events:none;}
+  #pwFill{height:100%;width:0%;background:#7bd77b;border-radius:5px;}
+  #pwMark{position:absolute;top:-3px;width:2px;height:15px;background:rgba(255,255,255,0.85);}
+  #cross{position:fixed;left:50%;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;border-radius:50%;
+    background:rgba(255,255,255,0.75);box-shadow:0 0 0 1px rgba(0,0,0,0.4);pointer-events:none;display:none;}
+  #flash{position:fixed;inset:0;background:#ffd0a0;opacity:0;pointer-events:none;}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="flash"></div>
+<div id="hud"></div>
+<div id="prompt"></div>
+<div id="pw"><div id="pwFill"></div><div id="pwMark"></div></div>
+<div id="help">마우스 시점 · WASD 이동 · Shift 달리기 · E 줍기/내려놓기 · 좌클릭(꾹) 던지기 · V 시점전환 · R 재시작 · M 소리 · Esc 일시정지</div>
+<div id="cross"></div>
+
+<div class="ov" id="title">
+  <h1>양계장 습격</h1>
+  <div class="sub">웹 프로토타입 v0.1</div>
+  <div class="desc">여기 계란은 전부 닭 거다.<br>세 개만 훔쳐서 트럭까지 가져와라. 깨지면 그걸로 끝이고.</div>
+  <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기<br>E 줍기·내려놓기 · 좌클릭 꾹 눌러 던지기 · V 시점전환</div>
+  <div class="go">클릭해서 시작</div>
+  <div class="pc" id="pcNote">이 버전은 PC 전용이에요 — 마우스와 키보드가 필요해요</div>
+</div>
+<div class="ov" id="pauseOv"><div class="t">일시정지 — 클릭해서 계속</div></div>
+<div class="ov" id="winOv"><div class="t">털었다</div><div class="s" id="winStats"></div><div class="r">R — 다시 시작</div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+"use strict";
+/* ============================================================
+   양계장 습격 — 웹 프로토타입 v0.1
+   설계 문서 1차 로드맵의 "양계장 수직절단": 계란 잡기·들기·던지기,
+   깨짐 물리, 닭 어그로 1종, 트럭까지 복귀. 그게 전부다.
+
+   구조는 reference/sound-is-light-3d.html을 그대로 승계한다:
+   - 게임 로직은 평면(x,z)에서 돈다. 3D는 렌더일 뿐이다.
+   - 맵의 진실은 선분(seg)이고, 3D 박스는 그 선분에 입힌 겉옷이다.
+   - 충돌은 원-선분 밀어내기 하나로 통일 (플레이어·닭 공용).
+   - 파티클은 전부 하나의 도트 풀(THREE.Points) — 셰이더가 알아서 페이드.
+   ============================================================ */
+
+// ============================================================
+//  튜닝 상수 — 만지는 숫자는 전부 여기 모아둔다
+// ============================================================
+const W=960, H=600, TAU=Math.PI*2;
+
+// 플레이어
+const PLR_R=13;                  // 충돌 반지름
+const EYE=52;                    // 1인칭 눈높이
+const SPD_WALK=132;              // 걷기 (단위/초)
+const SPD_RUN=218;               // 달리기
+const CARRY_MULT=0.62;           // 계란 들면 이만큼으로 감속
+const STUMBLE_T=1.15;            // 잡혔을 때 넘어져 있는 시간 (즉사 금지)
+const INVULN_T=1.4;              // 일어난 뒤 다시 안 잡히는 시간
+const PICK_R=40;                 // 계란 줍기 사거리
+
+// 카메라
+const TP_DIST=155, TP_UP=34;     // 3인칭 거리·시선 높이 보정
+const TP_SIDE=26;                // 어깨너머 오프셋 (몸이 조준선을 가리지 않게)
+
+// 계란
+const EGG_R=7;
+const EGG_G=650;                 // 계란에만 적용되는 중력 (포물선 감각용)
+const EGG_BREAK_SPD=420;         // 이 속도보다 세게 부딪히면 깨진다
+const EGG_REST=0.34;             // 튕김
+const EGG_FRIC=0.62;             // 바닥 마찰
+const CARRY_H=40;                // 들고 있는 높이 (= 떨어뜨릴 때의 낙차)
+const THROW_MIN=200, THROW_MAX=560;  // 차지 0 → 1 일 때의 던지는 속도
+const THROW_CHARGE_T=0.85;       // 최대 차지까지 걸리는 시간
+const THROW_LIFT=0.35;           // 던질 때 위로 얹는 각
+// 임시: 계란을 전부 깨먹으면 진행이 막힌다. "실패는 사망이 아니라 코미디" 원칙상
+//       막힘도 실패 상태이므로, 가장 싼 해법으로 둥지가 계란을 다시 낳게 했다.
+//       (설계 문서에 없는 결정 — 재고 관리·수량 제한은 미정)
+const NEST_RESPAWN=13;           // 둥지에서 계란이 다시 나오기까지
+const NEED_EGGS=3;               // 반납 목표
+
+// 닭
+const CHK_COUNT=3;
+const CHK_R=12;
+const CHK_WANDER=42;             // 배회 속도
+const CHK_CHASE=124;             // 추격 속도 (계란 들고 달리기 = 135 보다 조금 느리다)
+const CHK_HEAR_R=310;            // 계란 집는 소리가 들리는 거리 → 어그로
+const CHK_SIGHT_R=200;           // 계란 든 놈을 눈으로 보는 거리 → 어그로
+const CHK_GIVEUP=310;            // 플레이어가 이만큼 멀어지면 포기
+const CHK_LEASH=370;             // 제 자리에서 이만큼 벗어나면 복귀
+const CHK_REACT=0.28;            // 어그로 반응 지연 (꼬꼬댁 하고 출발)
+
+// 파생 상수 — 던지기 안전 구간 (에너지 보존: 착지속도² = 초속² + 2·g·h)
+const SAFE_V=Math.sqrt(Math.max(0,EGG_BREAK_SPD*EGG_BREAK_SPD-2*EGG_G*CARRY_H));
+const SAFE_FRAC=Math.max(0,Math.min(1,(SAFE_V-THROW_MIN)/(THROW_MAX-THROW_MIN)));
+
+const POOL=7000;                 // 파티클 도트 풀
+const SPLAT_POOL=32;             // 깨진 자국 (재사용)
+
+// ============================================================
+//  맵 — 선분이 진실이다 (reference와 같은 960×600 평면)
+// ============================================================
+function seg(x1,z1,x2,z2,kind){return {x1,z1,x2,z2,kind:kind||'wall'};}
+const SEG_H={wall:96, fence:52, truck:92, shed:118, hay:56, trough:26};
+
+const walls=[
+  // 바깥 울타리
+  seg(40,40,920,40), seg(920,40,920,560), seg(920,560,40,560), seg(40,560,40,40),
+  // 푸드트럭 — 시작 지점이자 반납 지점
+  seg(90,230,206,230,'truck'), seg(206,230,206,370,'truck'),
+  seg(206,370,90,370,'truck'), seg(90,370,90,230,'truck'),
+  // 마당: 건초더미
+  seg(330,140,424,140,'hay'), seg(424,140,424,206,'hay'),
+  seg(424,206,330,206,'hay'), seg(330,206,330,140,'hay'),
+  // 마당: 물통 (낮다 — 계란은 넘어간다)
+  seg(470,428,534,428,'trough'), seg(534,428,534,470,'trough'),
+  seg(534,470,470,470,'trough'), seg(470,470,470,428,'trough'),
+  // 마당: 짧은 울타리 한 줄
+  seg(316,404,316,516,'fence'),
+  // 닭장 울타리 — 문은 z 258~342 한 곳뿐이다
+  seg(584,92,584,258,'fence'), seg(584,342,584,508,'fence'),
+  seg(584,92,900,92,'fence'), seg(900,92,900,508,'fence'), seg(900,508,584,508,'fence'),
+  // 닭장 안의 계사
+  seg(744,176,846,176,'shed'), seg(846,176,846,300,'shed'),
+  seg(846,300,744,300,'shed'), seg(744,300,744,176,'shed'),
+];
+
+// 닭이 울타리를 통과할 때 쓰는 유일한 웨이포인트 (길찾기 대신 문 하나)
+const DOOR_IN={x:614,z:300}, DOOR_OUT={x:554,z:300};
+const FENCE_X=584;
+
+// 임시: 반납대 안에서는 계란이 깨지지 않는다 (짚 깔린 짐칸이라는 설정).
+//       이게 없으면 "멀리서 트럭에 던져 넣기"가 항상 실패라 던지기 동사가 반쪽이 된다.
+const truckPad={x:258,z:300,r:42};
+const SPAWN={x:280,z:300};
+const COOP={x0:612,x1:874,z0:122,z1:480};
+const SHED={x0:734,x1:856,z0:166,z1:310};
+
+const NEST_POS=[
+  {x:664,z:300},{x:648,z:150},{x:660,z:452},
+  {x:800,z:140},{x:876,z:240},{x:790,z:462},
+];
+const CHK_HOME=[{x:696,z:196},{x:836,z:392},{x:632,z:470}];
+
+// ============================================================
+//  상태
+// ============================================================
+const player={x:SPAWN.x,z:SPAWN.z,r:PLR_R,stepAcc:0,stun:0,invuln:0};
+let yaw=-Math.PI/2, pitch=0;            // 시작하자마자 닭장(+x) 쪽을 본다
+let camMode=0;                          // 0 = 1인칭, 1 = 3인칭 (V 토글 — 설계상 미해결 질문이라 둘 다 만든다)
+const eggs=[], nests=[], chickens=[];
+let held=null;                          // 들고 있는 계란
+let charge=-1;                          // 던지기 차지 (-1 = 안 누르는 중)
+let stats={t:0,broken:0,delivered:0,caught:0};
+let phase='title';                      // title | play | win
+let now=0, simT=0, shake=0, flash=0;
+let locked=false;
+const keys=new Set();
+
+// ============================================================
+//  기하 — reference에서 그대로 (검증 완료된 코드)
+// ============================================================
+function raySeg(px,pz,dx,dz,s){
+  const sx=s.x2-s.x1, sz=s.z2-s.z1;
+  const den=dx*sz-dz*sx;
+  if(Math.abs(den)<1e-9) return Infinity;
+  const t=((s.x1-px)*sz-(s.z1-pz)*sx)/den;
+  const u=((s.x1-px)*dz-(s.z1-pz)*dx)/den;
+  return (t>1e-4 && u>=0 && u<=1) ? t : Infinity;
+}
+// 원-선분 밀어내기: 이 게임의 유일한 충돌이다
+function collideCircle(o){
+  for(let k=0;k<walls.length;k++){
+    const s=walls[k];
+    const vx=s.x2-s.x1, vz=s.z2-s.z1;
+    const wx=o.x-s.x1, wz=o.z-s.z1;
+    const L2=vx*vx+vz*vz;
+    let t=L2>0 ? (wx*vx+wz*vz)/L2 : 0;
+    t=Math.max(0,Math.min(1,t));
+    const cx=s.x1+vx*t, cz=s.z1+vz*t;
+    let dx=o.x-cx, dz=o.z-cz;
+    const d=Math.hypot(dx,dz);
+    if(d<o.r+2 && d>1e-6){ const push=(o.r+2-d); o.x+=dx/d*push; o.z+=dz/d*push; }
+    else if(d<=1e-6){ o.x+=0.5; }
+  }
+}
+function moveToward(o,tx,tz,step){
+  const dx=tx-o.x, dz=tz-o.z, d=Math.hypot(dx,dz);
+  if(d<1e-4) return 0;
+  const s=Math.min(step,d);
+  o.x+=dx/d*s; o.z+=dz/d*s;
+  return d;
+}
+// 두 점 사이가 벽에 막혔나 (닭이 문을 찾아야 하는지 판단용)
+function lineBlocked(ax,az,bx,bz){
+  const dx=bx-ax, dz=bz-az, L=Math.hypot(dx,dz);
+  if(L<1e-4) return false;
+  const ux=dx/L, uz=dz/L;
+  for(let k=0;k<walls.length;k++){
+    const t=raySeg(ax,az,ux,uz,walls[k]);
+    if(t>4 && t<L-2) return true;
+  }
+  return false;
+}
+
+// ============================================================
+//  Three.js 무대
+// ============================================================
+const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('gl'),antialias:true});
+renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x9fd3ef);
+scene.fog=new THREE.Fog(0x9fd3ef,900,2100);
+const camera=new THREE.PerspectiveCamera(72,1,1,4000);
+camera.rotation.order='YXZ';
+function resize(){
+  renderer.setSize(window.innerWidth,window.innerHeight);
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize',resize); resize();
+
+scene.add(new THREE.HemisphereLight(0xd8f0ff,0x54662f,0.95));
+{
+  const sun=new THREE.DirectionalLight(0xfff2d6,0.72);
+  sun.position.set(-420,700,-260);
+  scene.add(sun);
+}
+
+function mat(c){ return new THREE.MeshLambertMaterial({color:c}); }
+const MAT={
+  wall:mat(0x4f6b38), fence:mat(0xc79a63), shed:mat(0xb5603f),
+  hay:mat(0xd9b45c), trough:mat(0x7d868c), truck:mat(0xd8474a),
+};
+
+// 바닥 + 흙길 (길이 닭장 쪽으로 나 있다 — 어디로 가야 하는지 3초 안에 읽히게)
+{
+  const g=new THREE.Mesh(new THREE.PlaneGeometry(2600,2000),mat(0x6f9c4a));
+  g.rotation.x=-Math.PI/2; g.position.set(W/2,0,H/2); scene.add(g);
+  const dirt=new THREE.Mesh(new THREE.PlaneGeometry(320,420),mat(0xa8875c));
+  dirt.rotation.x=-Math.PI/2; dirt.position.set(742,0.4,300); scene.add(dirt);
+  const path=new THREE.Mesh(new THREE.PlaneGeometry(300,96),mat(0xa8875c));
+  path.rotation.x=-Math.PI/2; path.position.set(430,0.3,300); scene.add(path);
+}
+
+// 선분 → 박스. 선분이 중심선이고 두께 4는 충돌 밀어내기(r+2)와 맞물린다
+function segBox(s,h,material){
+  const dx=s.x2-s.x1, dz=s.z2-s.z1;
+  const len=Math.hypot(dx,dz);
+  const m=new THREE.Mesh(new THREE.BoxGeometry(len+4,h,5),material);
+  m.position.set((s.x1+s.x2)/2, h/2, (s.z1+s.z2)/2);
+  m.rotation.y=-Math.atan2(dz,dx);
+  return m;
+}
+// 울타리는 통짜 벽이 아니라 기둥+가로대다 — 너머가 보여야 "저기 계란 있다"가 읽힌다
+function fenceRun(s){
+  const g=new THREE.Group();
+  const dx=s.x2-s.x1, dz=s.z2-s.z1;
+  const len=Math.hypot(dx,dz), ang=-Math.atan2(dz,dx);
+  const H=SEG_H.fence;
+  for(const y of [H*0.46,H*0.88]){
+    const rail=new THREE.Mesh(new THREE.BoxGeometry(len,5,4),MAT.fence);
+    rail.position.set((s.x1+s.x2)/2,y,(s.z1+s.z2)/2);
+    rail.rotation.y=ang; g.add(rail);
+  }
+  const n=Math.max(2,Math.round(len/46));
+  for(let i=0;i<=n;i++){
+    const t=i/n;
+    const p=new THREE.Mesh(new THREE.BoxGeometry(7,H,7),MAT.fence);
+    p.position.set(s.x1+dx*t,H/2,s.z1+dz*t); g.add(p);
+  }
+  return g;
+}
+for(const s of walls){
+  if(s.kind==='truck') continue;              // 트럭은 따로 만든다
+  if(s.kind==='fence'){ scene.add(fenceRun(s)); continue; }
+  scene.add(segBox(s,SEG_H[s.kind],MAT[s.kind]||MAT.wall));
+}
+// 계사 지붕
+{
+  const roof=new THREE.Mesh(new THREE.ConeGeometry(96,44,4),mat(0x8d4530));
+  roof.position.set(795,138,238); roof.rotation.y=Math.PI/4; scene.add(roof);
+}
+
+// ---------- 푸드트럭 ----------
+const deliveredMesh=[];
+{
+  const g=new THREE.Group();
+  const box=new THREE.Mesh(new THREE.BoxGeometry(116,86,140),MAT.truck);
+  box.position.set(148,48,300); g.add(box);
+  const cab=new THREE.Mesh(new THREE.BoxGeometry(46,54,106),mat(0x33445c));
+  cab.position.set(70,30,300); g.add(cab);
+  const ledge=new THREE.Mesh(new THREE.BoxGeometry(14,7,100),mat(0xf0e0c0));
+  ledge.position.set(210,58,300); g.add(ledge);
+  const win=new THREE.Mesh(new THREE.BoxGeometry(4,34,96),mat(0x2b2b30));
+  win.position.set(206,76,300); g.add(win);
+  const awn=new THREE.Mesh(new THREE.BoxGeometry(34,5,104),mat(0xf2f0ea));
+  awn.position.set(224,98,300); g.add(awn);
+  const wg=new THREE.CylinderGeometry(16,16,14,14), wm=mat(0x23242a);
+  for(const p of [[112,226],[112,374],[188,226],[188,374]]){
+    const wh=new THREE.Mesh(wg,wm);
+    wh.position.set(p[0],16,p[1]); wh.rotation.x=Math.PI/2; g.add(wh);
+  }
+  // 반납대 (짚 깔린 자리 — 여기 떨어진 계란은 안 깨진다)
+  const pad=new THREE.Mesh(new THREE.CircleGeometry(truckPad.r,28),
+    new THREE.MeshBasicMaterial({color:0xffe08a,transparent:true,opacity:0.35}));
+  pad.rotation.x=-Math.PI/2; pad.position.set(truckPad.x,0.8,truckPad.z); g.add(pad);
+  // 반납한 계란이 실제로 쌓인다
+  const eg=new THREE.SphereGeometry(EGG_R,12,10), em=mat(0xfff6e4);
+  for(let i=0;i<NEED_EGGS;i++){
+    const m=new THREE.Mesh(eg,em);
+    m.scale.set(1,1.25,1);
+    m.position.set(213,68,300+(i-1)*26);
+    m.visible=false; g.add(m); deliveredMesh.push(m);
+  }
+  scene.add(g);
+}
+// 트럭 간판 — 목표를 월드 안에 띄운다
+const signCv=document.createElement('canvas'); signCv.width=256; signCv.height=96;
+const signCtx=signCv.getContext('2d');
+const signTex=new THREE.CanvasTexture(signCv);
+function drawSign(){
+  signCtx.clearRect(0,0,256,96);
+  signCtx.fillStyle='#2a1c14'; signCtx.fillRect(0,0,256,96);
+  signCtx.fillStyle='#ffe08a';
+  signCtx.font='bold 44px "Malgun Gothic",sans-serif';
+  signCtx.textAlign='center'; signCtx.textBaseline='middle';
+  signCtx.fillText('계란 '+stats.delivered+' / '+NEED_EGGS,128,52);
+  signTex.needsUpdate=true;
+}
+drawSign();
+{
+  const sign=new THREE.Mesh(new THREE.PlaneGeometry(150,56),
+    new THREE.MeshBasicMaterial({map:signTex,transparent:true,side:THREE.DoubleSide}));
+  sign.position.set(214,120,300); sign.rotation.y=Math.PI/2;
+  scene.add(sign);
+}
+
+// ---------- 둥지 ----------
+{
+  const ng=new THREE.TorusGeometry(15,4.5,6,14), nm=mat(0xcaa35f);
+  for(const p of NEST_POS){
+    const m=new THREE.Mesh(ng,nm);
+    m.rotation.x=-Math.PI/2; m.position.set(p.x,4,p.z); scene.add(m);
+  }
+}
+
+// ---------- 계란 ----------
+const EGG_GEO=new THREE.SphereGeometry(EGG_R,14,12);
+const EGG_MAT=mat(0xfff6e4);
+const EGG_MAX=NEST_POS.length+4;
+for(let i=0;i<EGG_MAX;i++){
+  const m=new THREE.Mesh(EGG_GEO,EGG_MAT);
+  m.scale.set(1,1.25,1); m.visible=false; scene.add(m);
+  eggs.push({mesh:m,state:'gone',nest:-1,x:0,y:EGG_R,z:0,vx:0,vy:0,vz:0,spin:0});
+}
+for(let i=0;i<NEST_POS.length;i++) nests.push({x:NEST_POS[i].x,z:NEST_POS[i].z,cd:0});
+
+// ---------- 깨진 자국 (재사용 풀) ----------
+const splats=[];
+{
+  const sg=new THREE.CircleGeometry(15,14);
+  for(let i=0;i<SPLAT_POOL;i++){
+    const m=new THREE.Mesh(sg,new THREE.MeshBasicMaterial(
+      {color:0xf3d264,transparent:true,opacity:0.85,depthWrite:false}));
+    m.rotation.x=-Math.PI/2; m.visible=false; scene.add(m); splats.push(m);
+  }
+}
+let splatHead=0;
+function addSplat(x,z){
+  const m=splats[splatHead]; splatHead=(splatHead+1)%SPLAT_POOL;
+  m.position.set(x,0.9+Math.random()*0.3,z);
+  m.rotation.z=Math.random()*TAU;
+  const s=0.75+Math.random()*0.5; m.scale.set(s,s,s);
+  m.visible=true;
+}
+
+// ---------- 닭 ----------
+function makeChicken(){
+  const g=new THREE.Group();
+  const white=mat(0xfdfbf4), red=mat(0xe0473c), orange=mat(0xf0a23a);
+  const body=new THREE.Mesh(new THREE.SphereGeometry(13,14,12),white);
+  body.scale.set(1.15,1,0.95); body.position.y=16; g.add(body);
+  const tail=new THREE.Mesh(new THREE.ConeGeometry(8,17,7),white);
+  tail.position.set(-13,24,0); tail.rotation.z=Math.PI*0.72; g.add(tail);
+  const neck=new THREE.Group(); neck.position.set(9,24,0); g.add(neck);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(7.5,12,10),white);
+  neck.add(head);
+  const comb=new THREE.Mesh(new THREE.BoxGeometry(8,6,3),red);
+  comb.position.set(0,7,0); neck.add(comb);
+  const beak=new THREE.Mesh(new THREE.ConeGeometry(3,7,6),orange);
+  beak.position.set(7,-1,0); beak.rotation.z=-Math.PI/2; neck.add(beak);
+  const wat=new THREE.Mesh(new THREE.BoxGeometry(3,5,2.5),red);
+  wat.position.set(4,-6,0); neck.add(wat);
+  const lg=new THREE.BoxGeometry(2.5,12,2.5);
+  const l1=new THREE.Mesh(lg,orange); l1.position.set(2,6,5); g.add(l1);
+  const l2=new THREE.Mesh(lg,orange); l2.position.set(2,6,-5); g.add(l2);
+  // 어그로 표식 — 무음 3초 가독을 위한 느낌표
+  const alert=new THREE.Group(); alert.position.set(0,54,0);
+  const ab=new THREE.Mesh(new THREE.BoxGeometry(4,13,4),red); ab.position.y=4; alert.add(ab);
+  const ad=new THREE.Mesh(new THREE.BoxGeometry(4,4,4),red); ad.position.y=-6; alert.add(ad);
+  alert.visible=false; g.add(alert);
+  scene.add(g);
+  return {g,neck,l1,l2,alert};
+}
+for(let i=0;i<CHK_COUNT;i++){
+  const m=makeChicken();
+  chickens.push({m,x:CHK_HOME[i].x,z:CHK_HOME[i].z,r:CHK_R,
+    hx:CHK_HOME[i].x,hz:CHK_HOME[i].z,
+    state:'wander',tx:CHK_HOME[i].x,tz:CHK_HOME[i].z,
+    t:0,react:0,dir:0,bob:Math.random()*TAU,cluck:2+Math.random()*6});
+}
+
+// ---------- 플레이어 (3인칭에서만 보인다 — "몸의 행위가 화면에 보임" 필터 A/B용) ----------
+const plr=(function(){
+  const g=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(11,12,40,12),mat(0xf2ece0));
+  body.position.y=26; g.add(body);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(10,14,12),mat(0xf0c39a));
+  head.position.y=54; g.add(head);
+  const hat=new THREE.Mesh(new THREE.CylinderGeometry(11,9,16,14),mat(0xffffff));
+  hat.position.y=68; g.add(hat);                 // 요리사 모자 — 한 줄 컨셉을 몸에 붙여둔다
+  const ag=new THREE.BoxGeometry(6,20,6);
+  const a1=new THREE.Mesh(ag,mat(0xf0c39a)); a1.position.set(8,32,10); g.add(a1);
+  const a2=new THREE.Mesh(ag,mat(0xf0c39a)); a2.position.set(8,32,-10); g.add(a2);
+  scene.add(g);
+  return {g,body,head,a1,a2};
+})();
+
+// ============================================================
+//  파티클 도트 풀 (reference의 셰이더 그대로 — 깃털·노른자·먼지)
+// ============================================================
+const dotGeo=new THREE.BufferGeometry();
+const dPos=new Float32Array(POOL*3);
+const dCol=new Float32Array(POOL*3);
+const dBirth=new Float32Array(POOL).fill(-1e9);
+const dLife=new Float32Array(POOL).fill(1);
+const dSize=new Float32Array(POOL).fill(1);
+dotGeo.setAttribute('position',new THREE.BufferAttribute(dPos,3).setUsage(THREE.DynamicDrawUsage));
+dotGeo.setAttribute('aColor',new THREE.BufferAttribute(dCol,3).setUsage(THREE.DynamicDrawUsage));
+dotGeo.setAttribute('aBirth',new THREE.BufferAttribute(dBirth,1).setUsage(THREE.DynamicDrawUsage));
+dotGeo.setAttribute('aLife',new THREE.BufferAttribute(dLife,1).setUsage(THREE.DynamicDrawUsage));
+dotGeo.setAttribute('aSize',new THREE.BufferAttribute(dSize,1).setUsage(THREE.DynamicDrawUsage));
+const dotMat=new THREE.ShaderMaterial({
+  uniforms:{uTime:{value:0}},
+  vertexShader:`
+    attribute vec3 aColor; attribute float aBirth; attribute float aLife; attribute float aSize;
+    uniform float uTime;
+    varying vec3 vColor; varying float vFade;
+    void main(){
+      float t=(uTime-aBirth)/aLife;
+      vFade=1.0-clamp(t,0.0,1.0);
+      vColor=aColor;
+      vec4 mv=modelViewMatrix*vec4(position,1.0);
+      float ps=aSize*(300.0/max(4.0,-mv.z));
+      gl_PointSize=(vFade>0.001)?min(ps,26.0):0.0;
+      gl_Position=projectionMatrix*mv;
+    }`,
+  fragmentShader:`
+    precision mediump float;
+    varying vec3 vColor; varying float vFade;
+    void main(){
+      vec2 c=gl_PointCoord-0.5;
+      if(length(c)>0.5) discard;
+      gl_FragColor=vec4(vColor,pow(vFade,0.9));
+    }`,
+  transparent:true, depthWrite:false, depthTest:true,
+});
+const dots=new THREE.Points(dotGeo,dotMat);
+dots.frustumCulled=false;
+scene.add(dots);
+let dHead=0, dWrote=false;
+function addDot(x,y,z,r,g,b,life,size){
+  const i=dHead; dHead=(dHead+1)%POOL;
+  dPos[i*3]=x; dPos[i*3+1]=y; dPos[i*3+2]=z;
+  dCol[i*3]=r; dCol[i*3+1]=g; dCol[i*3+2]=b;
+  dBirth[i]=simT; dLife[i]=life; dSize[i]=size;
+  dWrote=true;
+}
+function clearDots(){ dBirth.fill(-1e9); dWrote=true; }
+function flushDots(){
+  if(!dWrote) return;
+  const a=dotGeo.attributes;
+  a.position.needsUpdate=true; a.aColor.needsUpdate=true;
+  a.aBirth.needsUpdate=true; a.aLife.needsUpdate=true; a.aSize.needsUpdate=true;
+  dWrote=false;
+}
+function burst(x,y,z,n,col,spread,life,size){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*TAU, r=Math.random()*spread;
+    addDot(x+Math.cos(a)*r, y+Math.random()*spread*0.8, z+Math.sin(a)*r,
+      col[0],col[1],col[2], life*(0.6+Math.random()*0.6), size);
+  }
+}
+const COL_YOLK=[1,0.82,0.3], COL_SHELL=[1,0.97,0.9], COL_FEATHER=[1,1,0.97], COL_DUST=[0.72,0.62,0.45];
+
+// ============================================================
+//  오디오 (에셋 없이 WebAudio 합성 — M 음소거)
+// ============================================================
+let AC=null, master=null, NOISE=null, muted=false;
+function initAudio(){
+  if(AC) return;
+  try{
+    AC=new (window.AudioContext||window.webkitAudioContext)();
+    master=AC.createGain(); master.gain.value=0.5; master.connect(AC.destination);
+    NOISE=AC.createBuffer(1,AC.sampleRate,AC.sampleRate);
+    const d=NOISE.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+  }catch(e){}
+}
+function blip(freq,dur,gain,type){
+  if(!AC||muted) return;
+  const o=AC.createOscillator(), g=AC.createGain(), t=AC.currentTime;
+  o.type=type||'sine'; o.frequency.value=freq;
+  g.gain.setValueAtTime(gain,t);
+  g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t+dur+0.02);
+}
+function noiseHit(dur,gain,f0,f1){
+  if(!AC||muted) return;
+  const s=AC.createBufferSource(); s.buffer=NOISE; s.loop=true;
+  const bp=AC.createBiquadFilter(); bp.type='bandpass';
+  bp.frequency.value=(f0+f1)/2; bp.Q.value=0.8;
+  const g=AC.createGain(), t=AC.currentTime;
+  g.gain.setValueAtTime(gain,t);
+  g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  s.connect(bp); bp.connect(g); g.connect(master); s.start(t); s.stop(t+dur+0.03);
+}
+function stepS(run){ noiseHit(0.05, run?0.16:0.09, 140, 520+Math.random()*260); }
+function pickS(){ blip(660,0.07,0.16,'triangle'); blip(990,0.05,0.08,'sine'); }
+function placeS(){ blip(330,0.08,0.12,'sine'); }
+function whipS(f){ noiseHit(0.05,0.05+0.09*f,2200,7000); }
+function thudS(){ blip(96,0.13,0.22,'sine'); noiseHit(0.04,0.1,90,320); }
+function crackS(){
+  noiseHit(0.09,0.4,700,5200);
+  blip(150,0.14,0.24,'square');
+  setTimeout(()=>noiseHit(0.14,0.16,200,900),40);   // 흘러내리는 소리
+}
+function dingS(){ blip(880,0.12,0.2,'triangle'); setTimeout(()=>blip(1320,0.18,0.16,'triangle'),90); }
+function squawkS(){
+  if(!AC||muted) return;
+  const o=AC.createOscillator(), g=AC.createGain(), t=AC.currentTime;
+  o.type='sawtooth';
+  o.frequency.setValueAtTime(400,t);
+  o.frequency.exponentialRampToValueAtTime(920,t+0.06);
+  o.frequency.exponentialRampToValueAtTime(280,t+0.24);
+  g.gain.setValueAtTime(0.22,t);
+  g.gain.exponentialRampToValueAtTime(0.001,t+0.3);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t+0.32);
+}
+function cluckS(){ blip(280+Math.random()*90,0.06,0.07,'square'); }
+function caughtS(){
+  squawkS();
+  setTimeout(squawkS,110);
+  noiseHit(0.18,0.22,120,700);
+  blip(70,0.25,0.24,'sine');
+}
+function winS(){
+  blip(523,0.15,0.2,'triangle');
+  setTimeout(()=>blip(659,0.15,0.2,'triangle'),140);
+  setTimeout(()=>blip(784,0.15,0.2,'triangle'),280);
+  setTimeout(()=>blip(1046,0.35,0.22,'triangle'),420);
+}
+function toggleMute(){ muted=!muted; if(master) master.gain.value=muted?0:0.5; }
+
+// ============================================================
+//  계란
+// ============================================================
+function freeEgg(){
+  for(let i=0;i<eggs.length;i++) if(eggs[i].state==='gone') return eggs[i];
+  return null;
+}
+function spawnEggAt(nestIdx){
+  const e=freeEgg(); if(!e) return null;
+  const n=nests[nestIdx];
+  e.state='rest'; e.nest=nestIdx;
+  e.x=n.x; e.z=n.z; e.y=EGG_R;
+  e.vx=e.vy=e.vz=0; e.spin=Math.random()*TAU;
+  e.mesh.visible=true;
+  return e;
+}
+function nestOccupied(i){
+  for(let k=0;k<eggs.length;k++)
+    if(eggs[k].state==='rest' && Math.hypot(eggs[k].x-nests[i].x,eggs[k].z-nests[i].z)<20) return true;
+  return false;
+}
+function breakEgg(e){
+  e.state='gone'; e.mesh.visible=false;
+  stats.broken++;
+  addSplat(e.x,e.z);
+  burst(e.x,6,e.z,26,COL_YOLK,16,0.9,7);
+  burst(e.x,10,e.z,16,COL_SHELL,22,0.7,4);
+  crackS();
+  shake=Math.max(shake,0.35);
+}
+function deliverEgg(e){
+  e.state='gone'; e.mesh.visible=false;
+  stats.delivered++;
+  drawSign();
+  for(let i=0;i<deliveredMesh.length;i++) deliveredMesh[i].visible=(i<stats.delivered);
+  burst(truckPad.x,20,truckPad.z,24,[1,0.9,0.55],26,1.0,6);
+  dingS();
+  if(stats.delivered>=NEED_EGGS) win();
+}
+function inPad(x,z){ return Math.hypot(x-truckPad.x,z-truckPad.z)<truckPad.r; }
+
+function tryPickOrPlace(){
+  if(phase!=='play'||player.stun>0) return;
+  if(held){                                  // 살살 내려놓기 — 절대 안 깨진다
+    const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
+    const t={x:player.x+fx*22, z:player.z+fz*22, r:EGG_R+2};
+    collideCircle(t);
+    held.x=t.x; held.z=t.z; held.y=EGG_R;
+    held.vx=held.vy=held.vz=0;
+    held.state='rest'; held=null;
+    placeS();
+    return;
+  }
+  let best=null, bd=PICK_R;
+  for(const e of eggs){
+    if(e.state!=='rest') continue;
+    const d=Math.hypot(e.x-player.x,e.z-player.z);
+    if(d<bd){ bd=d; best=e; }
+  }
+  if(!best) return;
+  held=best; best.state='held';
+  if(best.nest>=0){ nests[best.nest].cd=NEST_RESPAWN; best.nest=-1; }
+  pickS();
+  alarm();                                   // 남의 알을 집으면 주인이 안다
+}
+function throwEgg(pw){
+  if(!held) return;
+  const cp=Math.cos(pitch), sp=Math.sin(pitch);
+  let dx=-Math.sin(yaw)*cp, dy=sp, dz=-Math.cos(yaw)*cp;
+  dy+=THROW_LIFT;
+  const l=Math.hypot(dx,dy,dz)||1; dx/=l; dy/=l; dz/=l;
+  const v=THROW_MIN+(THROW_MAX-THROW_MIN)*pw;
+  const e=held; held=null;
+  e.state='fly';
+  e.x=player.x+dx*18; e.z=player.z+dz*18; e.y=CARRY_H;
+  e.vx=dx*v; e.vy=dy*v; e.vz=dz*v;
+  whipS(pw);
+  alarm();
+}
+function updEggs(dt){
+  for(const e of eggs){
+    if(e.state==='rest'){
+      if(inPad(e.x,e.z)) deliverEgg(e);
+      continue;
+    }
+    if(e.state!=='fly') continue;
+    e.spin+=dt*10;
+    const ox=e.x, oy=e.y, oz=e.z;
+    e.vy-=EGG_G*dt;
+    e.x+=e.vx*dt; e.y+=e.vy*dt; e.z+=e.vz*dt;
+    const soft=inPad(e.x,e.z);               // 짚 깔린 짐칸 — 세게 던져도 안 깨진다
+
+    // 벽 충돌: 이번 프레임의 평면 경로가 선분을 가로지르고, 그 높이가 벽보다 낮으면 명중
+    const mdx=e.x-ox, mdz=e.z-oz, mlen=Math.hypot(mdx,mdz);
+    let hit=null;
+    if(mlen>1e-6){
+      const ux=mdx/mlen, uz=mdz/mlen;
+      let bt=Infinity, bs=null;
+      for(let k=0;k<walls.length;k++){
+        const s=walls[k];
+        const t=raySeg(ox,oz,ux,uz,s);
+        if(t<=mlen && t<bt){
+          const hy=oy+(e.y-oy)*(t/mlen);
+          if(hy<SEG_H[s.kind]){ bt=t; bs=s; }
+        }
+      }
+      if(bs) hit={t:bt,s:bs,ux,uz};
+    }
+    if(hit){
+      const spd=Math.hypot(e.vx,e.vy,e.vz);
+      e.x=ox+hit.ux*Math.max(0,hit.t-4); e.z=oz+hit.uz*Math.max(0,hit.t-4);
+      if(spd>EGG_BREAK_SPD && !soft){ breakEgg(e); continue; }
+      // 선분 법선으로 반사
+      const sx=hit.s.x2-hit.s.x1, sz=hit.s.z2-hit.s.z1;
+      const sl=Math.hypot(sx,sz)||1;
+      const nx=-sz/sl, nz=sx/sl;
+      const d=e.vx*nx+e.vz*nz;
+      e.vx-=2*d*nx; e.vz-=2*d*nz;
+      e.vx*=EGG_REST+0.2; e.vz*=EGG_REST+0.2;
+      thudS();
+      burst(e.x,e.y,e.z,4,COL_DUST,6,0.4,3);
+    }
+    if(e.y<=EGG_R){
+      const spd=Math.hypot(e.vx,e.vy,e.vz);
+      e.y=EGG_R;
+      if(spd>EGG_BREAK_SPD && !soft){ breakEgg(e); continue; }
+      e.vy=-e.vy*EGG_REST; e.vx*=EGG_FRIC; e.vz*=EGG_FRIC;
+      if(spd>90){ thudS(); burst(e.x,3,e.z,5,COL_DUST,8,0.45,3); }
+      if(e.vy<70 && Math.hypot(e.vx,e.vz)<40){
+        e.vx=e.vy=e.vz=0; e.state='rest';
+        if(inPad(e.x,e.z)) deliverEgg(e);
+      }
+    }
+  }
+}
+function updNests(dt){
+  for(let i=0;i<nests.length;i++){
+    if(nests[i].cd<=0) continue;
+    nests[i].cd-=dt;
+    if(nests[i].cd<=0 && !nestOccupied(i)){
+      const e=spawnEggAt(i);
+      if(e) burst(e.x,10,e.z,10,COL_FEATHER,12,0.7,4);
+    }
+  }
+}
+
+// ============================================================
+//  닭
+// ============================================================
+function pickWander(c){
+  for(let k=0;k<10;k++){
+    const x=COOP.x0+Math.random()*(COOP.x1-COOP.x0);
+    const z=COOP.z0+Math.random()*(COOP.z1-COOP.z0);
+    if(x>SHED.x0&&x<SHED.x1&&z>SHED.z0&&z<SHED.z1) continue;
+    c.tx=x; c.tz=z; c.t=2.2+Math.random()*2.6; return;
+  }
+  c.tx=c.hx; c.tz=c.hz; c.t=2.5;
+}
+// 길찾기는 없다. 울타리 반대편이 목적지면 문 하나를 경유한다 (나갈 때도, 돌아올 때도)
+const _nav={x:0,z:0};
+function navTo(c,tx,tz){
+  const cIn=c.x>FENCE_X, tIn=tx>FENCE_X;
+  if(cIn!==tIn && lineBlocked(c.x,c.z,tx,tz)){
+    let d=cIn?DOOR_IN:DOOR_OUT;
+    if(Math.hypot(c.x-d.x,c.z-d.z)<20) d=cIn?DOOR_OUT:DOOR_IN;  // 문턱에 붙었으면 반대편으로 통과
+    _nav.x=d.x; _nav.z=d.z;
+  } else { _nav.x=tx; _nav.z=tz; }
+  return _nav;
+}
+function alarm(){
+  for(const c of chickens){
+    if(c.state==='chase') continue;
+    if(Math.hypot(c.x-player.x,c.z-player.z)<CHK_HEAR_R){
+      c.state='chase'; c.react=CHK_REACT; c.t=0;
+      squawkS();
+    }
+  }
+}
+function onCaught(c){
+  stats.caught++;
+  player.stun=STUMBLE_T; player.invuln=STUMBLE_T+INVULN_T;
+  shake=1; flash=1;
+  if(held){
+    // 몸이 튕기면서 손에 있던 게 날아간다 — 깨질지 말지는 각도 나름
+    const a=Math.random()*TAU;
+    const sp=140+Math.random()*120;
+    held.state='fly';
+    held.x=player.x; held.z=player.z; held.y=CARRY_H;
+    held.vx=Math.cos(a)*sp; held.vz=Math.sin(a)*sp;
+    held.vy=150+Math.random()*150;
+    held=null;
+  }
+  burst(c.x,26,c.z,34,COL_FEATHER,26,1.5,6);
+  burst(player.x,20,player.z,14,COL_DUST,20,0.9,5);
+  caughtS();
+  c.state='peck'; c.t=1.9;                   // 한 판 이겼으니 잠깐 쪼아본다
+}
+function updChickens(dt){
+  for(const c of chickens){
+    const pd=Math.hypot(c.x-player.x,c.z-player.z);
+    const hd=Math.hypot(c.x-c.hx,c.z-c.hz);
+    let moving=false, spd=0;
+
+    if(c.state==='wander'){
+      c.cluck-=dt;
+      if(c.cluck<=0){ c.cluck=4+Math.random()*8; if(pd<420) cluckS(); }
+      c.t-=dt;
+      if(c.t<=0) pickWander(c);
+      const d=moveToward(c,c.tx,c.tz,CHK_WANDER*dt);
+      moving=true; spd=CHK_WANDER;
+      if(d<12) pickWander(c);
+      // 계란 든 놈이 눈앞에 있으면 바로 어그로
+      if(held && pd<CHK_SIGHT_R){ c.state='chase'; c.react=CHK_REACT; squawkS(); }
+    }
+    else if(c.state==='chase'){
+      if(c.react>0){ c.react-=dt; }
+      else{
+        const t=navTo(c,player.x,player.z);
+        c.tx=t.x; c.tz=t.z;                // 보는 방향도 지금 쫓는 쪽이어야 한다
+        moveToward(c,t.x,t.z,CHK_CHASE*dt);
+        moving=true; spd=CHK_CHASE;
+        if(pd<CHK_R+PLR_R+3 && player.invuln<=0 && phase==='play') onCaught(c);
+      }
+      c.t+=dt;
+      if(c.t>0.9 && Math.random()<dt*0.7) squawkS();
+      if(pd>CHK_GIVEUP || hd>CHK_LEASH || (!held && pd>170)){ c.state='return'; }
+    }
+    else if(c.state==='peck'){
+      c.t-=dt;
+      if(Math.random()<dt*4) cluckS();
+      if(c.t<=0) c.state='return';
+    }
+    else{ // return — 나갔던 놈은 문으로 되돌아와야 한다
+      const t=navTo(c,c.hx,c.hz);
+      c.tx=t.x; c.tz=t.z;
+      moveToward(c,t.x,t.z,CHK_WANDER*1.5*dt);
+      moving=true; spd=CHK_WANDER*1.5;
+      if(Math.hypot(c.x-c.hx,c.z-c.hz)<14){ c.state='wander'; pickWander(c); }
+    }
+
+    collideCircle(c);
+    if(moving){
+      const dx=c.tx-c.x, dz=c.tz-c.z;
+      if(Math.hypot(dx,dz)>4){
+        const want=Math.atan2(dx,dz);
+        let diff=want-c.dir;
+        while(diff>Math.PI) diff-=TAU;
+        while(diff<-Math.PI) diff+=TAU;
+        c.dir+=diff*Math.min(1,dt*9);
+      }
+      c.bob+=dt*(spd/8);
+    }
+  }
+}
+
+// ============================================================
+//  플레이어
+// ============================================================
+function updPlayer(dt){
+  if(phase!=='play') return;
+  player.invuln=Math.max(0,player.invuln-dt);
+  if(player.stun>0){
+    player.stun-=dt;
+    collideCircle(player);
+    return;
+  }
+  let mx=0,mz=0;
+  if(keys.has('KeyW'))mz--; if(keys.has('KeyS'))mz++;
+  if(keys.has('KeyA'))mx--; if(keys.has('KeyD'))mx++;
+  const run=keys.has('ShiftLeft')||keys.has('ShiftRight');
+  let spd=(run?SPD_RUN:SPD_WALK)*(held?CARRY_MULT:1);
+  if(mx||mz){
+    const l=Math.hypot(mx,mz); mx/=l; mz/=l;
+    const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
+    const rx=Math.cos(yaw),  rz=-Math.sin(yaw);
+    const wx=fx*(-mz)+rx*mx, wz=fz*(-mz)+rz*mx;
+    const wl=Math.hypot(wx,wz)||1;
+    player.x+=wx/wl*spd*dt; player.z+=wz/wl*spd*dt;
+    player.stepAcc+=spd*dt;
+    if(player.stepAcc>=(run?52:42)){
+      player.stepAcc=0; stepS(run);
+      burst(player.x,2,player.z,2,COL_DUST,7,0.35,3);
+    }
+  } else player.stepAcc=Math.min(player.stepAcc,20);
+  collideCircle(player);
+
+  if(held){
+    held.x=player.x; held.z=player.z; held.y=CARRY_H;
+    if(inPad(player.x,player.z)){ const e=held; held=null; e.state='gone'; deliverEgg(e); }
+  }
+}
+
+// ============================================================
+//  진행
+// ============================================================
+function win(){
+  phase='win';
+  document.getElementById('winStats').innerHTML=
+    '시간 '+stats.t.toFixed(1)+'초<br>깨뜨린 계란 '+stats.broken+'개 · 닭에게 잡힘 '+stats.caught+'번';
+  document.getElementById('winOv').style.display='flex';
+  document.getElementById('cross').style.display='none';
+  document.getElementById('pw').style.display='none';
+  document.exitPointerLock && document.exitPointerLock();
+  winS();
+}
+function resetWorld(){
+  player.x=SPAWN.x; player.z=SPAWN.z; player.stepAcc=0; player.stun=0; player.invuln=0;
+  yaw=-Math.PI/2; pitch=0; held=null; charge=-1;
+  for(const e of eggs){ e.state='gone'; e.nest=-1; e.mesh.visible=false; }
+  for(let i=0;i<nests.length;i++){ nests[i].cd=0; spawnEggAt(i); }
+  for(let i=0;i<chickens.length;i++){
+    const c=chickens[i];
+    c.x=c.hx; c.z=c.hz; c.state='wander'; c.react=0; c.t=0;
+    c.m.alert.visible=false; pickWander(c);
+  }
+  for(const m of splats) m.visible=false;
+  for(const m of deliveredMesh) m.visible=false;
+  stats={t:0,broken:0,delivered:0,caught:0};
+  drawSign();
+  shake=0; flash=0;
+  clearDots();
+}
+function start(){
+  if(phase!=='title') return;
+  phase='play';
+  initAudio();
+  if(AC&&AC.state==='suspended') AC.resume();
+  resetWorld();
+  document.getElementById('title').style.display='none';
+  document.getElementById('cross').style.display='block';
+  renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock();
+}
+function restart(){
+  phase='play';
+  resetWorld();
+  document.getElementById('winOv').style.display='none';
+  document.getElementById('cross').style.display='block';
+  if(!locked) pauseEl.style.display='flex';
+}
+function paused(){ return phase==='play' && !locked; }
+
+function update(dt){
+  now+=dt; simT+=dt;
+  if(paused()) return;
+  if(phase==='play'){
+    stats.t+=dt;
+    if(charge>=0 && charge<THROW_CHARGE_T) charge=Math.min(THROW_CHARGE_T,charge+dt);
+  }
+  shake=Math.max(0,shake-dt*1.8);
+  flash=Math.max(0,flash-dt*2.2);
+  updPlayer(dt);
+  updEggs(dt);
+  updNests(dt);
+  updChickens(dt);
+}
+
+// ============================================================
+//  렌더
+// ============================================================
+const _fwd=new THREE.Vector3();
+function camDist(dx,dz){
+  // 3인칭 카메라가 벽을 뚫지 않게 평면에서 잘라낸다
+  const l=Math.hypot(dx,dz);
+  if(l<1e-4) return TP_DIST;
+  const ux=dx/l, uz=dz/l;
+  let best=TP_DIST;
+  for(let k=0;k<walls.length;k++){
+    const t=raySeg(player.x,player.z,ux,uz,walls[k]);
+    if(t<best) best=t;
+  }
+  return Math.max(46,Math.min(TP_DIST,best-14));
+}
+function render(){
+  if(phase==='title'){
+    const t=now*0.14;
+    camera.rotation.set(0,0,0);
+    camera.position.set(W/2+Math.sin(t)*260, 330, H/2+380+Math.cos(t*0.7)*120);
+    camera.lookAt(600,20,300);
+  } else {
+    const roll=player.stun>0 ? Math.sin((STUMBLE_T-player.stun)*7)*0.5*(player.stun/STUMBLE_T) : 0;
+    const sink=player.stun>0 ? -26*(player.stun/STUMBLE_T) : 0;
+    camera.rotation.y=yaw;
+    camera.rotation.x=pitch+(player.stun>0?-0.5*(player.stun/STUMBLE_T):0);
+    camera.rotation.z=roll;
+    _fwd.set(0,0,-1).applyQuaternion(camera.quaternion);
+    let cx=player.x, cz=player.z, cy=EYE+sink;
+    if(camMode===1){
+      const d=camDist(-_fwd.x,-_fwd.z);
+      const rx=Math.cos(yaw), rz=-Math.sin(yaw);
+      const side=TP_SIDE*Math.min(1,d/TP_DIST);   // 벽에 붙어 카메라가 당겨지면 오프셋도 줄인다
+      cx=player.x-_fwd.x*d+rx*side; cz=player.z-_fwd.z*d+rz*side;
+      cy=EYE+TP_UP-_fwd.y*d;
+      if(cy<20) cy=20;
+    }
+    if(shake>0){
+      cx+=(Math.random()-0.5)*11*shake; cz+=(Math.random()-0.5)*11*shake;
+      cy+=(Math.random()-0.5)*7*shake;
+    }
+    camera.position.set(cx,cy,cz);
+  }
+
+  // 플레이어 몸 (3인칭에서만)
+  plr.g.visible=(camMode===1 && phase!=='title');
+  plr.g.position.set(player.x,0,player.z);
+  plr.g.rotation.y=yaw;
+  plr.g.rotation.z=player.stun>0?0.9*(player.stun/STUMBLE_T):0;
+  // 계란을 들면 팔이 앞으로 나온다 — 3인칭에서 "지금 뭘 하고 있는지"가 몸으로 보여야 한다
+  plr.a1.position.set(held?16:8,held?38:32, held?7:10);
+  plr.a2.position.set(held?16:8,held?38:32, held?-7:-10);
+  plr.a1.rotation.z=plr.a2.rotation.z=held?-Math.PI/2.6:0;
+
+  // 계란 메시
+  for(const e of eggs){
+    if(e.state==='gone'||e.state==='held') { if(e.state!=='held') e.mesh.visible=false; continue; }
+    e.mesh.visible=true;
+    e.mesh.position.set(e.x,e.y,e.z);
+    if(e.state==='fly'){ e.mesh.rotation.x=e.spin; e.mesh.rotation.z=e.spin*0.7; }
+  }
+  // 들고 있는 계란은 카메라 기준으로 손에 붙인다 (1인칭이면 화면 아래, 3인칭이면 몸 앞)
+  if(held){
+    held.mesh.visible=true;
+    if(camMode===0){
+      // 화면 오른쪽 아래에 "손에 든 것"만큼만 보이게 — 너무 가까우면 화면을 다 먹는다
+      const rx=Math.cos(yaw), rz=-Math.sin(yaw);
+      held.mesh.position.set(
+        camera.position.x+_fwd.x*72+rx*26,
+        camera.position.y+_fwd.y*72-32+Math.sin(now*7)*1.1,
+        camera.position.z+_fwd.z*72+rz*26);
+    } else {
+      // 등 뒤 카메라에 몸통이 가리지 않도록 살짝 오른쪽 위로 들고 있는다
+      const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
+      const rx=Math.cos(yaw),  rz=-Math.sin(yaw);
+      held.mesh.position.set(player.x+fx*24+rx*11,
+                             CARRY_H+10+Math.sin(now*7)*1.2,
+                             player.z+fz*24+rz*11);
+    }
+    held.mesh.rotation.set(0,0,0);
+  }
+
+  // 닭
+  for(const c of chickens){
+    const m=c.m;
+    m.g.position.set(c.x,Math.abs(Math.sin(c.bob))*2.5,c.z);
+    m.g.rotation.y=c.dir-Math.PI/2;
+    m.neck.rotation.z=(c.state==='peck')?-1.1+Math.sin(now*9)*0.35:Math.sin(c.bob)*0.18;
+    m.l1.rotation.x=Math.sin(c.bob)*0.7;
+    m.l2.rotation.x=-Math.sin(c.bob)*0.7;
+    m.alert.visible=(c.state==='chase');
+    if(m.alert.visible) m.alert.position.y=54+Math.abs(Math.sin(now*8))*7;
+  }
+
+  dotMat.uniforms.uTime.value=simT;
+  flushDots();
+  renderer.render(scene,camera);
+
+  // HUD
+  const hud=document.getElementById('hud');
+  hud.innerHTML = phase==='title' ? '' :
+    '<span class="big">계란 '+stats.delivered+' / '+NEED_EGGS+'</span><br>'+
+    '시간 '+stats.t.toFixed(1)+'초 · 깨짐 '+stats.broken+' · 잡힘 '+stats.caught+
+    ' · 시점 '+(camMode?'3인칭':'1인칭');
+
+  const pr=document.getElementById('prompt');
+  if(phase!=='play'){ pr.textContent=''; }
+  else if(player.stun>0){ pr.textContent='넘어졌다…'; }
+  else if(held){ pr.textContent='좌클릭 꾹 — 던지기 (흰 선 넘으면 깨진다) · E — 살살 내려놓기'; }
+  else {
+    let near=false;
+    for(const e of eggs) if(e.state==='rest' && Math.hypot(e.x-player.x,e.z-player.z)<PICK_R){ near=true; break; }
+    pr.textContent = near ? 'E — 계란 줍기' : '';
+  }
+  const pw=document.getElementById('pw');
+  if(charge>=0 && held && phase==='play'){
+    const f=charge/THROW_CHARGE_T;
+    pw.style.display='block';
+    const fill=document.getElementById('pwFill');
+    fill.style.width=(f*100).toFixed(0)+'%';
+    fill.style.background=(f>SAFE_FRAC)?'#e2564a':'#7bd77b';
+  } else pw.style.display='none';
+  document.getElementById('flash').style.opacity=(flash*0.42).toFixed(3);
+}
+
+// ============================================================
+//  입력
+// ============================================================
+const titleEl=document.getElementById('title');
+const pauseEl=document.getElementById('pauseOv');
+document.getElementById('pwMark').style.left=(SAFE_FRAC*100).toFixed(1)+'%';
+if(('ontouchstart' in window) && !matchMedia('(pointer:fine)').matches)
+  document.getElementById('pcNote').style.display='block';
+titleEl.addEventListener('click',start);
+pauseEl.addEventListener('click',()=>{
+  renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock();
+});
+document.addEventListener('pointerlockchange',()=>{
+  locked=(document.pointerLockElement===renderer.domElement);
+  if(phase==='play') pauseEl.style.display=locked?'none':'flex';
+  if(!locked){ keys.clear(); charge=-1; }
+});
+document.addEventListener('mousemove',e=>{
+  if(!locked||phase!=='play') return;
+  yaw  -=e.movementX*0.0023;
+  pitch-=e.movementY*0.0023;
+  pitch=Math.max(-1.2,Math.min(1.2,pitch));
+});
+renderer.domElement.addEventListener('mousedown',e=>{
+  if(phase!=='play'||!locked||e.button!==0) return;
+  if(held && player.stun<=0) charge=0;
+});
+window.addEventListener('mouseup',e=>{
+  if(e.button!==0) return;
+  if(charge>=0){
+    const pw=charge/THROW_CHARGE_T;
+    charge=-1;
+    if(phase==='play'&&held&&player.stun<=0) throwEgg(pw);
+  }
+});
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space') e.preventDefault();
+  if(phase==='title') return;                 // 타이틀은 클릭으로만 시작 (포인터록 제스처)
+  if(e.code==='KeyR'){ restart(); return; }
+  if(e.code==='KeyM'){ toggleMute(); return; }
+  if(e.code==='KeyV'){ camMode=camMode?0:1; return; }
+  if(e.code==='KeyE'){ tryPickOrPlace(); return; }
+  keys.add(e.code);
+});
+window.addEventListener('keyup',e=>keys.delete(e.code));
+window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
+
+// ============================================================
+//  루프
+// ============================================================
+resetWorld();
+let last=performance.now();
+function frame(ts){
+  const dt=Math.min(0.05,(ts-last)/1000);
+  last=ts;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
