@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.2</title>
+<title>양계장 습격 — 웹 프로토타입 v0.3</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -58,7 +58,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.2</div>
+  <div class="sub">웹 프로토타입 v0.3</div>
   <div class="desc">밤이다. 여기 계란은 전부 닭 거다.<br>세 개만 훔쳐서 트럭까지 가져와라. 다 깨먹으면 오늘 장사는 끝이다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들린다!)<br>E 줍기·내려놓기 · 좌클릭 던지기 · 빈손 좌클릭 밀치기 · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -72,11 +72,13 @@
 <script>
 "use strict";
 /* ============================================================
-   양계장 습격 — 웹 프로토타입 v0.2
+   양계장 습격 — 웹 프로토타입 v0.3
    스펙: docs/goal/chicken-heist-rework.md (패널 검증 완료 — 재론 금지 항목 포함)
-   v0.1 대비: 밤 습격 / 맵 1280×800·입구 2개 / 계란 상태기계
-   (흔들림→미끄러짐→크랙→강탈) / 공략 키트(미끼·조건부 어그로·
-   선회 제한·실외 소심화·밀치기) / 유한 계란·실패 화면 / 인트로.
+   v0.1 대비: 밤 습격 / 계란 상태기계 (흔들림→미끄러짐→크랙→강탈) /
+   공략 키트(미끼·조건부 어그로·선회 제한·실외 소심화·밀치기) /
+   유한 계란·실패 화면 / 인트로.
+   v0.2 대비: 실내 양계장 3700×3200 (COOP_SCALE=10) — 케이지 열이 만드는
+   통로 구조, 닭 15마리, 문 4개, 시야 가림 판정.
 
    구조는 reference/sound-is-light-3d.html 승계:
    - 로직은 평면(x,z), 렌더만 3D. 맵의 진실은 선분(seg).
