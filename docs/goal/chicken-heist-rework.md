@@ -25,7 +25,7 @@ A 4-lens adversarial panel (balance math / clip readability / scope guard / play
 ## In-scope
 
 - **Night heist theme** — contrast-based night (dark ground/sky, bright subjects), light pools (truck headlights, mid-route lantern, coop lamp) forming a wayfinding chain; eggs always emissive
-- **Map rework** — 1280×800 logical plane; coop with a second entrance (back hole); 5–6 yard obstacles; truck-pad-to-coop-door distance ~600
+- **Map rework** — see the v0.3 amendment below; the original v0.2 target was a 1280×800 plane with a 370×320 fenced coop
 - **Egg state machine** (the ONE new system this round): jostle → slip → crack → robbery
   - Jostle: carrying + sprinting fills a hidden gauge (3.0 s to full); walking drains it (1.5 s); egg-wobble telegraph 0.8 s before full; at full the egg slips and **always breaks**
   - Crack: any landing with impact > 150 cracks an intact egg (visual); cracked eggs break at threshold 250 (intact: 420) — kills throw-relay exploits
@@ -103,6 +103,32 @@ A 4-lens adversarial panel (balance math / clip readability / scope guard / play
 - [ ] Intro ≤ 1.5 s, skippable by any input, plays only on first load; R restarts with fade, no intro
 - [ ] Night scene: egg/chicken/coop identifiable on a small dark screenshot; no fog in play area
 - [ ] Playtest checklist recorded for the developer: ① is walk-only actually forced to run somewhere ② is the post-decoy defenseless window fun or tension-collapse ③ fail rate with 6 nests (>40% → adjust nest count to 7, not break constants) ④ does crack actually block throw-relay
+
+## v0.3 Amendment — indoor barn at 10× (developer request, 2026-08-10)
+
+Developer feedback after playing v0.2: the coop interior is too small; it should be an **indoor
+poultry barn**, 10× larger in both width and depth. Delivered as asked (`COOP_SCALE=10`), with the
+knock-on adjustments that keep it playable:
+
+| What | v0.2 | v0.3 | Why |
+|---|---|---|---|
+| Coop interior | 370 × 320 (open, fenced) | **3700 × 3200 (enclosed barn + roof)** | direct request |
+| Logical plane | 1280 × 800 | 4900 × 3800 | must contain the barn + west yard |
+| Interior layout | empty pen + 1 shed | 5 cage rows × 3 blocks → 6 aisles + 2 cross-aisles + perimeter corridor | 100× area of empty floor is a hangar, not a level; aisles give the space structure |
+| Chickens | 3 | **15** (2–3 per aisle, leashed to their zone) | 3 chickens in 100× the area is zero threat density. "Few enemies" is preserved *locally* — you meet 1–3 at a time |
+| Leash | 370 | 600 | proportional to the new distances |
+| Doors | 2 | 4 (3 west + 1 east hole), all centred on aisles | a door opening onto a cage row shows a blank wall on entry |
+| Sight | distance only | distance **+ line-of-sight** (`lineBlocked`) | without it the aisles are a maze that detection ignores; noise aggro still ignores cover, as designed |
+| Lighting | 3 point lights, unsubdivided ground | 4 interior point lights + emissive bulb rows; ground/roof subdivided | Lambert is per-vertex — an unsubdivided plane renders no light pools at all (v0.2 had this bug) |
+| Fog | none | 2200 → 6800 | lets the depth read; starts far beyond any chase distance, so the panel's "no fog on chasers" rule holds |
+
+Nest depth ramp is now literal: near nests ~870 from the truck, deep nests ~4160
+(carry-back ≈ 7 s vs ≈ 31 s at the run/walk jostle cycle average of 133/s).
+
+**Concern on record:** 10× linear is 100× area, and player speed did not change. A deep-nest round
+trip is ~45 s, so a full 3-egg run is roughly 2–3 minutes. That is a real tension curve rather than
+dead time *only if* the deep half of the barn stays dangerous; if playtest says it drags, the single
+knob is `COOP_SCALE` (4–5 gives a ~1500-unit barn) — everything else regenerates from it.
 
 ## Related Files / Modules
 
