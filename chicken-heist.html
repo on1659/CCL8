@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.3</title>
+<title>양계장 습격 — 웹 프로토타입 v0.4</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -58,7 +58,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.3</div>
+  <div class="sub">웹 프로토타입 v0.4</div>
   <div class="desc">밤이다. 여기 계란은 전부 닭 거다.<br>세 개만 훔쳐서 트럭까지 가져와라. 다 깨먹으면 오늘 장사는 끝이다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들린다!)<br>E 줍기·내려놓기 · 좌클릭 던지기 · 빈손 좌클릭 밀치기 · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -72,13 +72,15 @@
 <script>
 "use strict";
 /* ============================================================
-   양계장 습격 — 웹 프로토타입 v0.3
+   양계장 습격 — 웹 프로토타입 v0.4
    스펙: docs/goal/chicken-heist-rework.md (패널 검증 완료 — 재론 금지 항목 포함)
    v0.1 대비: 밤 습격 / 계란 상태기계 (흔들림→미끄러짐→크랙→강탈) /
    공략 키트(미끼·조건부 어그로·선회 제한·실외 소심화·밀치기) /
    유한 계란·실패 화면 / 인트로.
-   v0.2 대비: 실내 양계장 3700×3200 (COOP_SCALE=10) — 케이지 열이 만드는
-   통로 구조, 닭 15마리, 문 4개, 시야 가림 판정.
+   v0.2 대비: 실내 양계장으로 교체 — 케이지 통로 구조, 시야 가림 판정.
+   v0.3 대비: 맵 확대 — COOP_SCALE 15 (축사 5550×4800). 열·블록·문·둥지가
+   치수에서 파생되도록 재구성해 통로 폭(~350)과 밀도를 보존. 미로화는
+   안 함 — 정전 귀환 스테이지 몫 (설계 문서 "정전 귀환 스테이지" 절).
 
    구조는 reference/sound-is-light-3d.html 승계:
    - 로직은 평면(x,z), 렌더만 3D. 맵의 진실은 선분(seg).
@@ -94,7 +96,8 @@
 //  튜닝 상수 — 만지는 숫자는 전부 여기
 // ============================================================
 // 닭장 확대 배율 — 1이면 v0.2의 370×320. 여기 하나만 바꾸면 맵 전체가 따라 재생성된다.
-const COOP_SCALE=10;
+// (케이지 열 수·블록 수·문·둥지 위치까지 전부 이 치수에서 파생 — 밀도가 보존된다)
+const COOP_SCALE=15;
 const COOP_W=370*COOP_SCALE, COOP_D=320*COOP_SCALE;   // 3700 × 3200 (실내 양계장)
 const BARN={x0:900, x1:900+COOP_W, z0:300, z1:300+COOP_D};
 const BARN_H=210;                // 실내다 — 넘어다볼 수 없는 건물 벽 + 지붕
@@ -188,7 +191,10 @@ function wallGaps(axis,fixed,from,to,gaps,kind){
 
 // 케이지 열: 통로(aisle)와 번갈아 깔린다. 통로를 먼저 확정해야 문·트럭을
 // 통로 정면에 놓을 수 있다 — 문이 케이지 열에 붙으면 들어서자마자 벽만 보인다.
-const ROW_N=5, ROW_H=150;
+// 열 수는 치수에서 파생: 맵을 키워도 통로 폭이 ~350 근처로 유지된다.
+// (배율만 올리면 통로가 대로가 되어 확대가 오히려 공간을 휑하게 만든다)
+const ROW_H=150;
+const ROW_N=Math.max(3,Math.round((COOP_D-350)/(ROW_H+350)));
 const AISLE_H=(COOP_D-ROW_N*ROW_H)/(ROW_N+1);
 const AISLES=[];                                     // 통로 z 구간 (닭 배회·둥지 배치용)
 for(let i=0;i<=ROW_N;i++){
@@ -197,18 +203,18 @@ for(let i=0;i<=ROW_N;i++){
 }
 const SIDE=230;                                      // 축사 벽과 케이지 열 사이의 둘레 복도
 const CROSS_W=280;                                   // 가로 통로 폭
-const BLOCK_N=3;
+const BLOCK_N=Math.max(3,Math.round((COOP_W-2*SIDE)/1300));  // 블록 폭 ~1000~1300 유지
 
 // 트럭은 정문 통로의 정면에 선다 (문을 열면 축사 끝까지 일직선으로 보인다)
-const MAIN_AISLE=2;
+const MAIN_AISLE=Math.floor(AISLES.length/2);
 const TRUCK_X=250, TRUCK_Z=AISLES[MAIN_AISLE].zc;
 const truckPad={x:TRUCK_X+130,z:TRUCK_Z,r:45};
 const SPAWN={x:TRUCK_X+165,z:TRUCK_Z};
 
 // 축사 문 3개(서쪽) + 개구멍 1개(동쪽) — 전부 통로 한가운데. 폭 150.
 const DOOR_W=150;
-const WEST_DOOR_Z=[AISLES[MAIN_AISLE].zc, AISLES[0].zc, AISLES[5].zc];
-const EAST_DOOR_Z=[AISLES[3].zc];
+const WEST_DOOR_Z=[AISLES[MAIN_AISLE].zc, AISLES[0].zc, AISLES[AISLES.length-1].zc];
+const EAST_DOOR_Z=[AISLES[Math.min(MAIN_AISLE+1,AISLES.length-1)].zc];
 const DOORS=[];
 for(const z of WEST_DOOR_Z) DOORS.push({inx:BARN.x0+55, inz:z, outx:BARN.x0-55, outz:z});
 for(const z of EAST_DOOR_Z) DOORS.push({inx:BARN.x1-55, inz:z, outx:BARN.x1+55, outz:z});
@@ -255,13 +261,15 @@ function inCoopPt(x,z){ return x>BARN.x0&&x<BARN.x1&&z>BARN.z0&&z<BARN.z1; }
 
 // 둥지 6개 — 문 근처 2 / 중간 2 / 깊은 곳 2. 고갈이 곧 얕은→깊은 난이도 램프다.
 // 넓어진 만큼 "깊은 곳"이 진짜 깊다 (정문에서 약 3600).
+// 통로를 비율로 고른다 — 통로가 6개면 기존 배치(2,3,1,4,0,5)와 정확히 일치
+const aiAt=f=>AISLES[Math.round(f*(AISLES.length-1))];
 const NEST_POS=[
-  {x:BARN.x0+300, z:AISLES[2].zc},
-  {x:BARN.x0+300, z:AISLES[3].zc},
-  {x:(BARN.x0+BARN.x1)/2, z:AISLES[1].zc},
-  {x:(BARN.x0+BARN.x1)/2, z:AISLES[4].zc},
-  {x:BARN.x1-300, z:AISLES[0].zc},
-  {x:BARN.x1-300, z:AISLES[5].zc},
+  {x:BARN.x0+300, z:aiAt(0.4).zc},
+  {x:BARN.x0+300, z:aiAt(0.6).zc},
+  {x:(BARN.x0+BARN.x1)/2, z:aiAt(0.2).zc},
+  {x:(BARN.x0+BARN.x1)/2, z:aiAt(0.8).zc},
+  {x:BARN.x1-300, z:aiAt(0).zc},
+  {x:BARN.x1-300, z:aiAt(1).zc},
 ];
 // 닭 집 — 통로마다 2~3마리씩 흩뿌린다 (구역별 리쉬로 국소 조우 수는 여전히 적다)
 const CHK_HOME=[];
@@ -358,9 +366,9 @@ const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('gl'),ant
 renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(0x0c1424);      // 밤하늘
-// 안개는 2200부터 — 추격자(항상 수백 유닛 안)는 절대 가리지 않고, 축사 끝(3700)만 흐려서
+// 안개는 2200부터 — 추격자(항상 수백 유닛 안)는 절대 가리지 않고, 축사 반대편만 흐려서
 // 넓이가 읽히게 한다. 패널의 "플레이 영역 안개 금지"는 추격 가독이 목적이므로 그 선을 지킨다.
-scene.fog=new THREE.Fog(0x0c1424,2200,6800);
+scene.fog=new THREE.Fog(0x0c1424,2200,BARN.x1+1300);
 const camera=new THREE.PerspectiveCamera(72,1,1,14000);
 camera.rotation.order='YXZ';
 scene.add(camera);                                // 1인칭 팔을 카메라에 붙이기 위해
@@ -387,7 +395,7 @@ const LAMP_POS=[
   {x:BARN.x0+COOP_W*0.74, z:BARN.z0+COOP_D*0.72},
 ];
 for(const p of LAMP_POS){
-  const L=new THREE.PointLight(0xffcf92,1.35,2600);
+  const L=new THREE.PointLight(0xffcf92,1.35,Math.max(2600,COOP_W*0.55));
   L.position.set(p.x,170,p.z); scene.add(L);
 }
 
@@ -429,7 +437,7 @@ function cageBlock(b){
   const w=b.x1-b.x0, d=b.z1-b.z0, cx=(b.x0+b.x1)/2, cz=(b.z0+b.z1)/2;
   const base=new THREE.Mesh(new THREE.BoxGeometry(w,40,d),mat(0x5a5f66));
   base.position.set(cx,20,cz); g.add(base);
-  const n=Math.max(2,Math.round(w/110));
+  const n=Math.max(2,Math.round(w/240));   // 칸 폭 ~240 — 블록 수가 늘어난 만큼 드로우콜 억제
   for(let i=0;i<n;i++){
     const cage=new THREE.Mesh(new THREE.BoxGeometry(w/n-10,34,d-16),MAT.cage);
     cage.position.set(b.x0+w*(i+0.5)/n,57,cz); g.add(cage);

@@ -130,6 +130,13 @@ trip is ~45 s, so a full 3-egg run is roughly 2–3 minutes. That is a real tens
 dead time *only if* the deep half of the barn stays dangerous; if playtest says it drags, the single
 knob is `COOP_SCALE` (4–5 gives a ~1500-unit barn) — everything else regenerates from it.
 
+**v0.4 addendum (2026-08-10):** the developer resolved the concern the other way — trips longer
+than 45 s are explicitly acceptable, and the map should get bigger still. `COOP_SCALE` 15
+(barn 5550×4800). To keep enlargement from hollowing the space out, rows/blocks/doors/nests are
+now all derived from the dimensions (aisle width stays ≈350, block width ≈1000–1300 → 9 rows ×
+4 blocks, ~25 chickens at 2–3 per aisle). No maze-ification — that belongs to the blackout-return
+stage (see the design doc); ideas not used in this map may be reused in other maps.
+
 ## Related Files / Modules
 
 | File | Role |
