@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.6</title>
+<title>양계장 습격 — 웹 프로토타입 v0.7</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -42,6 +42,12 @@
   #pw{position:fixed;left:50%;bottom:64px;width:220px;height:9px;margin-left:-110px;display:none;
     background:rgba(0,0,0,0.45);border-radius:5px;overflow:hidden;pointer-events:none;}
   #pwFill{height:100%;width:0%;background:#7bd77b;border-radius:5px;}
+  #stam{position:fixed;left:50%;bottom:79px;width:220px;height:5px;margin-left:-110px;display:none;
+    background:rgba(0,0,0,0.45);border-radius:3px;overflow:hidden;pointer-events:none;}
+  #stamFill{height:100%;width:100%;background:#8fd77b;border-radius:3px;}
+  #setPanel{margin-top:26px;font-size:14px;color:rgba(255,244,226,0.85);pointer-events:auto;cursor:default;line-height:2.2;}
+  #setPanel input[type=range]{width:170px;vertical-align:middle;margin:0 10px;accent-color:#ffe08a;}
+  #setPanel span{display:inline-block;min-width:44px;color:#ffe08a;}
   #cross{position:fixed;left:50%;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;border-radius:50%;
     background:rgba(255,255,255,0.75);box-shadow:0 0 0 1px rgba(0,0,0,0.4);pointer-events:none;display:none;}
   #flash{position:fixed;inset:0;background:#ffd0a0;opacity:0;pointer-events:none;}
@@ -56,18 +62,24 @@
 <div id="prompt"></div>
 <div id="bigmsg"></div>
 <div id="pw"><div id="pwFill"></div></div>
-<div id="help">마우스 시점 · WASD 이동 · Shift 달리기 · Space 점프 · E 줍기/내려놓기 · Q 품에 넣기/꺼내기 · F 수레 끌기<br>좌클릭 던지기(빈손 밀치기 · 글러브 있으면 펀치) · V 시점전환 · R 재시작 · M 소리 · Esc 일시정지</div>
+<div id="stam"><div id="stamFill"></div></div>
+<div id="help">마우스 시점 · WASD 이동 · Shift 달리기(스태미나) · Space 점프 · E 줍기/내려놓기 · Q 품 · F 수레<br>좌클릭 미끼 던지기(빈손 밀치기 · 글러브 있으면 펀치) · V 시점전환 · R 재시작 · M 소리 · Esc 일시정지·설정</div>
 <div id="cross"></div>
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.6</div>
+  <div class="sub">웹 프로토타입 v0.7</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.</div>
-  <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들린다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
+  <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
   <div class="pc" id="pcNote">이 버전은 PC 전용이에요 — 마우스와 키보드가 필요해요</div>
 </div>
-<div class="ov" id="pauseOv"><div class="t">일시정지 — 클릭해서 계속</div></div>
+<div class="ov" id="pauseOv"><div class="t">일시정지 — 클릭해서 계속</div>
+  <div id="setPanel">
+    <div>마우스 감도 <input type="range" id="sensR" min="0.2" max="3" step="0.1"> <span id="sensV"></span></div>
+    <div>음량 <input type="range" id="volR" min="0" max="1" step="0.05"> <span id="volV"></span></div>
+  </div>
+</div>
 <div class="ov" id="winOv"><div class="t">털었다</div><div class="s" id="winStats"></div><div class="r">R — 다시 시작</div></div>
 <div class="ov" id="failOv"><div class="t">오늘 장사는 글렀다…</div><div class="s" id="failStats"></div><div class="r">R — 다시 시작</div></div>
 
@@ -75,8 +87,11 @@
 <script>
 "use strict";
 /* ============================================================
-   양계장 습격 — 웹 프로토타입 v0.6
-   스펙: docs/goal/chicken-heist-dark-surprise.md (4관점 패널+교차심문 검증)
+   양계장 습격 — 웹 프로토타입 v0.7
+   스펙: docs/goal/chicken-heist-stamina-telegraph.md (v0.7)
+        + docs/goal/chicken-heist-dark-surprise.md (v0.6, 4관점 패널 검증)
+   v0.7 회계 (신규 시스템 1개 원칙 복원): 신규 1 = 스태미나(달리기 전용).
+   수리 = 인지 텔레그래프(닭 눈·?/! 마커 — 규칙 변경 0), 미끼 카피, 감도·음량 설정.
    v0.5 대비 (신규 시스템 1개 원칙은 이번 라운드 개발자 결정으로 해제):
    - 갑툭튀: 케이지·마개 벽을 천장(210)까지 — 렌더+계란 물리 동기.
      시야 로직은 원래 2D라 불변 (벽 너머 투척 전술 삭제는 의도된 변경)
@@ -206,6 +221,14 @@ const VIS_PUNCH=380, VIS_ALARM=500;  // 신설 동사 파동 (펀치 LOGIC=PICKU
 const GUARD_OF=[0,1,2,3,4,5,-1,-1,-1,-1];
 const PATROL_LOOPS=[null,[[3,3],[3,2]],[[0,1],[0,2]],[[1,2],[0,2]],[[6,3],[7,3]],[[0,4],[0,5]],
                     [[1,5],[0,5],[2,5]],[[0,2],[0,1],[0,3]],[[0,5],[0,4],[1,5]],[[5,4],[5,3],[5,5]]];
+
+// v0.7 신설 — 스태미나 (유일 신규 시스템. docs/goal/chicken-heist-stamina-telegraph.md)
+// 탈진+운반 보행 92.4 < 추격 124 → 부주의한 운반자는 잡힌다.
+// 탈진+빈손 보행 132 > 124 → 절대 하드락 없음 (즉사 금지 탈출 밸브 보존 근거)
+const STAM_DRAIN_T=6;            // 전력질주 지속(초) — 가득→바닥
+const STAM_REGEN_T=8;            // 회복(초) — 바닥→가득 (질주하지 않을 때)
+const STAM_MIN_RESUME=0.25;      // 바닥 친 뒤 재질주 문턱 (스터터 스팸 방지)
+const SENS_DEF=1.0, VOL_DEF=0.5; // 설정 기본값 (localStorage ch_sens / ch_vol)
 
 // ============================================================
 //  맵 — 선분은 위상 리터럴에서 전개된다
@@ -445,7 +468,14 @@ function lineBlocked(ax,az,bx,bz){
 // ============================================================
 const player={x:SPAWN.x,z:SPAWN.z,r:PLR_R,stepAcc:0,stun:0,invuln:0,
   shake:0,lastRunT:-9,stagger:0,shoveCd:0,shoveAnim:0,elbow:0,
-  jy:0,jvy:0,swapT:0,glove:false,vx:0,vz:0,running:false};
+  jy:0,jvy:0,swapT:0,glove:false,vx:0,vz:0,running:false,
+  stam:1,exhausted:false};
+let lastCarried=0;   // 계란 0→1 순간 감지 — "눈이 떠진다" 신호용
+// 설정 — localStorage 첫 사용 (v0.7. 감도·음량 두 키뿐)
+let sens=parseFloat(localStorage.getItem('ch_sens'));
+if(!(sens>=0.2&&sens<=3)) sens=SENS_DEF;
+let vol=parseFloat(localStorage.getItem('ch_vol'));
+if(!(vol>=0&&vol<=1)) vol=VOL_DEF;
 let yaw=-Math.PI/2, pitch=0;
 let camMode=0, tpCur=TP_DIST;
 const eggs=[], chickens=[];
@@ -782,6 +812,7 @@ function dropMeat(x,z){
 }
 
 // ---------- 닭 ----------
+const EYE_MAT=new THREE.MeshBasicMaterial({color:0x241d18});  // 감은 눈(어두운 실눈) ↔ 뜬 눈(밝음) — 렌더에서 전환
 function makeChicken(){
   const g=new THREE.Group();
   const white=mat(0xfdfbf4,0x2c2c28), red=mat(0xe0473c,0x300a08), orange=mat(0xf0a23a,0x2a1a06);
@@ -801,13 +832,26 @@ function makeChicken(){
   const lg=new THREE.BoxGeometry(2.5,12,2.5);
   const l1=new THREE.Mesh(lg,orange); l1.position.set(2,6,5); g.add(l1);
   const l2=new THREE.Mesh(lg,orange); l2.position.set(2,6,-5); g.add(l2);
+  // v0.7 눈 — "알을 드는 순간 눈깔이 생긴다"는 규칙을 문자 그대로 시각화 (공유 재질 — 전 닭 동기)
+  const e1=new THREE.Mesh(new THREE.SphereGeometry(1.8,8,6),EYE_MAT);
+  e1.position.set(6,1.8,4.3); e1.scale.set(1,0.16,1); neck.add(e1);
+  const e2=new THREE.Mesh(new THREE.SphereGeometry(1.8,8,6),EYE_MAT);
+  e2.position.set(6,1.8,-4.3); e2.scale.set(1,0.16,1); neck.add(e2);
   const alert=new THREE.Group(); alert.position.set(0,54,0);
   const am=new THREE.MeshBasicMaterial({color:0xff5040});
   const ab=new THREE.Mesh(new THREE.BoxGeometry(4,13,4),am); ab.position.y=4; alert.add(ab);
   const ad=new THREE.Mesh(new THREE.BoxGeometry(4,4,4),am); ad.position.y=-6; alert.add(ad);
   alert.visible=false; g.add(alert);
+  // v0.7 ? 마커 — 소리 반응(invest·미끼 접근): "닭이 온다 ≠ 들켰다"를 가르친다
+  const quest=new THREE.Group(); quest.position.set(0,54,0);
+  const qm=new THREE.MeshBasicMaterial({color:0xffc040});
+  const q1=new THREE.Mesh(new THREE.BoxGeometry(9,3.2,3.2),qm); q1.position.y=11; quest.add(q1);
+  const q2=new THREE.Mesh(new THREE.BoxGeometry(3.2,6,3.2),qm); q2.position.set(2.9,6.5,0); quest.add(q2);
+  const q3=new THREE.Mesh(new THREE.BoxGeometry(3.2,5.5,3.2),qm); q3.position.set(0,1.5,0); quest.add(q3);
+  const q4=new THREE.Mesh(new THREE.BoxGeometry(3.4,3.4,3.4),qm); q4.position.y=-6; quest.add(q4);
+  quest.visible=false; g.add(quest);
   scene.add(g);
-  return {g,neck,l1,l2,tail,alert};
+  return {g,neck,l1,l2,tail,alert,quest,e1,e2};
 }
 for(let i=0;i<CHK_COUNT;i++){
   const m=makeChicken();
@@ -1001,7 +1045,7 @@ function initAudio(){
   if(AC) return;
   try{
     AC=new (window.AudioContext||window.webkitAudioContext)();
-    master=AC.createGain(); master.gain.value=0.5; master.connect(AC.destination);
+    master=AC.createGain(); master.gain.value=muted?0:vol; master.connect(AC.destination);
     NOISE=AC.createBuffer(1,AC.sampleRate,AC.sampleRate);
     const d=NOISE.getChannelData(0);
     for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
@@ -1081,7 +1125,8 @@ function failS(){
   setTimeout(()=>blip(330,0.3,0.18,'triangle'),260);
   setTimeout(()=>blip(262,0.6,0.2,'triangle'),520);
 }
-function toggleMute(){ muted=!muted; if(master) master.gain.value=muted?0:0.5; }
+function toggleMute(){ muted=!muted; if(master) master.gain.value=muted?0:vol; }
+function puffS(){ noiseHit(0.25,0.18,180,700); setTimeout(()=>noiseHit(0.22,0.14,160,600),260); }
 
 // ============================================================
 //  정전 — 시작: 확보 총량(delivered+손+품+수레)≥3이 되는 획득 순간,
@@ -1837,8 +1882,21 @@ function updPlayer(dt){
   let mx=0,mz=0;
   if(keys.has('KeyW'))mz--; if(keys.has('KeyS'))mz++;
   if(keys.has('KeyA'))mx--; if(keys.has('KeyD'))mx++;
-  const run=keys.has('ShiftLeft')||keys.has('ShiftRight');
+  const wantRun=keys.has('ShiftLeft')||keys.has('ShiftRight');
   const moving=(mx||mz);
+  // 스태미나 — 질주만 소모. 바닥나면 걷기 강제 (걷기는 무소음 계약 그대로라 페널티는 속도뿐)
+  const run=wantRun&&moving&&!player.exhausted&&player.stam>0;
+  if(run){
+    player.stam-=dt/STAM_DRAIN_T;
+    if(player.stam<=0){
+      player.stam=0; player.exhausted=true;
+      puffS();
+      burst(player.x,44,player.z,6,[0.7,0.82,1],10,0.8,4);   // 땀방울 — 탈진은 코미디지 처벌이 아니다
+    }
+  } else {
+    player.stam=Math.min(1,player.stam+dt/STAM_REGEN_T);
+    if(player.exhausted&&player.stam>=STAM_MIN_RESUME) player.exhausted=false;
+  }
   player.running=!!(run&&moving);
   let spd=(run?SPD_RUN:SPD_WALK)*((held||pocket)?CARRY_MULT:1);  // 감속은 몸에 계란 ≥1이면 적용 (품도 짐이다)
   if(cart.pulled) spd*=CART_MULT;
@@ -1960,6 +2018,7 @@ function resetWorld(){
   player.x=SPAWN.x; player.z=SPAWN.z; player.stepAcc=0; player.stun=0; player.invuln=0;
   player.shake=0; player.lastRunT=-9; player.stagger=0; player.shoveCd=0; player.shoveAnim=0; player.elbow=0;
   player.jy=0; player.jvy=0; player.swapT=0; player.vx=0; player.vz=0; player.running=false;
+  player.stam=1; player.exhausted=false; lastCarried=0;
   player.glove=false; gloveMesh.visible=true;
   yaw=-Math.PI/2; pitch=0; held=null; pocket=null; charge=-1; caughtFocus=null;
   warned30=false; warned10=false;
@@ -2051,6 +2110,15 @@ function update(dt){
   }
   shake=Math.max(0,shake-dt*1.8);
   flash=Math.max(0,flash-dt*2.2);
+  // 계란 0→1 순간 — 전 닭 머리에서 글린트: "지금부터 보인다"의 한 방 신호
+  if(phase==='play'){
+    const cc=carriedEggCount();
+    if(cc>0&&lastCarried===0){
+      for(const c of chickens) burst(c.x,46,c.z,3,[1,0.95,0.8],7,0.55,3.4);
+      blip(1250,0.09,0.1,'triangle');
+    }
+    lastCarried=cc;
+  }
   updPlayer(dt);
   updCart(dt);
   updEggs(dt);
@@ -2235,6 +2303,25 @@ function render(){
     m.tail.rotation.z=Math.PI*0.72+(c.state==='flap'?Math.sin(now*22)*0.4:0);
     m.alert.visible=(c.state==='alert'||c.state==='chase');
     if(m.alert.visible) m.alert.position.y=54+Math.abs(Math.sin(now*8))*7;
+    // ? — 소리 반응 (invest·미끼 접근). !와 동시 표시 불가 (상태가 상호배타)
+    m.quest.visible=(c.state==='invest'||(c.state==='peck'&&!c.arrived));
+    if(m.quest.visible) m.quest.position.y=54+Math.sin(now*6)*4;
+    // 눈 — carriesEgg()가 곧 규칙: 알을 드는 순간 떠지고, 내려놓으면 도로 실눈
+    const eyeOpen=carriesEgg()?1:0.16;
+    m.e1.scale.y+=(eyeOpen-m.e1.scale.y)*0.2;
+    m.e2.scale.y=m.e1.scale.y;
+  }
+  EYE_MAT.color.setHex(carriesEgg()?0xffe9c8:0x241d18);
+
+  // 스태미나 바 — 가득이면 숨김, 탈진이면 빨강
+  {
+    const st=document.getElementById('stam');
+    if(phase==='play'&&player.stam<1){
+      st.style.display='block';
+      const f=document.getElementById('stamFill');
+      f.style.width=(player.stam*100).toFixed(0)+'%';
+      f.style.background=player.exhausted?'#e2564a':'#8fd77b';
+    } else st.style.display='none';
   }
 
   // v0.6 소품 — 글러브 둥실, 수레 위치
@@ -2285,8 +2372,8 @@ function render(){
     pr.textContent=(player.shake>SHAKE_TELE)
       ? '계란이 미끄러진다!! — 걸어!'
       : (nearCart&&cart.slots.length<CART_SLOTS
-        ? 'E — 수레에 싣기 · Q — 품에 넣기 · 좌클릭 꾹 던지기'
-        : '좌클릭 꾹 — 던지기 · E — 살살 내려놓기 · Q — 품에 넣기 · 달리면 계란이 흔들린다');
+        ? 'E — 수레에 싣기 · Q — 품에 넣기 · 좌클릭 꾹 미끼 던지기'
+        : '좌클릭 꾹 — 미끼 던지기 (닭들이 몰려간다) · E — 살살 내려놓기 · Q — 품에 넣기');
   }
   else if(blackout&&pocket){
     pr.textContent='품속 알은 빛나지 않는다 — 하지만 닭 눈에는 팔린다. Q — 꺼내면 랜턴';
@@ -2329,9 +2416,27 @@ const pauseEl=document.getElementById('pauseOv');
 if(('ontouchstart' in window) && !matchMedia('(pointer:fine)').matches)
   document.getElementById('pcNote').style.display='block';
 titleEl.addEventListener('click',start);
-pauseEl.addEventListener('click',()=>{
+pauseEl.addEventListener('click',e=>{
+  if(e.target.closest&&e.target.closest('#setPanel')) return;   // 설정 조작이 재개로 새지 않게
   renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock();
 });
+// 설정 — 감도·음량 (localStorage 저장, M 음소거가 음량보다 우선)
+{
+  const sensR=document.getElementById('sensR'), sensV=document.getElementById('sensV');
+  const volR=document.getElementById('volR'), volV=document.getElementById('volV');
+  const paint=()=>{ sensV.textContent=sens.toFixed(1)+'×'; volV.textContent=Math.round(vol*100)+'%'; };
+  sensR.value=sens; volR.value=vol; paint();
+  sensR.addEventListener('input',()=>{
+    sens=parseFloat(sensR.value);
+    localStorage.setItem('ch_sens',sens); paint();
+  });
+  volR.addEventListener('input',()=>{
+    vol=parseFloat(volR.value);
+    localStorage.setItem('ch_vol',vol);
+    if(master&&!muted) master.gain.value=vol;
+    paint();
+  });
+}
 document.addEventListener('pointerlockchange',()=>{
   locked=(document.pointerLockElement===renderer.domElement);
   if(phase==='play') pauseEl.style.display=locked?'none':'flex';
@@ -2340,8 +2445,8 @@ document.addEventListener('pointerlockchange',()=>{
 document.addEventListener('mousemove',e=>{
   if(!locked||phase!=='play') return;
   if(player.stun>0) return;
-  yaw  -=e.movementX*0.0023;
-  pitch-=e.movementY*0.0023;
+  yaw  -=e.movementX*0.0023*sens;
+  pitch-=e.movementY*0.0023*sens;
   pitch=Math.max(-1.2,Math.min(1.2,pitch));
 });
 renderer.domElement.addEventListener('mousedown',e=>{
