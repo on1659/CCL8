@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.8</title>
+<title>양계장 습격 — 웹 프로토타입 v0.9</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -84,7 +84,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.8</div>
+  <div class="sub">웹 프로토타입 v0.9</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -103,12 +103,13 @@
 <script>
 "use strict";
 /* ============================================================
-   양계장 습격 — 웹 프로토타입 v0.8
-   스펙: docs/goal/chicken-heist-stamina-telegraph.md (v0.7)
-        + docs/goal/chicken-heist-dark-surprise.md (v0.6, 4관점 패널 검증)
-   v0.7 회계 (신규 시스템 1개 원칙 복원): 신규 1 = 스태미나(달리기 전용).
-   수리 = 인지 텔레그래프(닭 눈·?/! 마커 — 규칙 변경 0), 미끼 카피, 감도·음량 설정.
-   v0.8: 인벤토리 HUD — 손(🥚/🥊)·품·수레 슬롯 + 스태미나 상시. 표시 전용, 규칙 변경 0.
+   양계장 습격 — 웹 프로토타입 v0.9
+   스펙: docs/goal/chicken-heist-building-legible-ai.md (4관점 패널+교차심문)
+        + 멀티 계획: docs/design-multiplayer-plan-20260812.md (문서만 — 구현 금지 유지)
+   v0.9 회계: 신규 1 = 다층 건물 (1F 촘촘화 스케일 9 + 신규 B1, 오프셋 존 + groundY —
+   로직은 여전히 평면 하나다). 수리 = 발각 게이지(밝은 구간 로직 최초 변경 —
+   개발자 권한 해제 2026-08-12)·시야 원·글러브 손. 닭은 층을 못 넘는다(봉쇄 규칙).
+   정전은 게이지 우회 즉발 유지 (140/200 공식 동결).
    HP는 설계상 없음(즉사 금지 — 잡힘=넘어짐+강탈이지 피해가 아니다).
    v0.5 대비 (신규 시스템 1개 원칙은 이번 라운드 개발자 결정으로 해제):
    - 갑툭튀: 케이지·마개 벽을 천장(210)까지 — 렌더+계란 물리 동기.
@@ -132,35 +133,81 @@
 //  튜닝 상수
 // ============================================================
 // 닭장 배율 — 기하만 좌우한다. 미로 위상은 아래 비트 리터럴이 진실.
-const COOP_SCALE=12;
-const COOP_W=370*COOP_SCALE, COOP_D=320*COOP_SCALE;   // 4440 × 3840
+// v0.9: 12→9, RH 150→120 — "촘촘함"의 실체는 셀 피치 (위상은 시드 873 무손실 유지)
+const COOP_SCALE=9;
+const COOP_W=370*COOP_SCALE, COOP_D=320*COOP_SCALE;   // 3330 × 2880
 const BARN={x0:900, x1:900+COOP_W, z0:300, z1:300+COOP_D};
 const BARN_H=210;
-const W=BARN.x1+300, H=BARN.z1+300, TAU=Math.PI*2;
+const FLOOR_H=260;                                    // 층 렌더 y 오프셋 (B1 = -260)
+const TAU=Math.PI*2;
 
-// ---------- 미로 위상 (시드 873 산출물 — 손편집 가능한 데이터) ----------
-// 격자: 통로 8(z) × 열 6(x) = 48셀. MAZE_H[a][b]=1이면 통로 a의 열 b-b+1 사이 개통(마개 없음),
-// MAZE_V[g][c]=1이면 케이지 열 g(통로 g와 g+1 사이)의 열 c에 개구.
-// 척추 = 통로 4 (정문 정렬, 마개 금지 — 3초 판독과 "척추를 찾으면 산다" 회복 문법).
-// 막다른 길 4개(깊이 1): (0,0) (2,0) (2,3) (5,2). 척추 최대 거리 5 (패널 목표 3은
-// 통로 8개 격자에서 기하적으로 불가능 — 구조적 하한 4, 출하 5).
+// ---------- 1F 미로 위상 (시드 873 산출물 — v0.5부터 무손실 승계) ----------
+// 격자: 통로 8(z) × 열 6(x) = 48셀. 척추 = 통로 4 (정문 정렬, 마개 금지).
 const A_N=8, C_N=6, SPINE=4;
 const MAZE_H=[[0,1,1,1,1],[1,0,0,1,0],[0,0,0,1,1],[1,1,1,0,1],[1,1,1,1,1],[0,0,1,1,1],[0,1,0,0,1],[1,1,0,1,1]];
 const MAZE_V=[[1,1,1,1,0,1],[1,1,1,0,1,1],[0,1,1,0,1,1],[1,1,1,1,0,1],[1,1,0,0,0,1],[1,1,0,1,0,1],[1,0,1,1,1,1]];
-const TRAY_CELLS=[[4,2],[3,2],[0,1],[1,2],[7,3],[0,5]];   // 근2/중2/심2 (그래프 깊이 2,3/5,5/10,9)
-const HOME_CELLS=[[4,1],[3,3],[0,1],[1,2],[6,3],[0,4],[1,5],[0,2],[0,5],[5,4]];
 const EAST_HOLE_AISLE=0;
 
-// 셀 기하 (위상×배율 → 월드 좌표)
-const CW=COOP_W/C_N;                         // 열 폭 740
-const RH=150;                                // 케이지 열 깊이
-const AH=(COOP_D-(A_N-1)*RH)/A_N;            // 통로 폭 348.75
-const aisleZ0=a=>BARN.z0+a*(AH+RH);
-const aisleZC=a=>aisleZ0(a)+AH/2;
-const rowZ0=g=>aisleZ0(g)+AH;
-const cellXC=c=>BARN.x0+c*CW+CW/2;
+// 셀 기하 — 두 층 공통 (위상×배율 → 월드 좌표)
+const CW=COOP_W/C_N;                         // 열 폭 555
+const RH=120;                                // 케이지 열 깊이 (v0.9: 150→120)
+const AH=(COOP_D-(A_N-1)*RH)/A_N;            // 통로 폭 255
 const OPEN_W=320;                            // 케이지 열 관통 개구 폭
 const PLUG_W=150;                            // 통로 마개(이동식 케이지) 폭
+
+// ---------- B1 미로 위상 (시드 13 산출물 — 오프라인 생성 커밋) ----------
+// 6통로 × 4열 = 24셀. 척추 = 통로 2 (계단 정렬, 마개 금지). 막다른 길 3: (4,0)(4,2)(5,0).
+// 트레이 깊이(계단 입구 (2,0) 기준): 2/3/4/5 — "깊을수록 달다"
+const B1_A_N=6, B1_C_N=4, B1_SPINE=2;
+const B1_MAZE_H=[[1,1,1],[1,1,1],[1,1,1],[1,1,1],[0,0,0],[1,1,1]];
+const B1_MAZE_V=[[1,0,0,1],[0,1,0,1],[1,0,1,1],[1,1,1,1],[0,1,0,1]];
+
+// ---------- 계단 (1F 동벽 척추끝 → B1 서벽 척추 — U자 스위치백, 첫 꺾임 ≤200) ----------
+// 존 이격 700 근거: 닭 층별 봉쇄 채택 후 유일한 벽 무시 채널 = alarmFlock PACK_R 500 + 여유 200.
+// (하한 910은 층간 추격 전제였고, 봉쇄로 그 전제가 소멸 — 패널 교차심문 판정)
+const ZA=BARN.z0+SPINE*(AH+RH)+AH/2;                  // 1927.5 — 1F 척추 z
+const ZB=ZA+560;                                      // 2487.5 — B1 척추 z
+const STAIR={
+  A :{x0:BARN.x1,     x1:BARN.x1+120, z0:ZA-90,  z1:ZA+90 },   // 입구 스텁 (120 — 첫 꺾임 ≤200)
+  L1:{x0:BARN.x1+120, x1:BARN.x1+380, z0:ZA-130, z1:ZA+130},   // 계단참 1 (260각)
+  B :{x0:BARN.x1+120, x1:BARN.x1+300, z0:ZA+130, z1:ZB-130},   // 세로 다리 (폭 180)
+  L2:{x0:BARN.x1+120, x1:BARN.x1+380, z0:ZB-130, z1:ZB+130},   // 계단참 2
+  R :{x0:BARN.x1+380, x1:BARN.x1+700, z0:ZB-90,  z1:ZB+90 },   // 램프 — 여기서만 y 0→-260
+};
+const B1={x0:BARN.x1+700, x1:BARN.x1+700+B1_C_N*CW, z0:ZB-AH/2-B1_SPINE*(AH+RH), z1:0};
+B1.z1=B1.z0+B1_A_N*AH+(B1_A_N-1)*RH;
+const W=B1.x1+300, H=Math.max(BARN.z1,B1.z1)+300;
+
+// 층 디스크립터 — 2F 확장점 (차라운드는 여기에 데이터 커밋 1개)
+const FLOORS=[
+  {name:'1층', x0:BARN.x0, z0:BARN.z0, an:A_N,   cn:C_N,   MH:MAZE_H,    MV:MAZE_V,    base:0,        spine:SPINE},
+  {name:'지하', x0:B1.x0,  z0:B1.z0,  an:B1_A_N, cn:B1_C_N, MH:B1_MAZE_H, MV:B1_MAZE_V, base:-FLOOR_H, spine:B1_SPINE},
+];
+const fAisleZ0=(f,a)=>FLOORS[f].z0+a*(AH+RH);
+const fAisleZC=(f,a)=>fAisleZ0(f,a)+AH/2;
+const fRowZ0=(f,g)=>fAisleZ0(f,g)+AH;
+const fCellXC=(f,c)=>FLOORS[f].x0+c*CW+CW/2;
+// 1F 하위호환 별칭 (기존 코드·검증 스위트가 사용)
+const aisleZ0=a=>fAisleZ0(0,a);
+const aisleZC=a=>fAisleZC(0,a);
+const rowZ0=g=>fRowZ0(0,g);
+const cellXC=c=>fCellXC(0,c);
+
+// 순수 함수 층 판정 (엔티티에 층 필드 저장 금지 — 멀티 금지선 2)
+function zoneOfArea(x,z){
+  if(x>=B1.x0&&x<=B1.x1&&z>=B1.z0&&z<=B1.z1) return 1;
+  for(const k in STAIR){ const r=STAIR[k]; if(x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1) return 2; }
+  if(x<=BARN.x1) return 0;                              // 1F + 마당 = 같은 세계
+  return -1;                                            // 존 사이 공허
+}
+function groundY(x,z){
+  if(x>=B1.x0&&x<=B1.x1&&z>=B1.z0&&z<=B1.z1) return -FLOOR_H;
+  const r=STAIR.R;
+  if(x>=r.x0&&x<=r.x1&&z>=r.z0&&z<=r.z1) return -FLOOR_H*(x-r.x0)/(r.x1-r.x0);
+  return 0;
+}
+// 층별 계단 입구 앵커 — 타존·복도 소음 원점의 클램프 목적지 ("닭들이 계단 입구에 모여든다")
+const STAIR_ENTR=[{x:BARN.x1-50,z:ZA},{x:B1.x0+50,z:ZB}];
 
 // 플레이어
 const PLR_R=13, EYE=52;
@@ -220,7 +267,7 @@ const VIS_WALK=180, VIS_RUN=310, VIS_LAND=300, VIS_BREAK=380, VIS_SHOVE=200,
       VIS_PICK_Q=120, VIS_PICK_L=310, VIS_CLUCK=260, VIS_STRUT=180;
 
 // v0.6 신설 — 갑툭튀 배치 (docs/goal/chicken-heist-dark-surprise.md, 패널 확정)
-const DARK_TIMER=240;            // 정전 카운트다운(초) — 튜닝 상수. 확보 총량 트리거와 먼저 오는 쪽
+const DARK_TIMER=300;            // 정전 카운트다운(초) — v0.9: 2층 볼륨 재산정 240→300. 튜닝 상수
 const WARN_DIP_T=0.12;           // 잔여 30/10초 조명 딥 (flickT 기구 재사용)
 const PATROL_SPD=65;             // 순찰 전용 속도 — 배회 42와 invest 110 사이 (신설 상태의 신설 상수)
 const PACK_R=500;                // 무리 경보 반경 (소리 기반 — 앵커 리쉬 600이 자연 상한)
@@ -234,11 +281,17 @@ const CART_MULT=0.75, CART_LAG=0.55, CART_EJECT_T=4;  // 달리기 견인 누적
 const JUMP_V=260, JUMP_G=650;    // 점프 정점 52 — 물통(26)·상자(40)만 넘는다. 벽은 원천 불가
 const JUMP_SKIP={trough:1,crate:1};  // 공중 통과 + 2D 판정(시야·파동·카메라) 제외 목록
 const VIS_PUNCH=380, VIS_ALARM=500;  // 신설 동사 파동 (펀치 LOGIC=PICKUP_LOUD 310 재사용, 경보 LOGIC=0)
-// 순찰 리터럴 — 오프라인 산출 커밋 (결정론: 조우는 루프가 정하고 체류 지터만 랜덤).
-// 지킴이 6(트레이 1:1, 트레이0 지킴이는 튜토리얼 보호로 불활성) + 자유 4. 척추(통로4) 셀 0개.
-const GUARD_OF=[0,1,2,3,4,5,-1,-1,-1,-1];
-const PATROL_LOOPS=[null,[[3,3],[3,2]],[[0,1],[0,2]],[[1,2],[0,2]],[[6,3],[7,3]],[[0,4],[0,5]],
-                    [[1,5],[0,5],[2,5]],[[0,2],[0,1],[0,3]],[[0,5],[0,4],[1,5]],[[5,4],[5,3],[5,5]]];
+// (순찰·지킴 리터럴은 v0.9부터 CHK_DEF로 통합 — 트레이 정의 아래 참조)
+
+// v0.9 신설 — 발각 게이지 (밝은 구간 전용. 정전은 v0.7 즉발 유지 — 140/200 공식 동결)
+// 밝은 구간 로직 최초 변경 — 개발자 권한 해제 (2026-08-12, "언제 잡으러 오는지 납득 가능하게")
+const DET_NEAR=60;               // 이 안은 즉발 — 코너 정면충돌의 갑툭튀는 벽 210이 산 자산
+const DET_RATE_NEAR=2.5, DET_RATE_FAR=0.5;   // 60~반경 선형 충전율(/s)
+const DET_DECAY=0.4, DET_GRACE=0.5;          // 감쇠 + LOS 상실 유예
+const DET_DEMOTE=0.5;            // chase→invest 강등 시 유지되는 의심 잔량
+const DET_INVEST_MULT=2;         // invest 중 충전 배속 (지킴이 리다이렉트 무력화 방지)
+const RING_MAX_D=400;            // 시야 원 표시 거리 상한
+const INVEST_TRAVEL_T=6;         // invest 이동 타임아웃 밸브 (교착 방지)
 
 // v0.7 신설 — 스태미나 (유일 신규 시스템. docs/goal/chicken-heist-stamina-telegraph.md)
 // 탈진+운반 보행 92.4 < 추격 124 → 부주의한 운반자는 잡힌다.
@@ -251,9 +304,10 @@ const SENS_DEF=1.0, VOL_DEF=0.5; // 설정 기본값 (localStorage ch_sens / ch_
 // ============================================================
 //  맵 — 선분은 위상 리터럴에서 전개된다
 // ============================================================
-function seg(x1,z1,x2,z2,kind){return {x1,z1,x2,z2,kind:kind||'wall'};}
+// baseY: 세그의 물리 기준면 (B1 -260, 계단 측벽은 상층 기준 0 — 계란 유출 봉쇄)
+function seg(x1,z1,x2,z2,kind,baseY){return {x1,z1,x2,z2,kind:kind||'wall',baseY:baseY||0};}
 // cage·plug 210: 계란 비행 물리도 여기 물려 있다 — 벽 너머 투척 전술 삭제는 v0.6 의도된 변경
-const SEG_H={wall:96, barn:BARN_H, cage:210, plug:210, truck:92, hay:56, trough:26, crate:40, flapIn:BARN_H};
+const SEG_H={wall:96, barn:BARN_H, cage:210, plug:210, truck:92, hay:56, trough:26, crate:40, flapIn:BARN_H, stair:210};
 
 const TRUCK_X=250, TRUCK_Z=aisleZC(SPINE);
 const truckPad={x:TRUCK_X+130,z:TRUCK_Z,r:45};
@@ -286,78 +340,150 @@ function wallGapsZ(fixedX,from,to,gaps,kind){
   if(cur<to) out.push(seg(fixedX,cur,fixedX,to,kind));
   return out;
 }
+// 1F 외벽 — 서쪽 정문 + 동쪽 개구멍 + 동쪽 계단 입구
 walls.push(...wallGapsZ(BARN.x0,BARN.z0,BARN.z1,[[DOOR_Z-DOOR_W/2,DOOR_Z+DOOR_W/2]],'barn'));
-walls.push(...wallGapsZ(BARN.x1,BARN.z0,BARN.z1,[[HOLE_Z-HOLE_W/2,HOLE_Z+HOLE_W/2]],'barn'));
+walls.push(...wallGapsZ(BARN.x1,BARN.z0,BARN.z1,
+  [[HOLE_Z-HOLE_W/2,HOLE_Z+HOLE_W/2],[STAIR.A.z0,STAIR.A.z1]],'barn'));
 walls.push(seg(BARN.x0,BARN.z0,BARN.x1,BARN.z0,'barn'));
 walls.push(seg(BARN.x0,BARN.z1,BARN.x1,BARN.z1,'barn'));
-// 개구멍 덮개 — 안쪽으로만 열린다: 안에 있으면 벽, 밖에 있으면 통과 (일방향)
+// 개구멍 덮개 — 안쪽으로만 열린다: 안에 있으면 벽, 밖에 있으면 통과 (일방향, 1F 고유물)
 walls.push(seg(BARN.x1,HOLE_Z-HOLE_W/2,BARN.x1,HOLE_Z+HOLE_W/2,'flapIn'));
-
-// 케이지 열: MAZE_V의 개구를 빼고 동·서 벽까지 꽉 채운다 (둘레 복도 절단 — 미로의 성립 조건)
-const cageBoxes=[];
-for(let g=0; g<A_N-1; g++){
-  const z0=rowZ0(g), z1=z0+RH;
-  const gaps=[];
-  for(let c=0;c<C_N;c++) if(MAZE_V[g][c]) gaps.push([cellXC(c)-OPEN_W/2, cellXC(c)+OPEN_W/2]);
-  let cur=BARN.x0;
-  for(const gp of gaps.sort((p,q)=>p[0]-q[0])){
-    if(gp[0]>cur) cageBoxes.push({x0:cur,x1:gp[0],z0,z1});
-    cur=Math.max(cur,gp[1]);
+// B1 외벽 — 서쪽 계단 개구만
+walls.push(...wallGapsZ(B1.x0,B1.z0,B1.z1,[[STAIR.R.z0,STAIR.R.z1]],'barn').map(s=>(s.baseY=-FLOOR_H,s)));
+walls.push(seg(B1.x0,B1.z0,B1.x1,B1.z0,'barn',-FLOOR_H));
+walls.push(seg(B1.x0,B1.z1,B1.x1,B1.z1,'barn',-FLOOR_H));
+walls.push(seg(B1.x1,B1.z0,B1.x1,B1.z1,'barn',-FLOOR_H));
+// 계단 복도 벽 — U자 스위치백. 물리 baseY=0 (상층 기준 — 램프 상단에서 던진 알이 못 넘는다)
+const STAIR_WALLS=[
+  [STAIR.A.x0,STAIR.A.z0, STAIR.A.x1,STAIR.A.z0],
+  [STAIR.A.x1,STAIR.A.z0, STAIR.A.x1,STAIR.L1.z0],
+  [STAIR.A.x1,STAIR.L1.z0, STAIR.L1.x1,STAIR.L1.z0],
+  [STAIR.L1.x1,STAIR.L1.z0, STAIR.L1.x1,STAIR.L1.z1],
+  [STAIR.L1.x1,STAIR.L1.z1, STAIR.B.x1,STAIR.L1.z1],
+  [STAIR.B.x1,STAIR.B.z0, STAIR.B.x1,STAIR.B.z1],
+  [STAIR.B.x1,STAIR.L2.z0, STAIR.L2.x1,STAIR.L2.z0],
+  [STAIR.L2.x1,STAIR.L2.z0, STAIR.L2.x1,STAIR.R.z0],
+  [STAIR.R.x0,STAIR.R.z0, STAIR.R.x1,STAIR.R.z0],
+  [STAIR.R.x0,STAIR.R.z1, STAIR.R.x1,STAIR.R.z1],
+  [STAIR.L2.x1,STAIR.R.z1, STAIR.L2.x1,STAIR.L2.z1],
+  [STAIR.L2.x1,STAIR.L2.z1, STAIR.L2.x0,STAIR.L2.z1],
+  [STAIR.L2.x0,STAIR.L2.z1, STAIR.L2.x0,STAIR.A.z1],
+  [STAIR.A.x1,STAIR.A.z1, STAIR.A.x0,STAIR.A.z1],
+];
+for(const [x1,z1,x2,z2] of STAIR_WALLS) walls.push(seg(x1,z1,x2,z2,'stair',0));
+// 케이지 열·마개 — 층 일반화 (MAZE_V 개구를 빼고 동·서 벽까지, 마개는 MAZE_H=0 경계)
+const cageBoxes=[], plugBoxes=[];
+for(let f=0;f<FLOORS.length;f++){
+  const FL=FLOORS[f], fx1=FL.x0+FL.cn*CW;
+  for(let g=0; g<FL.an-1; g++){
+    const z0=fRowZ0(f,g), z1=z0+RH;
+    const gaps=[];
+    for(let c=0;c<FL.cn;c++) if(FL.MV[g][c]) gaps.push([fCellXC(f,c)-OPEN_W/2, fCellXC(f,c)+OPEN_W/2]);
+    let cur=FL.x0;
+    for(const gp of gaps.sort((p,q)=>p[0]-q[0])){
+      if(gp[0]>cur) cageBoxes.push({x0:cur,x1:gp[0],z0,z1,base:FL.base});
+      cur=Math.max(cur,gp[1]);
+    }
+    if(cur<fx1) cageBoxes.push({x0:cur,x1:fx1,z0,z1,base:FL.base});
   }
-  if(cur<BARN.x1) cageBoxes.push({x0:cur,x1:BARN.x1,z0,z1});
-}
-// 통로 마개: MAZE_H=0인 경계 (척추는 전부 1이라 자동으로 마개 없음)
-const plugBoxes=[];
-for(let a=0;a<A_N;a++){
-  for(let b=0;b<C_N-1;b++){
-    if(MAZE_H[a][b]) continue;
-    const x=BARN.x0+(b+1)*CW;
-    plugBoxes.push({x0:x-PLUG_W/2,x1:x+PLUG_W/2,z0:aisleZ0(a),z1:aisleZ0(a)+AH});
+  for(let a=0;a<FL.an;a++){
+    for(let b=0;b<FL.cn-1;b++){
+      if(FL.MH[a][b]) continue;
+      const x=FL.x0+(b+1)*CW;
+      plugBoxes.push({x0:x-PLUG_W/2,x1:x+PLUG_W/2,z0:fAisleZ0(f,a),z1:fAisleZ0(f,a)+AH,base:FL.base});
+    }
   }
 }
 for(const b of cageBoxes){
-  walls.push(seg(b.x0,b.z0,b.x1,b.z0,'cage'), seg(b.x1,b.z0,b.x1,b.z1,'cage'),
-             seg(b.x1,b.z1,b.x0,b.z1,'cage'), seg(b.x0,b.z1,b.x0,b.z0,'cage'));
+  walls.push(seg(b.x0,b.z0,b.x1,b.z0,'cage',b.base), seg(b.x1,b.z0,b.x1,b.z1,'cage',b.base),
+             seg(b.x1,b.z1,b.x0,b.z1,'cage',b.base), seg(b.x0,b.z1,b.x0,b.z0,'cage',b.base));
 }
 for(const b of plugBoxes){
-  walls.push(seg(b.x0,b.z0,b.x1,b.z0,'plug'), seg(b.x1,b.z0,b.x1,b.z1,'plug'),
-             seg(b.x1,b.z1,b.x0,b.z1,'plug'), seg(b.x0,b.z1,b.x0,b.z0,'plug'));
+  walls.push(seg(b.x0,b.z0,b.x1,b.z0,'plug',b.base), seg(b.x1,b.z0,b.x1,b.z1,'plug',b.base),
+             seg(b.x1,b.z1,b.x0,b.z1,'plug',b.base), seg(b.x0,b.z1,b.x0,b.z0,'plug',b.base));
 }
-// 물통 3개 — 점프의 실내 존재 이유 (케이지 면 부착, 개구·마개 회피, 통행 잔폭 ≥230)
-const TROUGHS=[[2,1],[5,3],[6,4]].map(([a,c],i)=>{
-  const x0=cellXC(c)+175, x1=x0+110;
-  const z0=(i%2)?(aisleZ0(a)+6):(aisleZ0(a)+AH-34);
-  return {x0,x1,z0,z1:z0+28,a,c};
-});
+// 물통 3개 — 계단참으로 이전 (v0.9: 통로 255에선 잔폭 계약 불가 — 전원이 지나는 자리로. 잔폭 230 유지)
+const TROUGHS=[
+  {x0:STAIR.L1.x0+40,x1:STAIR.L1.x0+150,z0:STAIR.L1.z0+2, z1:STAIR.L1.z0+30},
+  {x0:STAIR.L1.x1-30,x1:STAIR.L1.x1-2,  z0:ZA-67.5,       z1:ZA+42.5},
+  {x0:STAIR.L2.x0+40,x1:STAIR.L2.x0+150,z0:STAIR.L2.z1-30,z1:STAIR.L2.z1-2},
+];
 for(const b of TROUGHS){
   walls.push(seg(b.x0,b.z0,b.x1,b.z0,'trough'), seg(b.x1,b.z0,b.x1,b.z1,'trough'),
              seg(b.x1,b.z1,b.x0,b.z1,'trough'), seg(b.x0,b.z1,b.x0,b.z0,'trough'));
 }
-function inCoopPt(x,z){ return x>BARN.x0&&x<BARN.x1&&z>BARN.z0&&z<BARN.z1; }
+function inCoopPt(x,z){ return x>BARN.x0&&x<BARN.x1&&z>BARN.z0&&z<BARN.z1; }   // 1F 전용 (flapIn 일방향)
+function inFloorRect(x,z){
+  return (x>BARN.x0&&x<BARN.x1&&z>BARN.z0&&z<BARN.z1)||(x>B1.x0&&x<B1.x1&&z>B1.z0&&z<B1.z1);
+}
+function inZoneOrCorr(x,z){ return inFloorRect(x,z)||zoneOfArea(x,z)===2; }
+// 존별 벽 버킷 — 층끼리 기하 상호작용이 없으므로 결과 동일성 보장 (성능 + baseY 운반)
+const SEGS0=[], SEGS1=[];
+for(const s of walls){
+  const minX=Math.min(s.x1,s.x2), maxX=Math.max(s.x1,s.x2);
+  if(s.kind==='stair'){ SEGS0.push(s); SEGS1.push(s); continue; }
+  if(maxX>=B1.x0-80) SEGS1.push(s);
+  if(minX<=BARN.x1+80) SEGS0.push(s);
+}
+function segsFor(x,z){
+  const zn=zoneOfArea(x,z);
+  return zn===1?SEGS1:(zn===2?walls:SEGS0);
+}
 
-// 트레이 앵커 (알 6개) — 셀의 케이지 면에 붙인다. 첫 트레이는 척추 위 정문 LOS.
-const NEST_POS=TRAY_CELLS.map(([a,c],i)=>{
+// 트레이 6: 1F 2 (튜토리얼 척추 + 중거리) / B1 4 (깊이 2/3/4/5) — NEED 3 > 1F 2 → 지하 하강 강제
+const TRAY_DEF=[
+  {f:0,cell:[4,2]},{f:0,cell:[3,2]},
+  {f:1,cell:[3,1]},{f:1,cell:[1,2]},{f:1,cell:[4,2]},{f:1,cell:[0,1]},
+];
+const TRAY_CELLS=[[4,2],[3,2]];              // 1F 하위호환 (검증·램프 참조)
+const NEST_POS=TRAY_DEF.map(({f,cell:[a,c]},i)=>{
   const side=(i%2===0)?1:-1;                 // 남/북 케이지 면 교대
-  const z=(side>0)?(aisleZ0(a)+AH-26):(aisleZ0(a)+26);
-  return {x:cellXC(c)+((i*97)%120)-60, z:(a===A_N-1&&side>0)?aisleZ0(a)+AH-26:z, cell:[a,c]};
+  let z=(side>0)?(fAisleZ0(f,a)+AH-26):(fAisleZ0(f,a)+26);
+  if(a===FLOORS[f].an-1&&side>0) z=fAisleZ0(f,a)+AH-26;
+  return {x:fCellXC(f,c)+((i*97)%120)-60, z, cell:[a,c], f, gy:FLOORS[f].base};
 });
-const CHK_HOME=HOME_CELLS.map(([a,c])=>({x:cellXC(c),z:aisleZC(a),aisle:a,cell:[a,c]}));
+// 닭 10: 1F 4 (트레이0 지킴 불활성 + 지킴 1 + 자유 2) / B1 6 (지킴 4 + 자유 2)
+// guard = 담당 트레이 전역 인덱스. 루프는 오프라인 산출 리터럴 — 척추 셀 0개 (결정론 조우)
+const CHK_DEF=[
+  {f:0,home:[4,1],guard:-1,loop:null},       // 트레이0 지킴이 — 튜토리얼 보호로 불활성 (v0.6 계약)
+  {f:0,home:[3,3],guard:1,loop:[[3,3],[3,2]]},
+  {f:0,home:[0,2],guard:-1,loop:[[0,2],[0,1],[0,3]]},
+  {f:0,home:[5,4],guard:-1,loop:[[5,4],[5,3],[5,5]]},
+  {f:1,home:[3,2],guard:2,loop:[[3,2],[3,1]]},
+  {f:1,home:[1,2],guard:3,loop:[[1,2],[1,1]]},
+  {f:1,home:[4,2],guard:4,loop:[[4,2],[3,2]]},
+  {f:1,home:[0,0],guard:5,loop:[[0,0],[0,1]]},
+  {f:1,home:[0,3],guard:-1,loop:[[0,3],[0,2],[1,3]]},
+  {f:1,home:[1,1],guard:-1,loop:[[1,1],[1,0],[1,2]]},
+];
+const CHK_HOME=CHK_DEF.map(d=>({x:fCellXC(d.f,d.home[1]),z:fAisleZC(d.f,d.home[0]),aisle:d.home[0],cell:d.home,f:d.f}));
 const CHK_COUNT=CHK_HOME.length;
 
 // ============================================================
-//  셀 그래프 — 미로 위상이 곧 닭 내비다 (흐름장 폐기, 패널 확정)
+//  셀 그래프 — 두 층 통합 테이블. 계단 셀은 그래프에 없다 —
+//  층별 닭 봉쇄가 공식 규칙 ("계단만 타면 닭은 포기한다", 패널 확정)
 // ============================================================
-const CELL_N=A_N*C_N;
-const cid=(a,c)=>a*C_N+c;
-function cellNbrs(a,c){
-  const L=[];
-  if(c>0&&MAZE_H[a][c-1]) L.push([a,c-1]);
-  if(c<C_N-1&&MAZE_H[a][c]) L.push([a,c+1]);
-  if(a>0&&MAZE_V[a-1][c]) L.push([a-1,c]);
-  if(a<A_N-1&&MAZE_V[a][c]) L.push([a+1,c]);
+const F0_N=A_N*C_N;                          // 48
+const CELL_N=F0_N+B1_A_N*B1_C_N;             // 72
+const cid=(a,c)=>a*C_N+c;                    // 1F 하위호환
+const gcid=(f,a,c)=>f===0?a*C_N+c:F0_N+a*B1_C_N+c;
+function fNbrs(f,a,c){
+  const FL=FLOORS[f], L=[];
+  if(c>0&&FL.MH[a][c-1]) L.push([a,c-1]);
+  if(c<FL.cn-1&&FL.MH[a][c]) L.push([a,c+1]);
+  if(a>0&&FL.MV[a-1][c]) L.push([a-1,c]);
+  if(a<FL.an-1&&FL.MV[a][c]) L.push([a+1,c]);
   return L;
 }
-// all-pairs next-hop (48노드 — 로드 시 1회, 공짜)
+const CELLS=[];
+for(let f=0;f<FLOORS.length;f++){
+  const FL=FLOORS[f];
+  for(let a=0;a<FL.an;a++)for(let c=0;c<FL.cn;c++)
+    CELLS[gcid(f,a,c)]={f,a,c,x:fCellXC(f,c),z:fAisleZC(f,a),nbrs:[]};
+}
+for(const cell of CELLS) cell.nbrs=fNbrs(cell.f,cell.a,cell.c).map(([a,c])=>gcid(cell.f,a,c));
+function cellNbrs(a,c){ return fNbrs(0,a,c); }   // 1F 하위호환 (검증 스위트)
+// all-pairs next-hop — 층간 간선 없음: 타층 dist는 -1 (봉쇄의 수학적 형태)
 const NEXT=[];
 for(let s=0;s<CELL_N;s++){
   const nx=new Int8Array(CELL_N).fill(-1);
@@ -365,25 +491,28 @@ for(let s=0;s<CELL_N;s++){
   dist[s]=0; const q=[s];
   while(q.length){
     const cur=q.shift();
-    const a=(cur/C_N)|0, c=cur%C_N;
-    for(const [na,nc] of cellNbrs(a,c)){
-      const n=cid(na,nc);
+    for(const n of CELLS[cur].nbrs){
       if(dist[n]<0){ dist[n]=dist[cur]+1; nx[n]=cur; q.push(n); }
     }
   }
   NEXT.push({prev:nx,dist});
 }
 function cellOf(x,z){
-  if(!inCoopPt(x,z)) return -1;
-  const c=Math.max(0,Math.min(C_N-1,Math.floor((x-BARN.x0)/CW)));
-  const rel=z-BARN.z0, pitch=AH+RH;
-  let a=Math.floor(rel/pitch);
-  const inAisle=(rel-a*pitch)<=AH;
-  if(!inAisle){ // 케이지 개구 통과 중 — 가까운 통로로 스냅
-    const mid=a*pitch+AH+RH/2;
-    a=(rel<mid)?a:a+1;
+  for(let f=0;f<FLOORS.length;f++){
+    const FL=FLOORS[f];
+    const x1=FL.x0+FL.cn*CW, z1=FL.z0+FL.an*AH+(FL.an-1)*RH;
+    if(x<FL.x0||x>x1||z<FL.z0||z>z1) continue;
+    const c=Math.max(0,Math.min(FL.cn-1,Math.floor((x-FL.x0)/CW)));
+    const rel=z-FL.z0, pitch=AH+RH;
+    let a=Math.floor(rel/pitch);
+    const inAisle=(rel-a*pitch)<=AH;
+    if(!inAisle){ // 케이지 개구 통과 중 — 가까운 통로로 스냅
+      const mid=a*pitch+AH+RH/2;
+      a=(rel<mid)?a:a+1;
+    }
+    return gcid(f,Math.max(0,Math.min(FL.an-1,a)),c);
   }
-  return cid(Math.max(0,Math.min(A_N-1,a)),c);
+  return -1;                                  // 마당·계단·공허 — 닭 그래프 밖
 }
 // from셀에서 to셀로 가는 첫 이웃 셀 (prev 체인 역추적)
 function nextCell(from,to){
@@ -395,26 +524,29 @@ function nextCell(from,to){
   return cur;
 }
 // 인접 셀 간 통과 지점 — 반드시 목적지 셀 "안쪽"에 둔다.
-// (경계점 그 자체를 목표로 주면 floor 판정이 안 바뀌어 그 자리에서 교착한다)
 function gapPoint(from,to){
-  const a1=(from/C_N)|0,c1=from%C_N, a2=(to/C_N)|0,c2=to%C_N;
-  if(a1===a2){
-    const bx=BARN.x0+Math.max(c1,c2)*CW;
-    return {x:bx+((c2>c1)?50:-50), z:aisleZC(a1)};
+  const A=CELLS[from], B=CELLS[to];
+  if(A.f!==B.f) return {x:B.x,z:B.z};        // 층간 간선은 없다 — 방어적 폴백
+  const FL=FLOORS[A.f];
+  if(A.a===B.a){
+    const bx=FL.x0+Math.max(A.c,B.c)*CW;
+    return {x:bx+((B.c>A.c)?50:-50), z:fAisleZC(A.f,A.a)};
   }
-  return {x:cellXC(c1), z:(a2>a1)?(aisleZ0(a2)+34):(aisleZ0(a2)+AH-34)};
+  return {x:fCellXC(A.f,A.c), z:(B.a>A.a)?(fAisleZ0(A.f,B.a)+34):(fAisleZ0(A.f,B.a)+AH-34)};
 }
-// 통합 내비: 같은 셀/실외 직선, 실내외 전환은 정문, 실내 셀 간은 그래프
+// 통합 내비: 같은 셀/직선 가능은 직선, 1F 실내외 전환만 정문 특례 (B1은 봉쇄라 실외 목표가 없다)
 const _nav={x:0,z:0};
 function navTo(o,tx,tz){
   const oc=cellOf(o.x,o.z), tc=cellOf(tx,tz);
-  if(oc<0&&tc<0){ _nav.x=tx; _nav.z=tz; return _nav; }        // 둘 다 실외
-  if(oc<0){ // 실외 → 실내: 정문 경유
+  if(oc<0&&tc<0){ _nav.x=tx; _nav.z=tz; return _nav; }
+  if(oc<0){ // 실외 → 실내: 정문 경유 — 1F 세계 전용 게이트
+    if(zoneOfArea(o.x,o.z)!==0){ _nav.x=tx; _nav.z=tz; return _nav; }
     if(Math.hypot(o.x-DOOR_OUT.x,o.z-DOOR_OUT.z)<24){ _nav.x=DOOR_IN.x; _nav.z=DOOR_IN.z; }
     else { _nav.x=DOOR_OUT.x; _nav.z=DOOR_OUT.z; }
     return _nav;
   }
-  if(tc<0){ // 실내 → 실외: 정문 셀까지 그래프, 그다음 문
+  if(tc<0){ // 실내 → 실외 목표
+    if(CELLS[oc].f!==0){ _nav.x=tx; _nav.z=tz; return _nav; }   // B1: 직선 폴백 (봉쇄 + 원점 클램프가 선행 방어)
     const doorCell=cid(SPINE,0);
     if(oc===doorCell){
       if(Math.hypot(o.x-DOOR_IN.x,o.z-DOOR_IN.z)<24){ _nav.x=DOOR_OUT.x; _nav.z=DOOR_OUT.z; }
@@ -446,8 +578,9 @@ function raySeg(px,pz,dx,dz,s){
 }
 function collideCircle(o){
   const jy=(o===player)?player.jy:0;
-  for(let k=0;k<walls.length;k++){
-    const s=walls[k];
+  const list=segsFor(o.x,o.z);
+  for(let k=0;k<list.length;k++){
+    const s=list[k];
     if(s.kind==='flapIn'&&!inCoopPt(o.x,o.z)) continue;   // 개구멍: 밖→안만 통과
     if(jy>0&&JUMP_SKIP[s.kind]&&jy>SEG_H[s.kind]) continue; // 점프: 낮은 장애물만 공중 통과
     const vx=s.x2-s.x1, vz=s.z2-s.z1;
@@ -470,12 +603,15 @@ function moveToward(o,tx,tz,step){
   return d;
 }
 function lineBlocked(ax,az,bx,bz){
+  const za=zoneOfArea(ax,az), zb=zoneOfArea(bx,bz);
+  if(za!==zb&&za!==2&&zb!==2) return true;               // 층이 다르면 무조건 차단 (안전핀)
   const dx=bx-ax, dz=bz-az, L=Math.hypot(dx,dz);
   if(L<1e-4) return false;
   const ux=dx/L, uz=dz/L;
-  for(let k=0;k<walls.length;k++){
-    if(JUMP_SKIP[walls[k].kind]) continue;                // 무릎 높이는 시야를 못 막는다 (2D 판정 보정)
-    const t=raySeg(ax,az,ux,uz,walls[k]);
+  const list=segsFor(ax,az);
+  for(let k=0;k<list.length;k++){
+    if(JUMP_SKIP[list[k].kind]) continue;                // 무릎 높이는 시야를 못 막는다 (2D 판정 보정)
+    const t=raySeg(ax,az,ux,uz,list[k]);
     if(t>4 && t<L-2) return true;
   }
   return false;
@@ -537,18 +673,21 @@ scene.add(hemi);
 const moon=new THREE.DirectionalLight(0x9fb4d8,0.22);
 moon.position.set(300,700,-400); scene.add(moon);
 const lampLights=[];
-// 코너 4 + 척추 2 (하나는 첫 트레이 바로 위 — "신선란 위에 켜둔 등"이 정문 시선을 끈다)
+// 1F: 코너 4 + 척추 2 (하나는 첫 트레이 위 — 불웅덩이) / B1: 코너 2 + 척추 1 (전부 정전 시 일괄 소등)
 const LAMP_POS=[
   {x:BARN.x0+COOP_W*0.18, z:BARN.z0+COOP_D*0.28, i:1.35},
   {x:BARN.x0+COOP_W*0.18, z:BARN.z0+COOP_D*0.72, i:1.35},
   {x:BARN.x0+COOP_W*0.74, z:BARN.z0+COOP_D*0.28, i:1.35},
   {x:BARN.x0+COOP_W*0.74, z:BARN.z0+COOP_D*0.72, i:1.35},
   {x:BARN.x0+COOP_W*0.14, z:aisleZC(SPINE), i:1.2},
-  {x:cellXC(TRAY_CELLS[0][1]), z:aisleZC(SPINE), i:1.8},   // v0.6: 벽 210 상향의 복도 감광 보정 — 3초 판독의 불웅덩이
+  {x:cellXC(TRAY_CELLS[0][1]), z:aisleZC(SPINE), i:1.8},   // v0.6: 벽 210 상향의 복도 감광 보정
+  {x:B1.x0+(B1.x1-B1.x0)*0.25, z:B1.z0+(B1.z1-B1.z0)*0.3, i:1.3, b:-FLOOR_H},
+  {x:B1.x0+(B1.x1-B1.x0)*0.75, z:B1.z0+(B1.z1-B1.z0)*0.7, i:1.3, b:-FLOOR_H},
+  {x:B1.x0+(B1.x1-B1.x0)*0.2,  z:ZB, i:1.5, b:-FLOOR_H},  // B1 척추 — 계단 출구의 회복축 불웅덩이
 ];
 for(const p of LAMP_POS){
   const L=new THREE.PointLight(0xffcf92,p.i,Math.max(2600,COOP_W*0.6));
-  L.position.set(p.x,175,p.z); scene.add(L); lampLights.push(L);
+  L.position.set(p.x,(p.b||0)+175,p.z); scene.add(L); lampLights.push(L);
   L.userData.lit=p.i;
 }
 const padLight=new THREE.PointLight(0xffe08a,0.7,260);
@@ -565,8 +704,42 @@ const MAT={
 
 // 바닥·천장 (분할 필수 — Lambert는 정점 조명)
 {
-  const g=new THREE.Mesh(new THREE.PlaneGeometry(W+600,H+600,40,32),mat(0x27381f));
-  g.rotation.x=-Math.PI/2; g.position.set(W/2,0,H/2); scene.add(g);
+  // 지면은 B1·램프 발자국을 피해 분할 — 초록 판이 계단통을 허공에서 자르지 않게 (패널 지적)
+  const groundMat=mat(0x27381f);
+  function gplane(x0,x1,z0,z1){
+    if(x1-x0<10||z1-z0<10) return;
+    const g=new THREE.Mesh(new THREE.PlaneGeometry(x1-x0,z1-z0,24,20),groundMat);
+    g.rotation.x=-Math.PI/2; g.position.set((x0+x1)/2,0,(z0+z1)/2); scene.add(g);
+  }
+  const RX=STAIR.R;
+  gplane(-300,RX.x0,-300,H+300);                    // 서쪽 대부분 (마당+1F+계단 평지)
+  gplane(RX.x0,W+300,-300,B1.z0-4);                 // 동북 띠
+  gplane(RX.x0,W+300,B1.z1+4,H+300);                // 동남 띠
+  gplane(RX.x0,B1.x0-4,B1.z0-4,RX.z0-4);            // B1 서측 상단 (램프 북)
+  gplane(RX.x0,B1.x0-4,RX.z1+4,B1.z1+4);            // B1 서측 하단 (램프 남)
+  gplane(B1.x1+4,W+300,B1.z0-4,B1.z1+4);            // B1 동측 띠
+  // B1 바닥·천장
+  const bfloor=new THREE.Mesh(new THREE.PlaneGeometry(B1.x1-B1.x0,B1.z1-B1.z0,30,28),mat(0x585043));
+  bfloor.rotation.x=-Math.PI/2;
+  bfloor.position.set((B1.x0+B1.x1)/2,-FLOOR_H+0.5,(B1.z0+B1.z1)/2); scene.add(bfloor);
+  const bceil=new THREE.Mesh(new THREE.PlaneGeometry(B1.x1-B1.x0,B1.z1-B1.z0,24,20),
+    new THREE.MeshLambertMaterial({color:0x3c352c,emissive:0x120f0b,side:THREE.DoubleSide}));
+  bceil.rotation.x=Math.PI/2;
+  bceil.position.set((B1.x0+B1.x1)/2,-FLOOR_H+BARN_H,(B1.z0+B1.z1)/2); scene.add(bceil);
+  // 램프 (경사면) — 로직은 평면, 렌더만 기울인다
+  {
+    const run=RX.x1-RX.x0, slopeLen=Math.hypot(run,FLOOR_H);
+    const ramp=new THREE.Mesh(new THREE.BoxGeometry(slopeLen,8,RX.z1-RX.z0),mat(0x55503f));
+    ramp.position.set((RX.x0+RX.x1)/2,-FLOOR_H/2-4,(RX.z0+RX.z1)/2);
+    ramp.rotation.z=Math.atan2(FLOOR_H,run);
+    scene.add(ramp);
+  }
+  // 계단 평지 바닥 (참·다리 — 마당 지면과 같은 y지만 실내 톤)
+  for(const k of ['A','L1','B','L2']){
+    const r=STAIR[k];
+    const p=new THREE.Mesh(new THREE.PlaneGeometry(r.x1-r.x0,r.z1-r.z0,4,4),mat(0x55503f));
+    p.rotation.x=-Math.PI/2; p.position.set((r.x0+r.x1)/2,0.6,(r.z0+r.z1)/2); scene.add(p);
+  }
   const floor=new THREE.Mesh(new THREE.PlaneGeometry(COOP_W,COOP_D,44,38),mat(0x6a6152));
   floor.rotation.x=-Math.PI/2;
   floor.position.set((BARN.x0+BARN.x1)/2,0.5,(BARN.z0+BARN.z1)/2); scene.add(floor);
@@ -577,17 +750,18 @@ const MAT={
   const dirt=new THREE.Mesh(new THREE.PlaneGeometry(520,300,8,6),mat(0x4a3d2a));
   dirt.rotation.x=-Math.PI/2; dirt.position.set(TRUCK_X+240,0.4,TRUCK_Z); scene.add(dirt);
 }
-function segBox(s,h,material){
+function segBox(s,h,material,yBase){
   const dx=s.x2-s.x1, dz=s.z2-s.z1;
   const len=Math.hypot(dx,dz);
   const m=new THREE.Mesh(new THREE.BoxGeometry(len+4,h,5),material);
-  m.position.set((s.x1+s.x2)/2, h/2, (s.z1+s.z2)/2);
+  m.position.set((s.x1+s.x2)/2, (yBase||0)+h/2, (s.z1+s.z2)/2);
   m.rotation.y=-Math.atan2(dz,dx);
   return m;
 }
 for(const s of walls){
   if(s.kind==='truck'||s.kind==='cage'||s.kind==='plug'||s.kind==='flapIn') continue;
-  scene.add(segBox(s,SEG_H[s.kind],MAT[s.kind]||MAT.wall));
+  if(s.kind==='stair'){ scene.add(segBox(s,480,MAT.barn,-270)); continue; }   // 계단통 — 바닥 -260부터 천장 210까지
+  scene.add(segBox(s,SEG_H[s.kind],MAT[s.kind]||MAT.wall,s.baseY));
 }
 // 케이지 블록 메시
 const MAT_CAGE_TALL=mat(0x6c7076), MAT_PLUG_TALL=mat(0x6a5c46);
@@ -604,6 +778,7 @@ function cageBlock(b){
   // v0.6 갑툭튀: 케이지 위 적층 케이지 — 천장까지 시야 차단 (SEG_H 210과 동기)
   const tall=new THREE.Mesh(new THREE.BoxGeometry(w,BARN_H-75,d),MAT_CAGE_TALL);
   tall.position.set(cx,(75+BARN_H)/2,cz); g.add(tall);
+  g.position.y=b.base||0;                     // v0.9: 층 base (B1 -260)
   return g;
 }
 for(const b of cageBoxes) scene.add(cageBlock(b));
@@ -618,6 +793,7 @@ for(const b of plugBoxes){
   // v0.6: 마개도 천장까지 — 쌓아 올린 팔레트 더미
   const tall=new THREE.Mesh(new THREE.BoxGeometry(w-8,BARN_H-75,d-12),MAT_PLUG_TALL);
   tall.position.set(cx,(75+BARN_H)/2,cz); g.add(tall);
+  g.position.y=b.base||0;
   scene.add(g);
 }
 // 천장 전구 줄 (발광 메시 — 실광원은 4개뿐)
@@ -639,21 +815,24 @@ const bulbMat=new THREE.MeshBasicMaterial({color:0xffd9a0});
     }
   }
 }
-// 문틀 발광 마커 — 정직한 등대 (라이트와 달리 깊이 버퍼로 진짜 차폐된다)
-function doorFrame(x,z,w,color){
-  const g=new THREE.Group();
+// 문틀 발광 마커 — 정직한 등대 (MeshBasic 자발광: 정전 소등 배열에서 제외 —
+// "계단 불빛은 정전에도 남는다"가 규칙이어야 층 탈출 프롬프트가 거짓말이 안 된다)
+function doorFrame(x,z,w,color,base){
+  const g=new THREE.Group(); const b=base||0;
   const m=new THREE.MeshBasicMaterial({color});
   const l=new THREE.Mesh(new THREE.BoxGeometry(6,110,6),m);
-  l.position.set(x,55,z-w/2-4); g.add(l);
+  l.position.set(x,b+55,z-w/2-4); g.add(l);
   const r2=new THREE.Mesh(new THREE.BoxGeometry(6,110,6),m);
-  r2.position.set(x,55,z+w/2+4); g.add(r2);
+  r2.position.set(x,b+55,z+w/2+4); g.add(r2);
   const t=new THREE.Mesh(new THREE.BoxGeometry(6,6,w+14),m);
-  t.position.set(x,112,z); g.add(t);
+  t.position.set(x,b+112,z); g.add(t);
   scene.add(g);
   return g;
 }
 doorFrame(BARN.x0,DOOR_Z,DOOR_W,0xffb060);
 doorFrame(BARN.x1,HOLE_Z,HOLE_W,0x6f8fd8);
+doorFrame(BARN.x1,ZA,180,0xffc850);                 // 1F → 계단 (하강 호박)
+doorFrame(B1.x0,ZB,180,0x7fb0ff,-FLOOR_H);          // B1 → 계단 (상승 청색)
 // 정문 외광 스필 — 정전 중 척추에서 보이는 유일한 원경 광점
 const doorSpill=new THREE.Mesh(new THREE.PlaneGeometry(180,120),
   new THREE.MeshBasicMaterial({color:0x2a2416,transparent:true,opacity:0.9}));
@@ -732,7 +911,7 @@ drawSign();
   const ng=new THREE.TorusGeometry(15,4.5,6,14), nm=mat(0x8a6f42);
   for(const p of NEST_POS){
     const m=new THREE.Mesh(ng,nm);
-    m.rotation.x=-Math.PI/2; m.position.set(p.x,4,p.z); scene.add(m);
+    m.rotation.x=-Math.PI/2; m.position.set(p.x,p.gy+4,p.z); scene.add(m);
   }
 }
 const EGG_GEO=new THREE.SphereGeometry(EGG_R,14,12);
@@ -773,7 +952,7 @@ const splats=[];
 let splatHead=0;
 function addSplat(x,z){
   const m=splats[splatHead]; splatHead=(splatHead+1)%SPLAT_POOL;
-  m.position.set(x,0.9+Math.random()*0.3,z);
+  m.position.set(x,groundY(x,z)+0.9+Math.random()*0.3,z);
   m.rotation.z=Math.random()*TAU;
   const s=0.75+Math.random()*0.5; m.scale.set(s,s,s);
   m.visible=true;
@@ -823,7 +1002,7 @@ function dropMeat(x,z){
   for(const m of meats){
     if(m.active) continue;
     m.active=true; m.x=x+14; m.z=z+8;
-    m.g.visible=true; m.g.position.set(m.x,7,m.z);
+    m.g.visible=true; m.g.position.set(m.x,groundY(m.x,m.z)+7,m.z);
     m.g.rotation.y=Math.random()*TAU;
     return;
   }
@@ -831,6 +1010,9 @@ function dropMeat(x,z){
 
 // ---------- 닭 ----------
 const EYE_MAT=new THREE.MeshBasicMaterial({color:0x241d18});  // 감은 눈(어두운 실눈) ↔ 뜬 눈(밝음) — 렌더에서 전환
+// v0.9 시야 원 — 공유 지오메트리 1개 + uniform 스케일 (반경은 플레이어 위치 규칙이라 전 닭 공통)
+const RING_GEO=new THREE.RingGeometry(0.94,1,48);
+const RING_MAT=new THREE.MeshBasicMaterial({color:0xffc060,transparent:true,opacity:0.22,side:THREE.DoubleSide,depthWrite:false});
 function makeChicken(){
   const g=new THREE.Group();
   const white=mat(0xfdfbf4,0x2c2c28), red=mat(0xe0473c,0x300a08), orange=mat(0xf0a23a,0x2a1a06);
@@ -868,8 +1050,18 @@ function makeChicken(){
   const q3=new THREE.Mesh(new THREE.BoxGeometry(3.2,5.5,3.2),qm); q3.position.set(0,1.5,0); quest.add(q3);
   const q4=new THREE.Mesh(new THREE.BoxGeometry(3.4,3.4,3.4),qm); q4.position.y=-6; quest.add(q4);
   quest.visible=false; g.add(quest);
+  // v0.9 발각 게이지 — "UI가 아니라 닭이 알아챈다"의 UI 절반 (나머지 절반은 응시)
+  const gaugeG=new THREE.Group(); gaugeG.position.set(0,42,0);
+  const gFillM=new THREE.MeshBasicMaterial({color:0xffc040});
+  const gBg=new THREE.Mesh(new THREE.BoxGeometry(19,3.6,3.2),new THREE.MeshBasicMaterial({color:0x201b14}));
+  gaugeG.add(gBg);
+  const gFill=new THREE.Mesh(new THREE.BoxGeometry(18,2.6,3.8),gFillM);
+  gaugeG.add(gFill);
+  gaugeG.visible=false; g.add(gaugeG);
+  const ring=new THREE.Mesh(RING_GEO,RING_MAT);
+  ring.rotation.x=-Math.PI/2; ring.visible=false; scene.add(ring);
   scene.add(g);
-  return {g,neck,l1,l2,tail,alert,quest,e1,e2};
+  return {g,neck,l1,l2,tail,alert,alertM:am,quest,questM:qm,e1,e2,gauge:gaugeG,gFill,gFillM,ring};
 }
 for(let i=0;i<CHK_COUNT;i++){
   const m=makeChicken();
@@ -881,13 +1073,15 @@ for(let i=0;i<CHK_COUNT;i++){
     peckX:0,peckZ:0,peckEgg:null,arrived:false,
     robEgg:null,kbx:0,kbz:0,skidCd:0,
     lsX:0,lsZ:0,lsT:-9,                       // 최후 목격/파동 확정
-    ivX:0,ivZ:0,ivArr:false,investCd:0,chainN:0,strutT:0,
-    // v0.6 — 역할·순찰·경보·복수·KO. 트레이0 지킴이(i=0)는 불활성 (튜토리얼 보호)
-    guard:(GUARD_OF[i]===0?-1:GUARD_OF[i]),
-    loop:(PATROL_LOOPS[i]?PATROL_LOOPS[i].map(([a,c])=>({x:cellXC(c),z:aisleZC(a)})):null),
+    ivX:0,ivZ:0,ivArr:false,investCd:0,chainN:0,strutT:0,ivT:0,
+    // v0.9 — 역할·순찰은 CHK_DEF 리터럴. hf = 홈 층 (정적 구성 — 동적 층 추적 아님)
+    hf:CHK_DEF[i].f,
+    guard:CHK_DEF[i].guard,
+    loop:(CHK_DEF[i].loop?CHK_DEF[i].loop.map(([a,c])=>({x:fCellXC(CHK_DEF[i].f,c),z:fAisleZC(CHK_DEF[i].f,a)})):null),
     loopI:0,dwell:0,ax:CHK_HOME[i].x,az:CHK_HOME[i].z,
     alarmCd:0,revengeT:0,ko:false,snoreT:0,meatGiven:false,
-    seeAcc:0,predicted:false,lsVX:0,lsVZ:0});
+    seeAcc:0,predicted:false,lsVX:0,lsVZ:0,
+    det:0,detGrace:0,detTicked:false});
 }
 
 // ---------- 플레이어 몸 + 1인칭 팔 ----------
@@ -902,17 +1096,21 @@ const plr=(function(){
   const ag=new THREE.BoxGeometry(6,20,6);
   const a1=new THREE.Mesh(ag,mat(0xf0c39a,0x2a1f14)); a1.position.set(8,32,10); g.add(a1);
   const a2=new THREE.Mesh(ag,mat(0xf0c39a,0x2a1f14)); a2.position.set(8,32,-10); g.add(a2);
+  const gl1=new THREE.Mesh(new THREE.SphereGeometry(7.5,10,8),mat(0xc03a30,0x380a06));
+  gl1.position.set(0,-12,0); gl1.scale.set(1.1,0.95,1.1); gl1.visible=false; a1.add(gl1);  // 3인칭 글러브
   scene.add(g);
-  return {g,body,head,a1,a2};
+  return {g,body,head,a1,a2,gl:gl1};
 })();
 const fpArms=(function(){
   const g=new THREE.Group();
   const am=mat(0xf0c39a,0x2a1f14);
   const l=new THREE.Mesh(new THREE.BoxGeometry(7,7,26),am); l.position.set(-14,-14,-30); l.rotation.x=0.3; g.add(l);
   const r=new THREE.Mesh(new THREE.BoxGeometry(7,7,26),am); r.position.set(14,-14,-30); r.rotation.x=0.3; g.add(r);
+  const gl=new THREE.Mesh(new THREE.SphereGeometry(6.8,10,8),mat(0xc03a30,0x380a06));
+  gl.position.set(0,0,-15); gl.scale.set(1.15,1,1.2); gl.visible=false; l.add(gl);  // 1인칭 왼손 글러브 (오른손은 계란 담당)
   g.visible=false;
   camera.add(g);
-  return {g,l,r};
+  return {g,l,r,gl};
 })();
 
 // ============================================================
@@ -979,9 +1177,10 @@ const fxPool=makePool(FX_POOL);
 const wavePool=makePool(WAVE_POOL);
 function addDot(x,y,z,r,g,b,life,size){ fxPool.add(x,y,z,r,g,b,life,size); }
 function burst(x,y,z,n,col,spread,life,size){
+  const gy=groundY(x,z);                      // 호출부는 지면 기준 로컬 y를 준다 — 층 base는 여기서 (초크포인트)
   for(let i=0;i<n;i++){
     const a=Math.random()*TAU, r=Math.random()*spread;
-    addDot(x+Math.cos(a)*r, y+Math.random()*spread*0.8, z+Math.sin(a)*r,
+    addDot(x+Math.cos(a)*r, gy+y+Math.random()*spread*0.8, z+Math.sin(a)*r,
       col[0],col[1],col[2], life*(0.6+Math.random()*0.6), size);
   }
 }
@@ -999,12 +1198,13 @@ const WCOL={
 };
 function castAll(x,z,rays){
   const hits=new Float32Array(rays);
+  const list=segsFor(x,z);
   for(let i=0;i<rays;i++){
     const a=i*TAU/rays, dx=Math.cos(a), dz=Math.sin(a);
     let best=Infinity;
-    for(let k=0;k<walls.length;k++){
-      if(JUMP_SKIP[walls[k].kind]) continue;              // 파동은 물통 뒤도 그린다 — 소리가 지형을 속이면 안 된다
-      const t=raySeg(x,z,dx,dz,walls[k]);
+    for(let k=0;k<list.length;k++){
+      if(JUMP_SKIP[list[k].kind]) continue;               // 파동은 물통 뒤도 그린다 — 소리가 지형을 속이면 안 된다
+      const t=raySeg(x,z,dx,dz,list[k]);
       if(t<best) best=t;
     }
     hits[i]=best;
@@ -1015,7 +1215,7 @@ function castAll(x,z,rays){
 function spawnWave(x,z,maxR,color,own){
   if(!blackout||phase==='title') return;
   const rays=(maxR<=200)?STEP_RAYS:WAVE_RAYS;
-  waves.push({x,z,r:0,pr:0,maxR,color,own:!!own,rays,
+  waves.push({x,z,r:0,pr:0,maxR,color,own:!!own,rays,base:groundY(x,z),  // 원점 존 base 캡처 (링·스탬프 y)
               hits:castAll(x,z,rays),stamped:new Uint8Array(rays)});
 }
 function updWaves(dt){
@@ -1031,7 +1231,7 @@ function updWaves(dt){
       for(let k=0;k<w.rays;k+=stride){
         if(w.r>=w.hits[k]) continue;
         const a=k*TAU/w.rays;
-        wavePool.add(w.x+Math.cos(a)*w.r, 0.8+Math.random()*1.4, w.z+Math.sin(a)*w.r,
+        wavePool.add(w.x+Math.cos(a)*w.r, w.base+0.8+Math.random()*1.4, w.z+Math.sin(a)*w.r,
           c[0]*base,c[1]*base,c[2]*base, w.own?0.9:1.1, w.own?3.1:2.7);
       }
     }
@@ -1045,7 +1245,7 @@ function updWaves(dt){
           const a=k*TAU/w.rays, px=w.x+Math.cos(a)*(hd-3), pz=w.z+Math.sin(a)*(hd-3);
           const n=3+Math.floor(s*4);
           for(let j=0;j<n;j++){
-            wavePool.add(px+(Math.random()-0.5)*2.5, 3+Math.random()*62, pz+(Math.random()-0.5)*2.5,
+            wavePool.add(px+(Math.random()-0.5)*2.5, w.base+3+Math.random()*62, pz+(Math.random()-0.5)*2.5,
               c[0]*s,c[1]*s,c[2]*s, 2.0+Math.random()*0.5, 3.2);
           }
         }
@@ -1200,7 +1400,7 @@ function aliveEggs(){
 }
 function spawnEggAt(i){
   const e=eggs[i];
-  e.state='rest'; e.x=NEST_POS[i].x; e.z=NEST_POS[i].z; e.y=EGG_R;
+  e.state='rest'; e.x=NEST_POS[i].x; e.z=NEST_POS[i].z; e.y=NEST_POS[i].gy+EGG_R;
   e.vx=e.vy=e.vz=0; e.spin=Math.random()*TAU;
   e.cracked=false; e.thrown=false; e.forceBreak=false; e.forceSurvive=false;
   e.carrier=null; e.claimed=false; e.restT=0; e.touched=false;
@@ -1259,7 +1459,7 @@ function tryPickOrPlace(){
     const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
     const t={x:player.x+fx*22, z:player.z+fz*22, r:EGG_R+2};
     collideCircle(t);
-    held.x=t.x; held.z=t.z; held.y=EGG_R;
+    held.x=t.x; held.z=t.z; held.y=groundY(t.x,t.z)+EGG_R;
     held.vx=held.vy=held.vz=0;
     held.state='rest'; held.restT=0; held=null;
     player.shake=0;
@@ -1338,7 +1538,7 @@ function throwEgg(pw){
   const e=held; held=null;
   player.shake=0;
   e.state='fly'; e.thrown=true;
-  e.x=player.x+dx*18; e.z=player.z+dz*18; e.y=CARRY_H;
+  e.x=player.x+dx*18; e.z=player.z+dz*18; e.y=CARRY_H+groundY(player.x,player.z);  // 점프 y는 절대 미합산 (v0.6 계약)
   e.vx=dx*v; e.vy=dy*v; e.vz=dz*v;
   whipS(pw);
 }
@@ -1347,7 +1547,7 @@ function slipEgg(){
   player.shake=0;
   const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
   e.state='fly'; e.forceBreak=true;
-  e.x=player.x+fx*16; e.z=player.z+fz*16; e.y=CARRY_H;
+  e.x=player.x+fx*16; e.z=player.z+fz*16; e.y=CARRY_H+groundY(player.x,player.z);
   e.vx=fx*160+(Math.random()-0.5)*40; e.vz=fz*160+(Math.random()-0.5)*40; e.vy=40;
 }
 function landEgg(e,impact){
@@ -1374,18 +1574,22 @@ function updEggs(dt){
     e.vy-=EGG_G*dt;
     e.x+=e.vx*dt; e.y+=e.vy*dt; e.z+=e.vz*dt;
 
+    // 천장 클램프 — 층 천장(지면+210)을 뚫고 나가는 궤적 봉쇄 (층간 릴레이 없음)
+    const ceil=groundY(e.x,e.z)+BARN_H-EGG_R;
+    if(e.y>ceil&&inZoneOrCorr(e.x,e.z)){ e.y=ceil; if(e.vy>0) e.vy=0; }
     const mdx=e.x-ox, mdz=e.z-oz, mlen=Math.hypot(mdx,mdz);
     let hit=null;
     if(mlen>1e-6){
       const ux=mdx/mlen, uz=mdz/mlen;
       let bt=Infinity, bs=null;
-      for(let k=0;k<walls.length;k++){
-        const s=walls[k];
+      const list=segsFor(ox,oz);
+      for(let k=0;k<list.length;k++){
+        const s=list[k];
         if(s.kind==='flapIn'&&!inCoopPt(ox,oz)) continue;
         const t=raySeg(ox,oz,ux,uz,s);
         if(t<=mlen && t<bt){
           const hy=oy+(e.y-oy)*(t/mlen);
-          if(hy<SEG_H[s.kind]){ bt=t; bs=s; }
+          if(hy<s.baseY+SEG_H[s.kind]){ bt=t; bs=s; }    // baseY — B1 벽·계단 측벽의 물리 기준면
         }
       }
       if(bs) hit={t:bt,s:bs,ux,uz};
@@ -1403,9 +1607,11 @@ function updEggs(dt){
       thudS();
       burst(e.x,e.y,e.z,4,COL_DUST,6,0.4,3);
     }
-    if(e.y<=EGG_R){
+    const gy=groundY(e.x,e.z);
+    if(e.y<=gy+EGG_R){
       const spd=Math.hypot(e.vx,e.vy,e.vz);
-      e.y=EGG_R;
+      e.y=gy+EGG_R;
+      if(zoneOfArea(e.x,e.z)===-1){ breakEgg(e); continue; }   // 존 밖 안착 = 즉시 파손 (소프트락 차단 안전망)
       if(landEgg(e,spd)==='broke') continue;
       e.vy=-e.vy*EGG_REST; e.vx*=EGG_FRIC; e.vz*=EGG_FRIC;
       if(spd>90){ thudS(); burst(e.x,3,e.z,5,COL_DUST,8,0.45,3); spawnWave(e.x,e.z,VIS_LAND,'amber'); }
@@ -1427,6 +1633,7 @@ function updEggs(dt){
       let best=null,bd=1e9;
       for(const c of chickens){
         if(c.state!=='wander'&&c.state!=='return'&&c.state!=='invest') continue;
+        if(zoneOfArea(c.x,c.z)!==zoneOfArea(e.x,e.z)) continue;   // 강탈은 동층만 (봉쇄의 따름정리)
         const d=Math.hypot(c.x-e.x,c.z-e.z);
         if(d<bd){ bd=d; best=c; }
       }
@@ -1439,12 +1646,37 @@ function updEggs(dt){
 //  닭 — invest 신설 (최소형 계약: 단일 지점·2s 체류·복귀·기억 없음.
 //  재타겟 쿨 2s·체인 상한 2. 소리로 깬 닭은 "네가 있던 자리"로 온다)
 // ============================================================
+// 멀티 금지선 1: 신규 AI 코드는 플레이어를 이 액세서로만 읽는다 (M1에서 players[]로 갈아끼울 단일 지점)
+function targetOf(c){ return player; }
+function sightRadius(){
+  return blackout ? (carriesEgg()?CARRIER_SEEN:SIGHT_DARK)
+                  : (inFloorRect(player.x,player.z)?SIGHT_IN:SIGHT_OUT);
+}
 function chickenSee(c){
   const d=Math.hypot(c.x-player.x,c.z-player.z);
-  const r=blackout ? (carriesEgg()?CARRIER_SEEN:SIGHT_DARK)
-                   : (inCoopPt(player.x,player.z)?SIGHT_IN:SIGHT_OUT);
-  if(d>r) return false;
+  if(d>sightRadius()) return false;
   return !lineBlocked(c.x,c.z,player.x,player.z);
+}
+// 발각 게이지 — 밝은 구간 전용 (정전은 v0.7 즉발 유지 — 140/200 공식 동결).
+// "언제 잡으러 오는지"가 순간이 아니라 차오르는 과정이 된다 (개발자 요청 2026-08-12)
+function updDet(c,dt,pd){
+  const tp=targetOf(c);
+  if(carriesEgg()&&chickenSee(c)){
+    c.detGrace=DET_GRACE;
+    if(pd<DET_NEAR){ c.det=1; }               // 밀착 즉발 — 코너 정면충돌의 갑툭튀 보존
+    else {
+      const r=sightRadius();
+      let rate=DET_RATE_NEAR+(DET_RATE_FAR-DET_RATE_NEAR)*Math.min(1,(pd-DET_NEAR)/Math.max(1,r-DET_NEAR));
+      if(c.state==='invest') rate*=DET_INVEST_MULT;
+      c.det=Math.min(1,c.det+rate*dt);
+    }
+  } else {
+    if(c.detGrace>0) c.detGrace-=dt;
+    else c.det=Math.max(0,c.det-DET_DECAY*dt);
+  }
+  if(!c.detTicked&&c.det>=0.5){ c.detTicked=true; blip(540,0.07,volAt(c.x,c.z,0.12,500),'triangle'); }  // 경고 틱 (LOGIC 0)
+  if(c.detTicked&&c.det<0.3) c.detTicked=false;
+  if(c.det>=1){ c.det=1; toAlert(c); }
 }
 function toAlert(c){
   if(c.state!=='wander'&&c.state!=='return'&&c.state!=='invest') return;
@@ -1462,17 +1694,24 @@ function toInvest(c,x,z){
     c.chainN++;
   } else c.chainN=0;
   c.investCd=INVEST_CD;
-  c.state='invest'; c.ivX=x; c.ivZ=z; c.ivArr=false; c.t=INVEST_DWELL;
+  c.state='invest'; c.ivX=x; c.ivZ=z; c.ivArr=false; c.t=INVEST_DWELL; c.ivT=0;
   alertS(c.x,c.z);
 }
 // C4 지킴이 분기 — 두 채널(alarmNoise·alarmFlock) 공통: 원점이 담당 트레이 근처고
 // 알이 아직 그 트레이에 있으면 소음 원점 대신 트레이로 (경계 = invest 재사용, 6s 상한)
+// v0.9: 타존·복도 원점은 자기 층 계단 입구로 클램프 — "닭들이 계단 입구에 모여든다"
+// (복도 좌표가 invest에 실리면 cellOf -1 → 정문 특례/직선 폴백 교착이 나는 실버그의 원천 봉쇄)
 function guardOrInvest(c,x,z){
+  const cz=zoneOfArea(c.x,c.z);
+  if(zoneOfArea(x,z)!==cz){
+    const se=STAIR_ENTR[cz===1?1:0];
+    x=se.x; z=se.z;
+  }
   if(c.guard>=0){
     const tp=NEST_POS[c.guard], te=eggs[c.guard];
     if(te.state==='rest'&&Math.hypot(te.x-tp.x,te.z-tp.z)<50&&Math.hypot(x-tp.x,z-tp.z)<DECOY_R){
       if(c.state!=='wander'&&c.state!=='return'&&c.state!=='invest') return;
-      c.state='invest'; c.ivX=tp.x; c.ivZ=tp.z; c.ivArr=false; c.t=GUARD_HOLD;
+      c.state='invest'; c.ivX=tp.x; c.ivZ=tp.z; c.ivArr=false; c.t=GUARD_HOLD; c.ivT=0;
       c.ax=tp.x; c.az=tp.z;
       alertS(c.x,c.z);
       return;
@@ -1508,10 +1747,9 @@ function predictAdvance(c){
   const ux=c.lsVX/vl, uz=c.lsVZ/vl;
   const oc=cellOf(c.lsX,c.lsZ);
   if(oc<0) return;
-  const a=(oc/C_N)|0, cc=oc%C_N;
   let best=null, bd=0.3;
-  for(const [na,nc] of cellNbrs(a,cc)){
-    const g=gapPoint(oc,cid(na,nc));
+  for(const n of CELLS[oc].nbrs){
+    const g=gapPoint(oc,n);
     const dx=g.x-c.lsX, dz=g.z-c.lsZ, dl=Math.hypot(dx,dz)||1;
     const dot=(dx/dl)*ux+(dz/dl)*uz;
     if(dot>bd){ bd=dot; best=g; }
@@ -1539,7 +1777,7 @@ function onCaught(c){
     player.shake=0;
     e.state='fly'; e.forceSurvive=true;
     e.cracked=true; crackVisual(e);
-    e.x=player.x; e.z=player.z; e.y=CARRY_H;
+    e.x=player.x; e.z=player.z; e.y=CARRY_H+groundY(player.x,player.z);
     e.vx=Math.cos(a)*140; e.vz=Math.sin(a)*140; e.vy=120;
     c.state='grab'; c.robEgg=e;
     caughtFocus=e;
@@ -1554,7 +1792,7 @@ function onCaught(c){
     e.state='fly'; e.forceSurvive=true;
     e.cracked=true; crackVisual(e);
     e.mesh.visible=true;
-    e.x=player.x; e.z=player.z; e.y=CARRY_H;
+    e.x=player.x; e.z=player.z; e.y=CARRY_H+groundY(player.x,player.z);
     e.vx=Math.cos(a+Math.PI)*140; e.vz=Math.sin(a+Math.PI)*140; e.vy=110;
   }
   for(const o of chickens){
@@ -1588,7 +1826,7 @@ function tryShove(){
     const e=best.robEgg;                          // 강탈 닭 명중 시 알 방출 — 펀치도 승계 (마지막 알의 유일한 물리 회수 수단)
     if(e.state==='robbed'){
       e.state='fly'; e.forceSurvive=true; e.carrier=null;
-      e.x=best.x; e.z=best.z; e.y=30;
+      e.x=best.x; e.z=best.z; e.y=30+groundY(best.x,best.z);
       e.vx=dx/d*60; e.vz=dz/d*60; e.vy=60;
     }
     e.claimed=false; e.touched=true;
@@ -1617,11 +1855,11 @@ function koChicken(c){
   }
   burst(c.x,20,c.z,30,COL_FEATHER,26,1.4,6);
 }
-// 배회는 제 셀 안 — 미로에서도 존이 유지된다
+// 배회는 제 셀 안 — 미로에서도 존이 유지된다 (층 디스크립터 기준)
 function pickWander(c){
-  const [a,cc]=c.homeCell;
-  c.tx=Math.max(BARN.x0+60,Math.min(BARN.x1-60, cellXC(cc)+(Math.random()*2-1)*(CW/2-80)));
-  c.tz=aisleZ0(a)+30+Math.random()*(AH-60);
+  const [a,cc]=c.homeCell, f=c.hf, FL=FLOORS[f];
+  c.tx=Math.max(FL.x0+60,Math.min(FL.x0+FL.cn*CW-60, fCellXC(f,cc)+(Math.random()*2-1)*(CW/2-80)));
+  c.tz=fAisleZ0(f,a)+30+Math.random()*(AH-60);
   c.t=2.2+Math.random()*2.6;
 }
 function steerMove(c,tx,tz,spd,dt){
@@ -1644,12 +1882,16 @@ function updChickens(dt){
   for(const c of chickens){
     const pd=Math.hypot(c.x-player.x,c.z-player.z);
     const hd=Math.hypot(c.x-c.ax,c.z-c.az);   // 앵커 리쉬 — 순찰·지킴이는 "지금 있어야 할 곳" 기준
-    const inC=inCoopPt(c.x,c.z);
+    const inC=inFloorRect(c.x,c.z);
     let moving=false, spd=0;
     c.skidCd=Math.max(0,c.skidCd-dt);
     c.investCd=Math.max(0,c.investCd-dt);
     c.alarmCd=Math.max(0,c.alarmCd-dt);
     c.revengeT=Math.max(0,c.revengeT-dt);
+    // 발각: 밝은 구간 = 게이지 적분, 정전 = 즉발 (아래 각 상태의 blackout 분기)
+    if(phase==='play'&&!blackout&&(c.state==='wander'||c.state==='return'||c.state==='invest'))
+      updDet(c,dt,pd);
+    else if(c.state!=='alert'&&c.state!=='chase') c.det=Math.max(0,c.det-DET_DECAY*dt);
     if(Math.abs(c.kbx)>1||Math.abs(c.kbz)>1){
       c.x+=c.kbx*dt; c.z+=c.kbz*dt;
       const f=Math.pow(0.002,dt);
@@ -1686,7 +1928,7 @@ function updChickens(dt){
         moving=true; spd=CHK_WANDER;
         if(d<12) pickWander(c);
       }
-      if(carriesEgg() && phase==='play' && chickenSee(c)) toAlert(c);
+      if(blackout && carriesEgg() && phase==='play' && chickenSee(c)) toAlert(c);   // 정전 즉발 (밝은 구간은 게이지)
     }
     else if(c.state==='alert'){
       c.t-=dt;
@@ -1729,13 +1971,16 @@ function updChickens(dt){
         if(hd>CHK_LEASH){ c.state='return'; }
         else if(!carriesEgg() && c.revengeT<=0 && pd>170){ c.state='return'; }  // 복수 중엔 빈손이어도 쫓는다
         else if(c.loseT>CHASE_LOSE_T || (arrivedLS&&!see&&!fresh)){
-          // 실내외 공통 강등: 시야도 신선 확정도 없으면 최후 목격점 수색 후 복귀
+          // 실내외 공통 강등: 시야도 신선 확정도 없으면 최후 목격점 수색 후 복귀. 의심 잔량 0.5 유지
           c.state='invest'; c.ivX=c.lsX; c.ivZ=c.lsZ; c.ivArr=false; c.t=INVEST_DWELL; c.chainN=INVEST_CHAIN;
+          c.ivT=0; c.det=DET_DEMOTE;
         }
       }
     }
     else if(c.state==='invest'){
       if(!c.ivArr){
+        c.ivT+=dt;
+        if(c.ivT>INVEST_TRAVEL_T){ c.state='return'; }   // 이동 타임아웃 밸브 — 교착 방지 (패널 실버그)
         const nav=navTo(c,c.ivX,c.ivZ);
         c.tx=nav.x; c.tz=nav.z;
         moveToward(c,nav.x,nav.z,INVEST_SPD*dt);
@@ -1745,7 +1990,7 @@ function updChickens(dt){
         c.t-=dt;                               // 두리번 (렌더에서 머리 홱)
         if(c.t<=0){ c.state='return'; }
       }
-      if(carriesEgg() && phase==='play' && chickenSee(c)) toAlertForce(c);
+      if(blackout && carriesEgg() && phase==='play' && chickenSee(c)) toAlertForce(c);
     }
     else if(c.state==='peck'){
       if(!c.arrived){
@@ -1788,11 +2033,14 @@ function updChickens(dt){
         if(Math.hypot(c.x-e.x,c.z-e.z)<16){
           e.state='robbed'; e.carrier=c;
           c.state='rob'; c.strutT=0;
-          let bn=NEST_POS[0], bd2=Infinity;
+          let bn=null, bd2=Infinity;
+          const cz2=zoneOfArea(c.x,c.z);
           for(const n of NEST_POS){
+            if(zoneOfArea(n.x,n.z)!==cz2) continue;    // 둥지 선정도 동층만 (승리 필수 알의 층간 실종 방지)
             const dd=Math.hypot(n.x-c.x,n.z-c.z);
             if(dd<bd2){ bd2=dd; bn=n; }
           }
+          if(!bn) bn=NEST_POS[0];
           c.tx=bn.x; c.tz=bn.z;
           squawkS(c.x,c.z);
         }
@@ -1826,9 +2074,15 @@ function updChickens(dt){
         if(c.snoreT<=0){ c.snoreT=2; spawnWave(c.x,c.z,VIS_STRUT,'cluck'); }
       }
       if(c.t<=0){
-        if(c.ko){ c.ko=false; toAlertForce(c); }               // KO 기상은 무조건 격노 (스턴락 파밍 방지)
-        else if(carriesEgg() && chickenSee(c)) toAlertForce(c);
-        else c.state='return';
+        if(c.ko){                              // KO 기상은 무조건 격노 — 단 원점은 KO 지점 (벽투시 금지 정합)
+          c.ko=false;
+          c.state='alert'; c.t=CHK_REACT;
+          c.lsX=c.x; c.lsZ=c.z; c.lsT=simT;
+          c.seeAcc=0; c.predicted=false; c.det=1;
+          alertS(c.x,c.z);
+        }
+        else if(blackout && carriesEgg() && chickenSee(c)) toAlertForce(c);
+        else c.state='return';                 // 밝은 구간: 게이지가 자연 재충전 (밀치기 탈출 버프 — 의도된 변경)
       }
     }
     else{ // return — 목적지는 현재 앵커 (순찰 웨이포인트/지킴 트레이/홈)
@@ -1837,7 +2091,7 @@ function updChickens(dt){
       moveToward(c,nav.x,nav.z,CHK_WANDER*1.5*dt);
       moving=true; spd=CHK_WANDER*1.5;
       if(Math.hypot(c.x-c.ax,c.z-c.az)<14){ c.state='wander'; if(!c.loop) pickWander(c); else c.dwell=0.5; }
-      if(carriesEgg() && phase==='play' && chickenSee(c)) toAlert(c);
+      if(blackout && carriesEgg() && phase==='play' && chickenSee(c)) toAlert(c);
     }
 
     collideCircle(c);
@@ -1935,7 +2189,7 @@ function updPlayer(dt){
       // 파동: 걷기는 시각 전용(어그로 0 — 무소음 계약), 달리기는 어그로와 동반
       spawnWave(player.x,player.z, run?VIS_RUN:VIS_WALK, run?'run':'dim', true);
       if(cart.pulled&&run) spawnWave(cart.x,cart.z,VIS_RUN,'run');  // 수레 덜컹 — VIS만 (로직은 견인자 소음이 담당)
-      if(blackout) fxPool.add(player.x,1.2,player.z,0.35,0.4,0.5,20,2.6);  // 발자국 빵부스러기
+      if(blackout) fxPool.add(player.x,groundY(player.x,player.z)+1.2,player.z,0.35,0.4,0.5,20,2.6);  // 발자국 빵부스러기
     }
   } else { player.stepAcc=Math.min(player.stepAcc,20); player.vx=0; player.vz=0; }
   if(run&&moving) player.lastRunT=simT;
@@ -1952,8 +2206,8 @@ function updPlayer(dt){
   } else player.shake=0;
   rattleCd=Math.max(0,rattleCd-dt);
 
-  if(held){ held.x=player.x; held.z=player.z; held.y=CARRY_H; }
-  if(pocket){ pocket.x=player.x; pocket.z=player.z; pocket.y=CARRY_H; }
+  if(held){ held.x=player.x; held.z=player.z; held.y=CARRY_H+groundY(player.x,player.z); }
+  if(pocket){ pocket.x=player.x; pocket.z=player.z; pocket.y=CARRY_H+groundY(player.x,player.z); }
   if(inPad(player.x,player.z)&&(held||pocket)){   // 반납은 배치 — 손+품 동시 집계 후 승리 판정 1회
     if(held){ const e=held; held=null; deliverEgg(e); }
     if(pocket){ const e=pocket; pocket=null; deliverEgg(e); }
@@ -1981,7 +2235,7 @@ function updCart(dt){
         cart.runAcc=0;
         const e=cart.slots.pop();
         e.state='fly'; e.touched=true; e.mesh.visible=true;
-        e.x=cart.x; e.z=cart.z; e.y=34;
+        e.x=cart.x; e.z=cart.z; e.y=34+groundY(cart.x,cart.z);
         e.vx=-Math.sin(cart.dir)*90; e.vz=-Math.cos(cart.dir)*90; e.vy=85;  // 뒤로 — 결정적 방향
         rattleS(); thudS();
         bigmsg('알이 튀어나왔다!!');
@@ -2053,6 +2307,7 @@ function resetWorld(){
     c.loopI=0; c.dwell=0; c.ax=c.hx; c.az=c.hz;
     c.alarmCd=0; c.revengeT=0; c.ko=false; c.snoreT=0;
     c.seeAcc=0; c.predicted=false; c.lsVX=0; c.lsVZ=0;
+    c.det=0; c.detGrace=0; c.detTicked=false; c.ivT=0;
     if(c.meatGiven){ c.meatGiven=false; c.m.tail.visible=true; c.m.g.scale.set(1,1,1); }
     c.m.alert.visible=false; pickWander(c);
   }
@@ -2157,9 +2412,10 @@ function camDistRaw(dx,dz){
   if(l<1e-4) return TP_DIST;
   const ux=dx/l, uz=dz/l;
   let best=TP_DIST;
-  for(let k=0;k<walls.length;k++){
-    if(JUMP_SKIP[walls[k].kind]) continue;                // 카메라가 물통에 스냅하지 않게
-    const t=raySeg(player.x,player.z,ux,uz,walls[k]);
+  const list=segsFor(player.x,player.z);
+  for(let k=0;k<list.length;k++){
+    if(JUMP_SKIP[list[k].kind]) continue;                 // 카메라가 물통에 스냅하지 않게
+    const t=raySeg(player.x,player.z,ux,uz,list[k]);
     if(t<best) best=t;
   }
   return Math.max(46,Math.min(TP_DIST,best-14));
@@ -2201,9 +2457,10 @@ function render(){
     camera.rotation.x=pitch+(player.stun>0?-0.35*(player.stun/STUMBLE_T):0);
     camera.rotation.z=roll;
     _fwd.set(0,0,-1).applyQuaternion(camera.quaternion);
-    let cx=player.x, cz=player.z, cy=EYE+sink+player.jy;
+    const pgy=groundY(player.x,player.z);
+    let cx=player.x, cz=player.z, cy=EYE+sink+player.jy+pgy;
     if(camMode===1){
-      const indoor=inCoopPt(player.x,player.z);
+      const indoor=inZoneOrCorr(player.x,player.z);
       // 실내 목표거리 110 캡 — 코너마다 46↔155 줌 펌핑(멀미) 완화
       const target=Math.min(camDistRaw(-_fwd.x,-_fwd.z), indoor?110:TP_DIST);
       if(target<tpCur) tpCur=target;
@@ -2211,9 +2468,10 @@ function render(){
       const rx=Math.cos(yaw), rz=-Math.sin(yaw);
       const side=(indoor?18:TP_SIDE)*Math.min(1,tpCur/TP_DIST);
       cx=player.x-_fwd.x*tpCur+rx*side; cz=player.z-_fwd.z*tpCur+rz*side;
-      cy=EYE+TP_UP-_fwd.y*tpCur+player.jy;
-      if(cy<20) cy=20;
-      if(indoor&&cy>BARN_H-14) cy=BARN_H-14;   // 부감 클램프 — 지붕 위 드론 뷰 차단 (정보 차단의 마지막 누수)
+      cy=EYE+TP_UP-_fwd.y*tpCur+player.jy+pgy;
+      const cgy=groundY(cx,cz);
+      if(cy<cgy+20) cy=cgy+20;                 // 바닥 클램프 — 카메라 위치의 지면 기준 (램프 뒤 관통 방지)
+      if(inZoneOrCorr(cx,cz)&&cy>cgy+BARN_H-14) cy=cgy+BARN_H-14;   // 부감 클램프 — 층 천장 기준
     }
     if(shake>0){
       cx+=(Math.random()-0.5)*11*shake; cz+=(Math.random()-0.5)*11*shake;
@@ -2223,8 +2481,10 @@ function render(){
   }
 
   plr.g.visible=(camMode===1 && phase!=='title' && phase!=='intro');
-  plr.g.position.set(player.x,player.jy,player.z);
+  plr.g.position.set(player.x,player.jy+groundY(player.x,player.z),player.z);
   plr.g.rotation.y=yaw;
+  plr.gl.visible=player.glove;                 // 장비는 손에 보인다 (3인칭)
+  fpArms.gl.visible=player.glove;              // (1인칭 왼손 — 오른손은 계란 담당)
   plr.g.rotation.z=player.stun>0?0.9*(player.stun/STUMBLE_T):0;
   const carryHands=(held!==null);
   const shoving=player.shoveAnim>0;
@@ -2247,7 +2507,7 @@ function render(){
     if(e.state==='cart'){
       const i=cart.slots.indexOf(e);
       const rx=Math.sin(cart.dir), rz=Math.cos(cart.dir);
-      e.mesh.position.set(cart.x+rx*(i?10:-10), 32, cart.z+rz*(i?10:-10));
+      e.mesh.position.set(cart.x+rx*(i?10:-10), groundY(cart.x,cart.z)+32, cart.z+rz*(i?10:-10));
       e.mesh.rotation.set(0,0,0.2);
     }
     else if(e.state==='fly'){
@@ -2255,7 +2515,7 @@ function render(){
       e.mesh.rotation.x=e.spin; e.mesh.rotation.z=e.spin*0.7;
     } else if(e.state==='robbed'&&e.carrier){
       const c=e.carrier;
-      e.mesh.position.set(c.x+Math.sin(c.dir)*16, 27+Math.abs(Math.sin(c.bob))*2, c.z+Math.cos(c.dir)*16);
+      e.mesh.position.set(c.x+Math.sin(c.dir)*16, groundY(c.x,c.z)+27+Math.abs(Math.sin(c.bob))*2, c.z+Math.cos(c.dir)*16);
       e.mesh.rotation.set(0,0,0.5);
     } else if(e.state==='rest'){
       e.mesh.position.set(e.x,e.y,e.z);
@@ -2277,7 +2537,7 @@ function render(){
       const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
       const rx=Math.cos(yaw),  rz=-Math.sin(yaw);
       held.mesh.position.set(player.x+fx*24+rx*(11+wob),
-                             CARRY_H+10+player.jy+Math.sin(now*7)*1.2+wobY,
+                             CARRY_H+10+player.jy+groundY(player.x,player.z)+Math.sin(now*7)*1.2+wobY,
                              player.z+fz*24+rz*(11+wob));
     }
     held.mesh.rotation.set(0,0,wob*0.06);
@@ -2290,13 +2550,14 @@ function render(){
 
   for(const c of chickens){
     const m=c.m;
+    const cgy=groundY(c.x,c.z);
     let y=Math.abs(Math.sin(c.bob))*2.5;
     if(c.state==='flap') y=Math.abs(Math.sin(now*18))*7;
-    m.g.position.set(c.x,y,c.z);
+    m.g.position.set(c.x,cgy+y,c.z);
     if(c.state==='stunned'){
       if(c.ko){                                  // KO — 드러누워 코를 곤다 (별 대신 몸개그)
         m.g.rotation.z=Math.PI/2;
-        m.g.position.y=6+Math.sin(now*3)*0.8;
+        m.g.position.y=cgy+6+Math.sin(now*3)*0.8;
       } else {
         m.g.rotation.y+=0.35;
         m.g.rotation.z=Math.sin(now*20)*0.4;
@@ -2305,10 +2566,19 @@ function render(){
       m.g.rotation.y=c.dir-Math.PI/2;
       m.g.rotation.z=0;
     }
+    const eligible=(c.state==='wander'||c.state==='return'||c.state==='invest');
     if(c.state==='peck'&&c.arrived) m.neck.rotation.z=-1.15+Math.sin(now*11)*0.35;
     else if(c.state==='alert'){
       m.neck.rotation.z=0.25;
       m.neck.rotation.y=Math.sin(now*30)*0.35;
+    }
+    else if(!blackout&&c.det>0.3&&eligible){
+      // 응시 — det>0.3이면 목이 플레이어를 좇는다: "UI가 아니라 닭이 알아챈다"
+      let rel=Math.atan2(player.x-c.x,player.z-c.z)-c.dir;
+      while(rel>Math.PI) rel-=TAU;
+      while(rel<-Math.PI) rel+=TAU;
+      m.neck.rotation.y=Math.max(-1.1,Math.min(1.1,rel));
+      m.neck.rotation.z=0.15;
     }
     else if(c.state==='invest'&&c.ivArr){
       m.neck.rotation.z=0.2;
@@ -2319,11 +2589,33 @@ function render(){
     m.l1.rotation.x=Math.sin(c.bob)*0.7;
     m.l2.rotation.x=-Math.sin(c.bob)*0.7;
     m.tail.rotation.z=Math.PI*0.72+(c.state==='flap'?Math.sin(now*22)*0.4:0);
-    m.alert.visible=(c.state==='alert'||c.state==='chase');
+    // ! — 시야 발각·추격. 복수·격노는 진홍 2배 점멸
+    const rage=c.revengeT>0;
+    m.alertM.color.setHex(rage?0xd01424:0xff5040);
+    m.alert.visible=(c.state==='alert'||c.state==='chase')&&(!rage||Math.sin(now*16)>-0.5);
     if(m.alert.visible) m.alert.position.y=54+Math.abs(Math.sin(now*8))*7;
-    // ? — 소리 반응 (invest·미끼 접근). !와 동시 표시 불가 (상태가 상호배타)
-    m.quest.visible=(c.state==='invest'||(c.state==='peck'&&!c.arrived));
+    // 발각 게이지 — det>0.05, 밝은 구간 한정. 카메라 빌보드
+    const showG=(!blackout&&c.det>0.05&&eligible&&phase==='play');
+    m.gauge.visible=showG;
+    if(showG){
+      m.gFill.scale.x=Math.max(0.02,c.det);
+      m.gFill.position.x=-9+9*c.det;
+      m.gFillM.color.setHex(c.det>0.7?0xff5040:0xffc040);
+      m.gauge.rotation.y=yaw-(c.dir-Math.PI/2);
+    }
+    // ? — 소리 반응 (invest·미끼 접근) + 표적 마커 (강탈 — "나 말고 알을 노린다"). 게이지가 ?를 대체
+    m.questM.color.setHex((c.state==='grab'||c.state==='rob')?0xff8830:0xffc040);
+    m.quest.visible=!showG&&(c.state==='invest'||(c.state==='peck'&&!c.arrived)||c.state==='grab'||c.state==='rob');
     if(m.quest.visible) m.quest.position.y=54+Math.sin(now*6)*4;
+    // 시야 원 — 알 소지·밝은 구간·LOS·거리 400 이내·chickenSee를 읽는 상태만 (벽 뒤 링 없음 — 갑툭튀 보존)
+    const ringOk=carriesEgg()&&!blackout&&phase==='play'&&(eligible||c.state==='alert')&&
+      Math.hypot(c.x-player.x,c.z-player.z)<=RING_MAX_D&&!lineBlocked(player.x,player.z,c.x,c.z);
+    m.ring.visible=ringOk;
+    if(ringOk){
+      const r=sightRadius();
+      m.ring.scale.set(r,r,1);
+      m.ring.position.set(c.x,cgy+1.6,c.z);
+    }
     // 눈 — carriesEgg()가 곧 규칙: 알을 드는 순간 떠지고, 내려놓으면 도로 실눈
     const eyeOpen=carriesEgg()?1:0.16;
     m.e1.scale.y+=(eyeOpen-m.e1.scale.y)*0.2;
@@ -2361,7 +2653,7 @@ function render(){
     gloveMesh.position.y=48+Math.sin(now*2.4)*3;
     gloveMesh.rotation.y=now*1.1;
   }
-  cartG.position.set(cart.x,0,cart.z);
+  cartG.position.set(cart.x,groundY(cart.x,cart.z),cart.z);
   cartG.rotation.y=cart.dir;
 
   dotMat.uniforms.uTime.value=simT;
@@ -2385,6 +2677,7 @@ function render(){
       (stats.meat?' · 닭고기 '+stats.meat:'')+
       (blackout?' · <span class="warn">정전</span>':'')+timerStr+'<br>'+
       '시간 '+stats.t.toFixed(1)+'초 · 깨짐 '+stats.broken+' · 잡힘 '+stats.caught+
+      ' · '+(zoneOfArea(player.x,player.z)===1?'지하':(zoneOfArea(player.x,player.z)===2?'계단':(inCoopPt(player.x,player.z)?'1층':'마당')))+
       ' · 시점 '+(camMode?'3인칭':'1인칭');
   }
   const pr=document.getElementById('prompt');
@@ -2392,9 +2685,11 @@ function render(){
   else if(phase!=='play'){ pr.textContent=''; }
   else if(player.stun>0){ pr.textContent='넘어졌다…'; }
   else if(blackout&&held){
+    const below=zoneOfArea(player.x,player.z)!==0;   // 지하·계단이면 탈출 유도가 다르다
     pr.textContent=(player.shake>SHAKE_TELE)?'계란이 미끄러진다!! — 걸어!'
       :(stats.delivered+carriedEggCount()>=NEED_EGGS
-        ?'어둠이다 — 서쪽 문의 불빛으로. 소리가 지형을 보여준다'
+        ?(below?'어둠이다 — 파란 계단 불빛으로 올라가라. 소리가 지형을 보여준다'
+               :'어둠이다 — 서쪽 문의 불빛으로. 소리가 지형을 보여준다')
         :'정전이다 — 알은 어둠 속에서 빛난다. 소리가 지형을 보여준다');
   }
   else if(held){
@@ -2516,50 +2811,61 @@ window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
 // ============================================================
 (function validate(){
   const bad=[];
-  // 1) 전 셀 도달성 (정문 셀 기준)
-  const doorCell=cid(SPINE,0);
-  for(let s=0;s<CELL_N;s++) if(NEXT[doorCell].dist[s]<0) bad.push('unreachable cell '+s);
-  // 2) 트레이: 정문 최소거리 1800 + 첫 트레이 척추 LOS
+  const doorCell=gcid(0,SPINE,0), b1Entry=gcid(1,B1_SPINE,0);
+  // 1) 층별 전 셀 도달성 — 1F는 정문 셀, B1은 계단 입구 셀 기준
+  for(const cell of CELLS){
+    const src=cell.f===0?doorCell:b1Entry;
+    if(NEXT[src].dist[gcid(cell.f,cell.a,cell.c)]<0) bad.push('unreachable f'+cell.f+' '+cell.a+','+cell.c);
+  }
+  // 2) 트레이 게이트 — BFS 경로장 기준 (유클리드 1700은 스케일 9·오프셋 존에서 무의미 — 패널 교체 판정)
   for(const [i,p] of NEST_POS.entries()){
-    const d=Math.hypot(p.x-BARN.x0,p.z-DOOR_Z);
-    if(d<1700) bad.push('tray'+i+' gate '+Math.round(d));
+    const d=NEXT[p.f===0?doorCell:b1Entry].dist[gcid(p.f,p.cell[0],p.cell[1])];
+    if(d<0) bad.push('tray'+i+' unreachable');
+    if(i>=2&&d<2) bad.push('tray'+i+' too shallow '+d);
   }
-  if(TRAY_CELLS[0][0]!==SPINE) bad.push('firstTray not on spine');
-  // 3) 막다른 길 수 (deg1 셀)
-  let de=0;
-  for(let a=0;a<A_N;a++)for(let c=0;c<C_N;c++) if(cellNbrs(a,c).length===1) de++;
-  if(de<3||de>6) bad.push('deadends '+de);
-  // 4) 닭집·트레이 셀 유효성
-  for(const h of HOME_CELLS) if(NEXT[doorCell].dist[cid(h[0],h[1])]<0) bad.push('home unreachable');
-  // 5) 지킴이: 각 트레이 셀 또는 이웃에 닭집
-  for(const [i,[a,c]] of TRAY_CELLS.entries()){
-    const zone=new Set([cid(a,c),...cellNbrs(a,c).map(([x,y])=>cid(x,y))]);
-    if(!HOME_CELLS.some(([ha,hc])=>zone.has(cid(ha,hc)))) bad.push('tray'+i+' unguarded');
-  }
-  // --- v0.6 추가 어서션 ---
-  // 6) 순찰 리터럴에 척추 셀 0개 (척추 = 회복 축 — 닭 상주 금지)
-  for(const lp of PATROL_LOOPS){
-    if(!lp) continue;
-    for(const [a,c] of lp) if(a===SPINE) bad.push('patrol on spine '+a+','+c);
-  }
-  // 7) 역할 분담: 트레이0 지킴이 불활성 + 활성 지킴 5 + 자유 순찰 4 = 10
+  if(TRAY_DEF[0].cell[0]!==SPINE||TRAY_DEF[0].f!==0) bad.push('tray0 not 1F spine');
+  // 3) 배분: 알 1F2/B14 · 닭 1F4/B16 · 지킴이-트레이 동층
+  if(TRAY_DEF.filter(t=>t.f===0).length!==2||TRAY_DEF.filter(t=>t.f===1).length!==4) bad.push('tray split');
+  if(CHK_DEF.filter(d=>d.f===0).length!==4||CHK_DEF.filter(d=>d.f===1).length!==6) bad.push('chk split');
+  for(const d of CHK_DEF) if(d.guard>=0&&TRAY_DEF[d.guard].f!==d.f) bad.push('guard cross-floor');
+  // 4) 지킴 배정: 트레이0 제외 전 트레이 담당 1 + 트레이0 지킴이 불활성 (튜토리얼 계약)
+  for(let t=1;t<TRAY_DEF.length;t++) if(!CHK_DEF.some(d=>d.guard===t)) bad.push('tray'+t+' unguarded');
   if(chickens[0].guard!==-1||chickens[0].loop) bad.push('tray0 guardian not inert');
+  // 5) 순찰 리터럴 — 자기 층 척추 셀 금지 (척추 = 회복 축. 계단 셀은 그래프에 아예 없음 — 봉쇄 구조 보장)
+  for(const d of CHK_DEF){
+    if(!d.loop) continue;
+    for(const [a] of d.loop) if(a===FLOORS[d.f].spine) bad.push('patrol on spine f'+d.f);
+  }
+  // 6) 층 척추 마개 금지
+  for(let f=0;f<2;f++){
+    const FL=FLOORS[f];
+    for(let b=0;b<FL.cn-1;b++) if(!FL.MH[FL.spine][b]) bad.push('spine plug f'+f);
+  }
+  // 7) 계단 입구가 1F 척추에서 읽히는가 (정문 → 계단 입구 LOS)
+  if(lineBlocked(DOOR_IN.x,DOOR_IN.z,BARN.x1-20,ZA)) bad.push('stair entrance not readable from door');
+  // 8) 계단참 물통 잔폭 ≥230
+  if(STAIR.L1.z1-TROUGHS[0].z1<230) bad.push('trough0 walkway');
+  if(TROUGHS[1].x0-STAIR.L1.x0<230) bad.push('trough1 walkway');
+  if(TROUGHS[2].z0-STAIR.L2.z0<230) bad.push('trough2 walkway');
+  // 9) 램프 위 물통·트레이 금지
+  for(const b of TROUGHS) if(b.x0>=STAIR.R.x0) bad.push('trough on ramp');
+  // 10) 존 이격 ≥620 + 모든 광역 반경 상수 < 이격 (신설 상수가 이격을 넘으면 층 격리 붕괴)
+  const gap=B1.x0-BARN.x1;
+  if(gap<620) bad.push('zone gap '+gap);
+  if(PACK_R>=gap||CHK_LEASH>=gap||RING_MAX_D>=gap) bad.push('radius exceeds gap');
+  // 11) 트레이 좌표의 존 정합 (강탈·둥지 동존 필터의 전제)
+  for(const [i,p] of NEST_POS.entries()) if(zoneOfArea(p.x,p.z)!==(p.f===1?1:0)) bad.push('tray'+i+' zone mismatch');
+  // 12) 스위치백 접힘 — 두 층 최근접 셀 중심 ≥500
   {
-    const g=chickens.filter(c=>c.guard>=0).length;
-    const f=chickens.filter(c=>c.loop&&c.guard<0).length;
-    if(g!==5||f!==4||chickens.length!==10) bad.push('roles guard'+g+'/free'+f);
+    let minD=1e9;
+    for(const a of CELLS) if(a.f===0) for(const b of CELLS) if(b.f===1) minD=Math.min(minD,Math.hypot(a.x-b.x,a.z-b.z));
+    if(minD<500) bad.push('floor cells too close '+Math.round(minD));
   }
-  // 8) 물통 통행 잔폭 ≥230 + 개구 간섭 없음
-  if(AH-34-28<230) bad.push('trough walkway '+(AH-62));
-  for(const b of TROUGHS){
-    if(b.x0<cellXC(b.c)+OPEN_W/2) bad.push('trough overlaps opening '+b.a+','+b.c);
-    if(b.a===SPINE||b.a===EAST_HOLE_AISLE) bad.push('trough on spine/hole aisle');
-  }
-  // 9) 글러브 스폰이 마당 상자 위인가
+  // 글러브 스폰 (승계)
   if(!(GLOVE_POS.x>=600&&GLOVE_POS.x<=660&&GLOVE_POS.z>=TRUCK_Z-90&&GLOVE_POS.z<=TRUCK_Z-30))
     bad.push('glove off crate');
-  if(bad.length){ console.error('[미로 검증 실패]',bad); }
-  else console.log('[검증] 13/13 통과 — 셀 48, 막다른 길 '+de+', 닭 '+CHK_COUNT+' (지킴 5+불활성 1+자유 4), 물통 '+TROUGHS.length+', 타이머 '+DARK_TIMER+'s');
+  if(bad.length){ console.error('[검증 실패]',bad); }
+  else console.log('[검증] 12/12 통과 — 셀 '+CELL_N+' (1F 48+B1 24), 닭 '+CHK_COUNT+' (1F 4/B1 6), 알 2+4, 이격 '+gap+', 타이머 '+DARK_TIMER+'s');
 })();
 
 // ============================================================
