@@ -301,6 +301,18 @@ const STAM_REGEN_T=8;            // 회복(초) — 바닥→가득 (질주하�
 const STAM_MIN_RESUME=0.25;      // 바닥 친 뒤 재질주 문턱 (스터터 스팸 방지)
 const SENS_DEF=1.0, VOL_DEF=0.5; // 설정 기본값 (localStorage ch_sens / ch_vol)
 
+// v0.10 신설 — 멀티플레이 (docs/goal/chicken-heist-multiplayer.md — 패널 33결정)
+// M1: players[] 구조체화 (솔로 N=1 동작 동일). LOGIC 상수 변경 0.
+const MAX_PLAYERS=4;
+const PLAYER_TINTS=[0x8fb8ff,0x9fe08a,0xc9a0ff,0x7fd8d8]; // 파랑·초록·보라·청록 (경고적 0xff5040·게이지호박 0xffc040과 분리)
+const PLAYER_NAMES=['파랑','초록','보라','청록'];
+const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사전 배치 (첫 프레임 분리 밀침 방지)
+const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
+const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
+const NET_SNAP_R=200;             // 원격 엔티티 하드 스냅 오차 상한 (u)
+const NET_HZ=20, PROTO_V='v0.10'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내)
+const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
+
 // ============================================================
 //  맵 — 선분은 위상 리터럴에서 전개된다
 // ============================================================
@@ -577,7 +589,7 @@ function raySeg(px,pz,dx,dz,s){
   return (t>1e-4 && u>=0 && u<=1) ? t : Infinity;
 }
 function collideCircle(o){
-  const jy=(o===player)?player.jy:0;
+  const jy=o.jy||0;                 // 플레이어만 jy 보유 — 닭·수레·계란은 0
   const list=segsFor(o.x,o.z);
   for(let k=0;k<list.length;k++){
     const s=list[k];
@@ -620,24 +632,49 @@ function lineBlocked(ax,az,bx,bz){
 // ============================================================
 //  상태
 // ============================================================
-const player={x:SPAWN.x,z:SPAWN.z,r:PLR_R,stepAcc:0,stun:0,invuln:0,
-  shake:0,lastRunT:-9,stagger:0,shoveCd:0,shoveAnim:0,elbow:0,
-  jy:0,jvy:0,swapT:0,glove:false,vx:0,vz:0,running:false,
-  stam:1,exhausted:false};
-let lastCarried=0;   // 계란 0→1 순간 감지 — "눈이 떠진다" 신호용
+// M1: 단수 전제 해체 — 전역 player/held/pocket/yaw/pitch → players[] + 로컬 인덱스 me.
+// 규칙 함수는 전부 p 인자를 받는다. 뷰어 전용 코드(렌더·HUD·카메라)만 P()를 쓴다.
+function makePlayerState(i){
+  return {idx:i,active:false,
+    x:SPAWN.x+SPAWN_OFFS[i][0],z:SPAWN.z+SPAWN_OFFS[i][1],r:PLR_R,
+    yaw:-Math.PI/2,pitch:0,
+    stepAcc:0,stun:0,invuln:0,
+    shake:0,lastRunT:-9,stagger:0,shoveCd:0,shoveAnim:0,elbow:0,
+    jy:0,jvy:0,swapT:0,glove:false,vx:0,vz:0,running:false,
+    stam:1,exhausted:false,held:null,pocket:null,
+    mv:{x:0,z:0,run:false},   // 이동 인텐트 — 로컬은 키보드에서, 원격은 넷에서 채운다
+    acts:[]};                 // 원샷 액션 인텐트 큐 — 프레임 시작 일괄 처리 (로컬·원격 동일 경로)
+}
+const players=[]; for(let i=0;i<MAX_PLAYERS;i++) players.push(makePlayerState(i));
+let me=0; players[0].active=true;
+function P(){ return players[me]; }
+function eachP(fn){ for(const p of players) if(p.active) fn(p); }
+// 넷 상태 — M2에서 채워진다. 솔로: on=false (모든 넷 분기 무비용)
+const NET={on:false,host:false,ws:null,room:'',started:false,
+  ev:[],            // 호스트 → 전원 원샷 이벤트 큐 (wave·bigmsg만 — D20)
+  actOut:[],        // 클라 → 호스트 액션 인텐트 송신 대기열
+  lastSnapT:-9,     // 클라: 마지막 스냅샷 수신 시각 (침묵 >2s = "연결이 불안하다")
+  pause:false,pauseWhy:'',
+  peers:0,url:''};
+// M2 전송 계층 스텁 — M1 커밋 단계에선 불활성 (M2에서 실구현으로 교체)
+function netSend(o){}
+function netCast(o){}
+function hostNetFlush(dt){}
+function clientTick(dt){}
+let lastCarried=0;   // 팀 계란 0→1 순간 감지 — "눈이 떠진다" 신호용 (호스트 판정)
 // 설정 — localStorage 첫 사용 (v0.7. 감도·음량 두 키뿐)
 let sens=parseFloat(localStorage.getItem('ch_sens'));
 if(!(sens>=0.2&&sens<=3)) sens=SENS_DEF;
 let vol=parseFloat(localStorage.getItem('ch_vol'));
 if(!(vol>=0&&vol<=1)) vol=VOL_DEF;
-let yaw=-Math.PI/2, pitch=0;
-let camMode=0, tpCur=TP_DIST;
+let camMode=0, tpCur=TP_DIST;      // 시점·카메라 — 뷰어 로컬 (스냅샷 비대상)
+let charge=-1;                     // 던지기 파워 적산 — 뷰어 로컬 (판정은 인텐트의 pw를 호스트가 클램프)
 const eggs=[], chickens=[];
-let held=null, pocket=null, charge=-1;
 let stats={t:0,broken:0,delivered:0,caught:0,meat:0};
 let warned30=false, warned10=false;
 const CART_HOME={x:TRUCK_X+60,z:TRUCK_Z+160};
-const cart={x:CART_HOME.x,z:CART_HOME.z,r:26,dir:0,pulled:false,slots:[],trail:[],runAcc:0};
+// cart.pulled → cart.owner (플레이어 인덱스, -1=없음) — 견인자 신원 (패널 D10)
+const cart={x:CART_HOME.x,z:CART_HOME.z,r:26,dir:0,owner:-1,slots:[],trail:[],runAcc:0};
 const GLOVE_POS={x:630,z:TRUCK_Z-60};   // 마당 상자 위 — 스폰 시야 안
 let phase='title';
 let now=0, simT=0, shake=0, flash=0, fade=0;
@@ -692,9 +729,12 @@ for(const p of LAMP_POS){
 }
 const padLight=new THREE.PointLight(0xffe08a,0.7,260);
 padLight.position.set(truckPad.x,60,truckPad.z); scene.add(padLight);
-// 계란 랜턴 — 싱글턴 1개, 항시 씬에 (라이트 수 변경 시 셰이더 재컴파일 히치 방지)
-const LANTERN=new THREE.PointLight(0xffd9a8,0,LANTERN_DIST);
-LANTERN.position.set(0,-999,0); scene.add(LANTERN);
+// 계란 랜턴 — 플레이어 슬롯당 1개, 4개 상주 (라이트 수 변경 시 셰이더 재컴파일 히치 방지 — M1 D29)
+const LANTERNS=[];
+for(let i=0;i<MAX_PLAYERS;i++){
+  const L=new THREE.PointLight(0xffd9a8,0,LANTERN_DIST);
+  L.position.set(0,-999,0); scene.add(L); LANTERNS.push(L);
+}
 
 function mat(c,e){ const m=new THREE.MeshLambertMaterial({color:c}); if(e) m.emissive=new THREE.Color(e); return m; }
 const MAT={
@@ -1081,26 +1121,36 @@ for(let i=0;i<CHK_COUNT;i++){
     loopI:0,dwell:0,ax:CHK_HOME[i].x,az:CHK_HOME[i].z,
     alarmCd:0,revengeT:0,ko:false,snoreT:0,meatGiven:false,
     seeAcc:0,predicted:false,lsVX:0,lsVZ:0,
-    det:0,detGrace:0,detTicked:false});
+    tgt:0,                                     // 표적 플레이어 인덱스 — targetOf(c)의 유일한 재료
+    det:new Float32Array(MAX_PLAYERS),detG:new Float32Array(MAX_PLAYERS),detTicked:false});
 }
 
-// ---------- 플레이어 몸 + 1인칭 팔 ----------
-const plr=(function(){
+// ---------- 플레이어 몸 ×4 (틴트 팩토리 — D29) + 1인칭 팔 ----------
+function makeAvatar(tint){
   const g=new THREE.Group();
-  const body=new THREE.Mesh(new THREE.CylinderGeometry(11,12,40,12),mat(0xd8d2c4,0x22201c));
+  const bodyM=mat(tint,0x22201c);
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(11,12,40,12),bodyM);
   body.position.y=26; g.add(body);
   const head=new THREE.Mesh(new THREE.SphereGeometry(10,14,12),mat(0xf0c39a,0x2a1f14));
   head.position.y=54; g.add(head);
-  const hat=new THREE.Mesh(new THREE.CylinderGeometry(11,9,16,14),mat(0xf4f4f0,0x2c2c2a));
+  const hatM=mat(tint,0x2c2c2a);
+  const hat=new THREE.Mesh(new THREE.CylinderGeometry(11,9,16,14),hatM);
   hat.position.y=68; g.add(hat);
   const ag=new THREE.BoxGeometry(6,20,6);
   const a1=new THREE.Mesh(ag,mat(0xf0c39a,0x2a1f14)); a1.position.set(8,32,10); g.add(a1);
   const a2=new THREE.Mesh(ag,mat(0xf0c39a,0x2a1f14)); a2.position.set(8,32,-10); g.add(a2);
   const gl1=new THREE.Mesh(new THREE.SphereGeometry(7.5,10,8),mat(0xc03a30,0x380a06));
   gl1.position.set(0,-12,0); gl1.scale.set(1.1,0.95,1.1); gl1.visible=false; a1.add(gl1);  // 3인칭 글러브
-  scene.add(g);
-  return {g,body,head,a1,a2,gl:gl1};
-})();
+  // 운반 표지 계란 — "누가 알을 들었나" 팀 가독성 (D28. 품 포함, 표시 전용)
+  const carryE=new THREE.Mesh(EGG_GEO,mat(0xfff6e4,0x6b5f45));
+  carryE.scale.set(0.8,1,0.8); carryE.position.y=86; carryE.visible=false; g.add(carryE);
+  g.visible=false; scene.add(g);
+  return {g,body,bodyM,head,hatM,a1,a2,gl:gl1,carryE};
+}
+const avatars=PLAYER_TINTS.map(makeAvatar);
+// 솔로 뷰어 몸통은 기존 색 유지 (친구 첫인상 불변 — 틴트는 멀티에서만 의미)
+avatars[0].bodyM.color.setHex(0xd8d2c4); avatars[0].hatM.color.setHex(0xf4f4f0);
+const plr=avatars[0];   // 하위호환 별칭 — 뷰어(me)의 아바타는 렌더에서 avatars[me]로 갱신
 const fpArms=(function(){
   const g=new THREE.Group();
   const am=mat(0xf0c39a,0x2a1f14);
@@ -1196,6 +1246,8 @@ const WCOL={
   dim:[0.42,0.62,0.78], run:[0.55,0.78,0.95], amber:[1,0.82,0.55],
   red:[1,0.45,0.35], white:[0.9,0.95,1], cluck:[1,0.65,0.35], pick:[0.6,0.9,1],
 };
+// 플레이어 틴트의 파동용 RGB — 어둠 속 "다가오는 링이 친구인가 위협인가" 판독 (D16)
+const TINT_RGB=PLAYER_TINTS.map(h=>[((h>>16)&255)/255,((h>>8)&255)/255,(h&255)/255]);
 function castAll(x,z,rays){
   const hits=new Float32Array(rays);
   const list=segsFor(x,z);
@@ -1211,18 +1263,26 @@ function castAll(x,z,rays){
   }
   return hits;
 }
-// own=true면 내 소리 — 1인칭 발밑 FOV 보정 (v1의 sqrt+1.9배 시각 부스트)
-function spawnWave(x,z,maxR,color,own){
+// own: 발원자가 뷰어 본인일 때만 1인칭 발밑 FOV 부스트 (v1의 sqrt+1.9배). srcIdx≥0면 그 플레이어 틴트 (D16)
+function spawnWave(x,z,maxR,color,srcIdx){
   if(!blackout||phase==='title') return;
   const rays=(maxR<=200)?STEP_RAYS:WAVE_RAYS;
-  waves.push({x,z,r:0,pr:0,maxR,color,own:!!own,rays,base:groundY(x,z),  // 원점 존 base 캡처 (링·스탬프 y)
+  const own=(srcIdx===true)||(typeof srcIdx==='number'&&srcIdx===me);
+  const tint=(typeof srcIdx==='number'&&srcIdx>=0&&srcIdx!==me&&NET.on)?TINT_RGB[srcIdx]:null;
+  waves.push({x,z,r:0,pr:0,maxR,color,own,tint,rays,base:groundY(x,z),  // 원점 존 base 캡처 (링·스탬프 y)
               hits:castAll(x,z,rays),stamped:new Uint8Array(rays)});
+}
+// 시뮬 발화점용 — 로컬 재생 + 호스트면 이벤트 채널 방송 (수신자도 같은 spawnWave 경로 — 이중 재생 없음)
+function waveCast(x,z,maxR,color,src){
+  const si=src?src.idx:-1;
+  spawnWave(x,z,maxR,color,si>=0?si:undefined);
+  if(NET.host) NET.ev.push(['wave',si,Math.round(x),Math.round(z),maxR,color]);
 }
 function updWaves(dt){
   for(let i=waves.length-1;i>=0;i--){
     const w=waves[i];
     w.pr=w.r; w.r+=WAVE_SPEED*dt;
-    const c=WCOL[w.color]||WCOL.dim;
+    const c=w.tint||WCOL[w.color]||WCOL.dim;
     // 바닥 링
     const fall=w.own?Math.sqrt(Math.max(0,1-w.r/w.maxR)):Math.max(0,1-w.r/w.maxR);
     const base=fall*(w.own?0.85:0.5);
@@ -1288,14 +1348,16 @@ function noiseHit(dur,gain,f0,f1){
   s.connect(bp); bp.connect(g); g.connect(master); s.start(t); s.stop(t+dur+0.03);
 }
 function volAt(x,z,base,range){
-  const d=Math.hypot(x-player.x,z-player.z);
+  const d=Math.hypot(x-P().x,z-P().z);   // 사운드는 뷰어 기준 — 정의상 로컬 (계획 문서 3절)
   return base*Math.max(0,1-d/(range||600));
 }
-function stepS(run){ noiseHit(0.05, run?0.16:0.09, 140, 520+Math.random()*260); }
-function pickS(){ blip(660,0.07,0.16,'triangle'); blip(990,0.05,0.08,'sine'); }
-function placeS(){ blip(330,0.08,0.12,'sine'); }
-function whipS(f){ noiseHit(0.05,0.05+0.09*f,2200,7000); }
-function thudS(){ blip(96,0.13,0.22,'sine'); noiseHit(0.04,0.1,90,320); }
+// g1: 좌표 없으면 내 소리(원음량), 있으면 뷰어 거리 감쇠 — 플레이어 동작음의 4인 일반화
+function g1(base,x,z,range){ return (x===undefined)?base:volAt(x,z,base,range||520); }
+function stepS(run,x,z){ noiseHit(0.05, g1(run?0.16:0.09,x,z), 140, 520+Math.random()*260); }
+function pickS(x,z){ blip(660,0.07,g1(0.16,x,z),'triangle'); blip(990,0.05,g1(0.08,x,z),'sine'); }
+function placeS(x,z){ blip(330,0.08,g1(0.12,x,z),'sine'); }
+function whipS(f,x,z){ noiseHit(0.05,g1(0.05+0.09*f,x,z),2200,7000); }
+function thudS(x,z){ blip(96,0.13,g1(0.22,x,z,700),'sine'); noiseHit(0.04,g1(0.1,x,z,700),90,320); }
 function crackTickS(){ noiseHit(0.05,0.16,1400,4200); }
 function rattleS(){ noiseHit(0.03,0.05,900,2600); }
 function crackS(){
@@ -1325,12 +1387,12 @@ function peckS(x,z){ blip(1200,0.03,volAt(x,z,0.08,420),'square'); }
 function eatS(x,z){ noiseHit(0.16,volAt(x,z,0.18,420),150,700); }
 function flapS(x,z){ for(let i=0;i<4;i++) setTimeout(()=>noiseHit(0.06,volAt(x,z,0.1,520),300,1400),i*90); }
 function skidS(x,z){ noiseHit(0.08,volAt(x,z,0.08,420),300,900); }
-function shoveS(){ noiseHit(0.08,0.2,1800,5200); blip(120,0.12,0.18,'sine'); }
-function punchS(){ noiseHit(0.06,0.3,150,900); blip(88,0.16,0.3,'sine'); blip(400,0.05,0.12,'square'); }
-function caughtS(){
-  squawkS(); setTimeout(()=>squawkS(),110);
-  noiseHit(0.18,0.22,120,700);
-  blip(70,0.25,0.24,'sine');
+function shoveS(x,z){ noiseHit(0.08,g1(0.2,x,z),1800,5200); blip(120,0.12,g1(0.18,x,z),'sine'); }
+function punchS(x,z){ noiseHit(0.06,g1(0.3,x,z,700),150,900); blip(88,0.16,g1(0.3,x,z,700),'sine'); blip(400,0.05,g1(0.12,x,z,700),'square'); }
+function caughtS(x,z){
+  squawkS(x,z); setTimeout(()=>squawkS(x,z),110);
+  noiseHit(0.18,g1(0.22,x,z,700),120,700);
+  blip(70,0.25,g1(0.24,x,z,700),'sine');
 }
 function winS(){
   blip(523,0.15,0.2,'triangle');
@@ -1344,7 +1406,10 @@ function failS(){
   setTimeout(()=>blip(262,0.6,0.2,'triangle'),520);
 }
 function toggleMute(){ muted=!muted; if(master) master.gain.value=muted?0:vol; }
-function puffS(){ noiseHit(0.25,0.18,180,700); setTimeout(()=>noiseHit(0.22,0.14,160,600),260); }
+function puffS(x,z){ noiseHit(0.25,g1(0.18,x,z),180,700); setTimeout(()=>noiseHit(0.22,g1(0.14,x,z),160,600),260); }
+// 내 동작이면 원음량, 남 동작이면 그 위치 기준 감쇠 — 호출부 공용 헬퍼
+function sxz(p){ return p.idx===me?undefined:p.x; }
+function szz(p){ return p.idx===me?undefined:p.z; }
 
 // ============================================================
 //  정전 — 시작: 확보 총량(delivered+손+품+수레)≥3이 되는 획득 순간,
@@ -1352,22 +1417,30 @@ function puffS(){ noiseHit(0.25,0.18,180,700); setTimeout(()=>noiseHit(0.22,0.14
 //  알을 잃어도 어둠 유지 — "반납대 도달" 종료의 착취 없는 최저가 해석.
 //  빈손 도달로 불을 켜고 여유 정찰하는 루트를 원천 차단한다)
 // ============================================================
-function carriedEggCount(){ return (held?1:0)+(pocket?1:0)+cart.slots.length; }
-function checkDarkTrigger(){
+// 팀 합산 (D8 — 계획 문서 권장 그대로): 전원 손+품 + 수레. "4인이 3개를 나눠 들면 그 순간 암전"
+function carriedEggCount(){
+  let n=cart.slots.length;
+  eachP(p=>{ n+=(p.held?1:0)+(p.pocket?1:0); });
+  return n;
+}
+function checkDarkTrigger(p){
   // 확보 총량 — 어떤 운반 전략이든 "마지막 필요분을 손에 넣는 순간" (v0.5 픽업 트리거는 부분집합)
-  if(stats.delivered+carriedEggCount()>=NEED_EGGS) startBlackout();
+  if(stats.delivered+carriedEggCount()>=NEED_EGGS) startBlackout(p);
 }
 // 정전 한정 피탐 술어: 품·견인 수레의 발광 알도 팔린다 (은신 상위 전략 봉쇄).
 // 밝은 구간은 손만 — v0.4 바이트 동일. 랜턴(빛)은 손 슬롯 전용: 품 = 빛을 잃고 피탐은 유지.
-function carriesEgg(){
-  if(!blackout) return held!==null;
-  return held!==null||pocket!==null||(cart.pulled&&cart.slots.length>0);
+// M1: 플레이어별 술어 (D2 — "알 버리면 놓아준다"는 개인 단위로 성립해야 한다)
+function carriesEgg(p){
+  if(!blackout) return p.held!==null;
+  return p.held!==null||p.pocket!==null||(cart.owner===p.idx&&cart.slots.length>0);
 }
-function startBlackout(){
+function anyCarrier(){ for(const p of players) if(p.active&&carriesEgg(p)) return p; return null; }
+function startBlackout(p){
   if(blackout||!darkEnabled) return;
   blackout=true; flickT=FLICKER_T;
   clunkS();
-  bigmsg('정전!!');
+  // 정전 귀속 (D28): 팀 합산 트리거는 3/4에게 인과가 안 보인다 — 마지막 알을 잡은 사람을 이름으로
+  bigmsgCast((p&&NET.on)?('정전!! — '+PLAYER_NAMES[p.idx]+'이 마지막 알을 잡았다'):'정전!!');
   applyDark(true);
 }
 function endBlackout(){
@@ -1389,6 +1462,8 @@ function bigmsg(txt){
   const el=document.getElementById('bigmsg');
   el.textContent=txt; bigmsgT=2.2;
 }
+// 호스트 전용 방송 버전 — 이벤트 채널(D20)에 실어 전원에게. 솔로에선 bigmsg와 동일
+function bigmsgCast(txt){ bigmsg(txt); if(NET.host) NET.ev.push(['big',txt]); }
 
 // ============================================================
 //  계란 상태기계 (v0.4 승계)
@@ -1416,7 +1491,7 @@ function breakEgg(e){
   burst(e.x,6,e.z,26,COL_YOLK,16,0.9,7);
   burst(e.x,10,e.z,16,COL_SHELL,22,0.7,4);
   crackS();
-  spawnWave(e.x,e.z,VIS_BREAK,'red');
+  waveCast(e.x,e.z,VIS_BREAK,'red');
   shake=Math.max(shake,0.35);
   decoyPulse(e.x,e.z,null);
   checkFail();
@@ -1436,40 +1511,44 @@ function checkFail(){
   if(phase!=='play') return;
   if(aliveEggs()+stats.delivered<NEED_EGGS) startFail();
 }
-function recentRun(){ return (simT-player.lastRunT)<RECENT_RUN; }
+function recentRun(p){ return (simT-p.lastRunT)<RECENT_RUN; }
 
-function tryPickOrPlace(){
-  if(phase!=='play'||player.stun>0) return;
-  // 글러브 — 1회 획득, 이후 절대 상실 없음 (재장착 노가다 방지)
-  if(!player.glove && Math.hypot(GLOVE_POS.x-player.x,GLOVE_POS.z-player.z)<PICK_R+18){
-    player.glove=true; gloveMesh.visible=false;
-    bigmsg('권투 글러브!!'); dingS();
+function holderOf(e){ for(const p2 of players) if(p2.active&&(p2.held===e||p2.pocket===e)) return p2; return null; }
+function tryPickOrPlace(p){
+  if(phase!=='play'||p.stun>0) return;
+  // 글러브 — 1회 획득, 이후 절대 상실 없음 (재장착 노가다 방지). 배분은 선착순 (D9 // 임시:)
+  if(!p.glove && gloveMesh.visible && Math.hypot(GLOVE_POS.x-p.x,GLOVE_POS.z-p.z)<PICK_R+18){
+    p.glove=true; gloveMesh.visible=false;
+    if(p.idx===me) bigmsg('권투 글러브!!');
+    if(NET.host) NET.ev.push(['big','권투 글러브!!',p.idx]);
+    dingS();
     return;
   }
-  const nearCart=Math.hypot(cart.x-player.x,cart.z-player.z)<CART_LOAD_R;
-  if(held){
+  const nearCart=Math.hypot(cart.x-p.x,cart.z-p.z)<CART_LOAD_R;
+  if(p.held){
     if(nearCart&&cart.slots.length<CART_SLOTS){  // 수레 적재 — 살살 내려놓기의 일종 (계약 합치)
-      const e=held; held=null; player.shake=0;
+      const e=p.held; p.held=null; p.shake=0;
       e.state='cart'; cart.slots.push(e);
-      placeS();
-      checkDarkTrigger();                        // 합산 불변이지만 획득 이벤트로 명시 통일
+      placeS(sxz(p),szz(p));
+      checkDarkTrigger(p);                       // 합산 불변이지만 획득 이벤트로 명시 통일
       return;
     }
     // 살살 내려놓기 — 절대 안전 (확정 약속. E의 의미는 v0.5와 바이트 동일)
-    const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
-    const t={x:player.x+fx*22, z:player.z+fz*22, r:EGG_R+2};
+    const fx=-Math.sin(p.yaw), fz=-Math.cos(p.yaw);
+    const t={x:p.x+fx*22, z:p.z+fz*22, r:EGG_R+2};
     collideCircle(t);
-    held.x=t.x; held.z=t.z; held.y=groundY(t.x,t.z)+EGG_R;
-    held.vx=held.vy=held.vz=0;
-    held.state='rest'; held.restT=0; held=null;
-    player.shake=0;
-    placeS();
+    const e=p.held;
+    e.x=t.x; e.z=t.z; e.y=groundY(t.x,t.z)+EGG_R;
+    e.vx=e.vy=e.vz=0;
+    e.state='rest'; e.restT=0; p.held=null;
+    p.shake=0;
+    placeS(sxz(p),szz(p));
     return;
   }
   // 닭고기 — 즉시 수확 // 임시: 운반물 승격은 v0.7 후보 (goal 문서)
   for(const m of meats){
     if(!m.active) continue;
-    if(Math.hypot(m.x-player.x,m.z-player.z)<PICK_R){
+    if(Math.hypot(m.x-p.x,m.z-p.z)<PICK_R){
       m.active=false; m.g.visible=false;
       stats.meat++; dingS();
       burst(m.x,10,m.z,8,COL_FEATHER,12,0.6,4);
@@ -1479,75 +1558,81 @@ function tryPickOrPlace(){
   let best=null, bd=PICK_R;
   for(const e of eggs){
     if(e.state!=='rest') continue;
-    const d=Math.hypot(e.x-player.x,e.z-player.z);
+    const d=Math.hypot(e.x-p.x,e.z-p.z);
     if(d<bd){ bd=d; best=e; }
   }
   if(!best){
+    // E 폴스루 가드 (D18): 같은 프레임에 동료가 먼저 집어간 알을 노린 E가 수레 인출로 미끄러지지 않게
+    for(const e of eggs){
+      if(e.state==='held'&&holderOf(e)!==p&&Math.hypot(e.x-p.x,e.z-p.z)<PICK_R) return;
+    }
     if(nearCart&&cart.slots.length>0){           // 빈손 + 주울 알 없음 → 수레에서 꺼내기
-      held=cart.slots.pop(); held.state='held';
-      pickS();
+      p.held=cart.slots.pop(); p.held.state='held';
+      pickS(sxz(p),szz(p));
     }
     return;
   }
-  held=best; best.state='held'; best.claimed=false; best.touched=true;  // 닭의 강탈 대상은 만진 알만
-  player.shake=0;
-  pickS();
-  const loud=recentRun();
-  alarmNoise(player.x,player.z, loud?PICKUP_LOUD:PICKUP_QUIET);
-  spawnWave(player.x,player.z, loud?VIS_PICK_L:VIS_PICK_Q,'pick',true);
-  checkDarkTrigger();  // 조용히 접근했으면 초기 열기도 조용하다 — 트리거는 확보 총량
+  p.held=best; best.state='held'; best.claimed=false; best.touched=true;  // 닭의 강탈 대상은 만진 알만
+  p.shake=0;
+  pickS(sxz(p),szz(p));
+  const loud=recentRun(p);
+  alarmNoise(p.x,p.z, loud?PICKUP_LOUD:PICKUP_QUIET, p.idx);
+  waveCast(p.x,p.z, loud?VIS_PICK_L:VIS_PICK_Q,'pick',p);
+  checkDarkTrigger(p);  // 조용히 접근했으면 초기 열기도 조용하다 — 트리거는 확보 총량
 }
 // Q — 품 전담 (E는 절대 품을 건드리지 않는다). 무소음: 로직·파동 어느 열도 이벤트 없음
-function tryPocket(){
-  if(phase!=='play'||player.stun>0||player.swapT>0) return;
-  if(held&&!pocket){
+function tryPocket(p){
+  if(phase!=='play'||p.stun>0||p.swapT>0) return;
+  if(p.held&&!p.pocket){
     // 정전 중 수납도 허용 — 빛(랜턴)을 잃고 피탐 200은 유지하는 트레이드오프 (패널 확정)
-    pocket=held; held=null;
-    pocket.state='pocket'; pocket.mesh.visible=false;
-    player.shake=0; player.swapT=SWAP_T;
-    placeS();
-  } else if(!held&&pocket){
-    held=pocket; pocket=null;
-    held.state='held';
-    player.swapT=SWAP_T;
-    pickS();
-  } else if(held&&pocket){
-    const t=held; held=pocket; pocket=t;
-    pocket.state='pocket'; pocket.mesh.visible=false;
-    held.state='held';
-    player.shake=0; player.swapT=SWAP_T;
-    pickS();
+    p.pocket=p.held; p.held=null;
+    p.pocket.state='pocket'; p.pocket.mesh.visible=false;
+    p.shake=0; p.swapT=SWAP_T;
+    placeS(sxz(p),szz(p));
+  } else if(!p.held&&p.pocket){
+    p.held=p.pocket; p.pocket=null;
+    p.held.state='held';
+    p.swapT=SWAP_T;
+    pickS(sxz(p),szz(p));
+  } else if(p.held&&p.pocket){
+    const t=p.held; p.held=p.pocket; p.pocket=t;
+    p.pocket.state='pocket'; p.pocket.mesh.visible=false;
+    p.held.state='held';
+    p.shake=0; p.swapT=SWAP_T;
+    pickS(sxz(p),szz(p));
   }
 }
-// F — 수레 잡기/놓기
-function toggleCart(){
-  if(phase!=='play'||player.stun>0) return;
-  if(cart.pulled){ cart.pulled=false; placeS(); return; }
-  if(Math.hypot(cart.x-player.x,cart.z-player.z)<CART_GRAB_R){
-    cart.pulled=true; cart.trail.length=0; cart.runAcc=0;
-    pickS();
+// F — 수레 잡기/놓기. 단일 소유자 — 점유 중 타인 F 무시 (D9 // 임시:)
+function toggleCart(p){
+  if(phase!=='play'||p.stun>0) return;
+  if(cart.owner===p.idx){ cart.owner=-1; placeS(sxz(p),szz(p)); return; }
+  if(cart.owner>=0) return;
+  if(Math.hypot(cart.x-p.x,cart.z-p.z)<CART_GRAB_R){
+    cart.owner=p.idx; cart.trail.length=0; cart.runAcc=0;
+    pickS(sxz(p),szz(p));
   }
 }
-function throwEgg(pw){
-  if(!held) return;
-  const cp=Math.cos(pitch), sp=Math.sin(pitch);
-  let dx=-Math.sin(yaw)*cp, dy=sp, dz=-Math.cos(yaw)*cp;
+function throwEgg(p,pw,ayaw,apitch){
+  if(!p.held) return;
+  const yw=(ayaw!==undefined)?ayaw:p.yaw, pt=(apitch!==undefined)?apitch:p.pitch;  // 누른 순간의 조준 (D18)
+  const cp=Math.cos(pt), sp=Math.sin(pt);
+  let dx=-Math.sin(yw)*cp, dy=sp, dz=-Math.cos(yw)*cp;
   dy+=THROW_LIFT;
   const l=Math.hypot(dx,dy,dz)||1; dx/=l; dy/=l; dz/=l;
   const v=THROW_MIN+(THROW_MAX-THROW_MIN)*pw;
-  const e=held; held=null;
-  player.shake=0;
+  const e=p.held; p.held=null;
+  p.shake=0;
   e.state='fly'; e.thrown=true;
-  e.x=player.x+dx*18; e.z=player.z+dz*18; e.y=CARRY_H+groundY(player.x,player.z);  // 점프 y는 절대 미합산 (v0.6 계약)
+  e.x=p.x+dx*18; e.z=p.z+dz*18; e.y=CARRY_H+groundY(p.x,p.z);  // 점프 y는 절대 미합산 (v0.6 계약)
   e.vx=dx*v; e.vy=dy*v; e.vz=dz*v;
-  whipS(pw);
+  whipS(pw,sxz(p),szz(p));
 }
-function slipEgg(){
-  const e=held; held=null;
-  player.shake=0;
-  const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
+function slipEgg(p){
+  const e=p.held; p.held=null;
+  p.shake=0;
+  const fx=-Math.sin(p.yaw), fz=-Math.cos(p.yaw);
   e.state='fly'; e.forceBreak=true;
-  e.x=player.x+fx*16; e.z=player.z+fz*16; e.y=CARRY_H+groundY(player.x,player.z);
+  e.x=p.x+fx*16; e.z=p.z+fz*16; e.y=CARRY_H+groundY(p.x,p.z);
   e.vx=fx*160+(Math.random()-0.5)*40; e.vz=fz*160+(Math.random()-0.5)*40; e.vy=40;
 }
 function landEgg(e,impact){
@@ -1604,7 +1689,7 @@ function updEggs(dt){
       const d=e.vx*nx+e.vz*nz;
       e.vx-=2*d*nx; e.vz-=2*d*nz;
       e.vx*=EGG_REST+0.2; e.vz*=EGG_REST+0.2;
-      thudS();
+      thudS(e.x,e.z);
       burst(e.x,e.y,e.z,4,COL_DUST,6,0.4,3);
     }
     const gy=groundY(e.x,e.z);
@@ -1614,7 +1699,7 @@ function updEggs(dt){
       if(zoneOfArea(e.x,e.z)===-1){ breakEgg(e); continue; }   // 존 밖 안착 = 즉시 파손 (소프트락 차단 안전망)
       if(landEgg(e,spd)==='broke') continue;
       e.vy=-e.vy*EGG_REST; e.vx*=EGG_FRIC; e.vz*=EGG_FRIC;
-      if(spd>90){ thudS(); burst(e.x,3,e.z,5,COL_DUST,8,0.45,3); spawnWave(e.x,e.z,VIS_LAND,'amber'); }
+      if(spd>90){ thudS(e.x,e.z); burst(e.x,3,e.z,5,COL_DUST,8,0.45,3); waveCast(e.x,e.z,VIS_LAND,'amber'); }
       if(e.vy<70 && Math.hypot(e.vx,e.vz)<40){
         e.vx=e.vy=e.vz=0; e.state='rest'; e.restT=0;
         e.forceSurvive=false; e.forceBreak=false;
@@ -1628,7 +1713,10 @@ function updEggs(dt){
   if(blackout&&phase==='play'){
     for(const e of eggs){
       if(e.state!=='rest'||e.claimed||!e.touched) continue;
-      if(Math.hypot(e.x-player.x,e.z-player.z)<=ABANDON_R){ e.restT=0; continue; }
+      // D7: 아무 플레이어든 곁에 있으면 보호 — 바닥 릴레이 건네주기가 강탈 미끼가 되지 않게
+      let guarded=false;
+      eachP(p=>{ if(Math.hypot(e.x-p.x,e.z-p.z)<=ABANDON_R) guarded=true; });
+      if(guarded){ e.restT=0; continue; }
       if(e.restT<ABANDON_T) continue;
       let best=null,bd=1e9;
       for(const c of chickens){
@@ -1646,46 +1734,68 @@ function updEggs(dt){
 //  닭 — invest 신설 (최소형 계약: 단일 지점·2s 체류·복귀·기억 없음.
 //  재타겟 쿨 2s·체인 상한 2. 소리로 깬 닭은 "네가 있던 자리"로 온다)
 // ============================================================
-// 멀티 금지선 1: 신규 AI 코드는 플레이어를 이 액세서로만 읽는다 (M1에서 players[]로 갈아끼울 단일 지점)
-function targetOf(c){ return player; }
-function sightRadius(){
-  return blackout ? (carriesEgg()?CARRIER_SEEN:SIGHT_DARK)
-                  : (inFloorRect(player.x,player.z)?SIGHT_IN:SIGHT_OUT);
+// 멀티 금지선 1의 상환: AI는 플레이어를 targetOf(c)로만 읽는다 — c.tgt가 표적 인덱스 (M1 완성형)
+function targetOf(c){ return players[c.tgt]; }
+// 시야 반경 — 후보 표적 p 기준 (로직). 뷰어 기준은 렌더의 시야 원만 (이중 용도 분리 — D3)
+function sightRadius(p){
+  return blackout ? (carriesEgg(p)?CARRIER_SEEN:SIGHT_DARK)
+                  : (inFloorRect(p.x,p.z)?SIGHT_IN:SIGHT_OUT);
 }
-function chickenSee(c){
-  const d=Math.hypot(c.x-player.x,c.z-player.z);
-  if(d>sightRadius()) return false;
-  return !lineBlocked(c.x,c.z,player.x,player.z);
+function chickenSee(c,p){
+  const d=Math.hypot(c.x-p.x,c.z-p.z);
+  if(d>sightRadius(p)) return false;
+  return !lineBlocked(c.x,c.z,p.x,p.z);
+}
+// 정전 즉발 공통 헬퍼: 보이는 가장 가까운 소지자 (D3). 없으면 null
+function nearestSeenCarrier(c){
+  let best=null,bd=1e9;
+  eachP(p=>{
+    if(!carriesEgg(p)) return;
+    const d=Math.hypot(c.x-p.x,c.z-p.z);
+    if(d<bd&&chickenSee(c,p)){ bd=d; best=p; }
+  });
+  return best;
 }
 // 발각 게이지 — 밝은 구간 전용 (정전은 v0.7 즉발 유지 — 140/200 공식 동결).
 // "언제 잡으러 오는지"가 순간이 아니라 차오르는 과정이 된다 (개발자 요청 2026-08-12)
-function updDet(c,dt,pd){
-  const tp=targetOf(c);
-  if(carriesEgg()&&chickenSee(c)){
-    c.detGrace=DET_GRACE;
-    if(pd<DET_NEAR){ c.det=1; }               // 밀착 즉발 — 코너 정면충돌의 갑툭튀 보존
-    else {
-      const r=sightRadius();
-      let rate=DET_RATE_NEAR+(DET_RATE_FAR-DET_RATE_NEAR)*Math.min(1,(pd-DET_NEAR)/Math.max(1,r-DET_NEAR));
-      if(c.state==='invest') rate*=DET_INVEST_MULT;
-      c.det=Math.min(1,c.det+rate*dt);
+// M1(D1): 닭×플레이어 배열 — 각자 자기 목격분만 충전·감쇠 (스칼라 합집합은 인원수 비례 래칫이라 반려)
+function updDet(c,dt){
+  let full=-1;
+  for(let i=0;i<MAX_PLAYERS;i++){
+    const p=players[i];
+    if(!p.active){ c.det[i]=0; c.detG[i]=0; continue; }
+    const pd=Math.hypot(c.x-p.x,c.z-p.z);
+    if(carriesEgg(p)&&chickenSee(c,p)){
+      c.detG[i]=DET_GRACE;
+      if(pd<DET_NEAR){ c.det[i]=1; }          // 밀착 즉발 — 코너 정면충돌의 갑툭튀 보존
+      else {
+        const r=sightRadius(p);
+        let rate=DET_RATE_NEAR+(DET_RATE_FAR-DET_RATE_NEAR)*Math.min(1,(pd-DET_NEAR)/Math.max(1,r-DET_NEAR));
+        if(c.state==='invest') rate*=DET_INVEST_MULT;
+        c.det[i]=Math.min(1,c.det[i]+rate*dt);
+      }
+    } else {
+      if(c.detG[i]>0) c.detG[i]-=dt;
+      else c.det[i]=Math.max(0,c.det[i]-DET_DECAY*dt);
     }
-  } else {
-    if(c.detGrace>0) c.detGrace-=dt;
-    else c.det=Math.max(0,c.det-DET_DECAY*dt);
+    if(c.det[i]>=1&&full<0) full=i;
   }
-  if(!c.detTicked&&c.det>=0.5){ c.detTicked=true; blip(540,0.07,volAt(c.x,c.z,0.12,500),'triangle'); }  // 경고 틱 (LOGIC 0)
-  if(c.detTicked&&c.det<0.3) c.detTicked=false;
-  if(c.det>=1){ c.det=1; toAlert(c); }
+  // 경고 틱 — 뷰어 자신의 게이지만 (표시·사운드 전용, LOGIC 0. 클라는 스냅샷 미러에서 같은 코드가 돈다)
+  if(!c.detTicked&&c.det[me]>=0.5){ c.detTicked=true; blip(540,0.07,volAt(c.x,c.z,0.12,500),'triangle'); }
+  if(c.detTicked&&c.det[me]<0.3) c.detTicked=false;
+  if(full>=0){ c.det[full]=1; toAlert(c,full); }
 }
-function toAlert(c){
+function detMax(c){ let m=0; for(let i=0;i<MAX_PLAYERS;i++) if(c.det[i]>m) m=c.det[i]; return m; }
+function detArgmax(c){ let m=0,mi=-1; for(let i=0;i<MAX_PLAYERS;i++) if(players[i].active&&c.det[i]>m){ m=c.det[i]; mi=i; } return mi; }
+function toAlert(c,pi){
   if(c.state!=='wander'&&c.state!=='return'&&c.state!=='invest') return;
+  c.tgt=pi;
   c.state='alert'; c.t=CHK_REACT;
-  c.lsX=player.x; c.lsZ=player.z; c.lsT=simT;
+  c.lsX=players[pi].x; c.lsZ=players[pi].z; c.lsT=simT;
   c.seeAcc=0; c.predicted=false;
   alertS(c.x,c.z);
 }
-function toAlertForce(c){ c.state='alert'; c.t=CHK_REACT; c.lsX=player.x; c.lsZ=player.z; c.lsT=simT; c.seeAcc=0; c.predicted=false; alertS(c.x,c.z); }
+function toAlertForce(c,pi){ c.tgt=pi; c.state='alert'; c.t=CHK_REACT; c.lsX=players[pi].x; c.lsZ=players[pi].z; c.lsT=simT; c.seeAcc=0; c.predicted=false; alertS(c.x,c.z); }
 function toInvest(c,x,z){
   if(c.state!=='wander'&&c.state!=='return'&&c.state!=='invest') return;
   if(Math.hypot(x-c.ax,z-c.az)>CHK_LEASH) return;       // 앵커 리쉬 — 600은 그대로, 기준점만 현재 앵커
@@ -1720,10 +1830,13 @@ function guardOrInvest(c,x,z){
   toInvest(c,x,z);
 }
 // 소음: 어그로 반경은 v0.4 그대로. 추격 중인 닭에겐 "신선 확정" 갱신만.
-function alarmNoise(x,z,r){
+// M1(D2): src = 발원 플레이어 인덱스 (-1 = 세계 소음). 추격 갱신은 표적 본인 소음만 —
+// 남의 발소리로 꺾이는 프랑켄 추적 봉쇄. 비추격 invest는 위치 기반이라 무귀속 유지
+function alarmNoise(x,z,r,src){
+  if(src===undefined) src=-1;
   for(const c of chickens){
     if(Math.hypot(c.x-x,c.z-z)>=r) continue;
-    if(c.state==='chase'){ c.lsX=x; c.lsZ=z; c.lsT=simT; continue; }
+    if(c.state==='chase'){ if(src===c.tgt){ c.lsX=x; c.lsZ=z; c.lsT=simT; } continue; }
     guardOrInvest(c,x,z);
   }
 }
@@ -1737,7 +1850,7 @@ function alarmFlock(x,z){
     o.alarmCd=ALARM_JOIN_CD;
     guardOrInvest(o,x,z);
   }
-  spawnWave(x,z,VIS_ALARM,'red');   // 게임플레이 효과가 있는 소리는 어둠에서 보여야 한다
+  waveCast(x,z,VIS_ALARM,'red');   // 게임플레이 효과가 있는 소리는 어둠에서 보여야 한다
 }
 // C2 예측 차단 — 시야 상실 순간 1회, 관찰된 도주 방향으로 개통 인접 셀 1개만 전진.
 // 재예측 금지 (그건 라이브 추적의 다른 이름). 기존 도착·강등 로직은 무수정 작동.
@@ -1764,63 +1877,66 @@ function decoyPulse(x,z,egg){
   }
 }
 function onCaught(c){
+  const p=targetOf(c);                    // 잡힘은 표적 개인의 사건 — 그의 넘어짐·강탈 (M4)
   stats.caught++;
-  player.stun=STUMBLE_T;
-  shake=1; flash=1;
-  caughtS();
-  cart.pulled=false;                      // 잡히면 수레 손잡이를 놓친다
+  p.stun=STUMBLE_T;
+  if(p.idx===me){ shake=1; flash=1; }     // 화면 흔들림·섬광은 당사자 뷰어만 (클라는 스냅샷 파생)
+  caughtS(sxz(p),szz(p));
+  if(cart.owner===p.idx) cart.owner=-1;   // 잡히면 수레 손잡이를 놓친다 (소유자일 때만 — D10)
   burst(c.x,26,c.z,34,COL_FEATHER,26,1.5,6);
-  burst(player.x,20,player.z,14,COL_DUST,20,0.9,5);
+  burst(p.x,20,p.z,14,COL_DUST,20,0.9,5);
   const a=Math.random()*TAU;
-  if(held){
-    const e=held; held=null;
-    player.shake=0;
+  if(p.held){
+    const e=p.held; p.held=null;
+    p.shake=0;
     e.state='fly'; e.forceSurvive=true;
     e.cracked=true; crackVisual(e);
-    e.x=player.x; e.z=player.z; e.y=CARRY_H+groundY(player.x,player.z);
+    e.x=p.x; e.z=p.z; e.y=CARRY_H+groundY(p.x,p.z);
     e.vx=Math.cos(a)*140; e.vz=Math.sin(a)*140; e.vy=120;
     c.state='grab'; c.robEgg=e;
-    caughtFocus=e;
+    if(p.idx===me) caughtFocus=e;
   } else {
     c.state='flap'; c.t=FLAP_T;
-    caughtFocus=c;
+    if(p.idx===me) caughtFocus=c;
     flapS(c.x,c.z);
   }
-  if(pocket){
+  if(p.pocket){
     // 품 계란은 반대각으로 비산 후 rest — 잡은 닭의 grab은 손 알 1개뿐 (한 번에 2개 강탈은 처형이지 코미디가 아니다)
-    const e=pocket; pocket=null;
+    const e=p.pocket; p.pocket=null;
     e.state='fly'; e.forceSurvive=true;
     e.cracked=true; crackVisual(e);
     e.mesh.visible=true;
-    e.x=player.x; e.z=player.z; e.y=CARRY_H+groundY(player.x,player.z);
+    e.x=p.x; e.z=p.z; e.y=CARRY_H+groundY(p.x,p.z);
     e.vx=Math.cos(a+Math.PI)*140; e.vz=Math.sin(a+Math.PI)*140; e.vy=110;
   }
+  if(NET.host) NET.ev.push(['big',PLAYER_NAMES[p.idx]+'이 잡혔다!',-2,p.idx]);  // -2: 당사자 제외 동료 알림 (D28)
   for(const o of chickens){
     if(o===c) continue;
     if(o.state==='peck'||o.state==='rob'||o.state==='grab'||o.state==='stunned') continue;
-    if(Math.hypot(o.x-player.x,o.z-player.z)<200){ o.state='flap'; o.t=FLAP_T; }
+    if(Math.hypot(o.x-p.x,o.z-p.z)<200){ o.state='flap'; o.t=FLAP_T; }
   }
 }
-function tryShove(){
-  if(phase!=='play'||player.stun>0||player.swapT>0) return;
-  if(held){ player.elbow=ELBOW_T; return; }
-  if(player.shoveCd>0) return;
-  const punch=player.glove;                       // 글러브 = 빈손 좌클릭의 강화판 (쿨 공유)
-  player.shoveCd=PUSH_CD; player.stagger=PUSH_STAGGER; player.shoveAnim=0.25;
-  alarmNoise(player.x,player.z, punch?PICKUP_LOUD:PUSH_NOISE);  // 폭력은 시끄럽다 — 펀치 LOGIC 310 (신설 행)
-  spawnWave(player.x,player.z, punch?VIS_PUNCH:VIS_SHOVE, punch?'red':'white',true);
-  if(punch) punchS(); else shoveS();
-  const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
+function tryShove(p,ayaw){
+  if(phase!=='play'||p.stun>0||p.swapT>0) return;
+  if(p.held){ p.elbow=ELBOW_T; return; }
+  if(p.shoveCd>0) return;
+  const yw=(ayaw!==undefined)?ayaw:p.yaw;         // 누른 순간의 조준 (D18)
+  const punch=p.glove;                            // 글러브 = 빈손 좌클릭의 강화판 (쿨 공유)
+  p.shoveCd=PUSH_CD; p.stagger=PUSH_STAGGER; p.shoveAnim=0.25;
+  alarmNoise(p.x,p.z, punch?PICKUP_LOUD:PUSH_NOISE, p.idx);  // 폭력은 시끄럽다 — 펀치 LOGIC 310 (신설 행)
+  waveCast(p.x,p.z, punch?VIS_PUNCH:VIS_SHOVE, punch?'red':'white',p);
+  if(punch) punchS(sxz(p),szz(p)); else shoveS(sxz(p),szz(p));
+  const fx=-Math.sin(yw), fz=-Math.cos(yw);
   let best=null, bd=PUSH_R;
   for(const c of chickens){
-    const dx=c.x-player.x, dz=c.z-player.z;
+    const dx=c.x-p.x, dz=c.z-p.z;
     const d=Math.hypot(dx,dz);
     if(d>PUSH_R) continue;
     if(d>1e-3 && (dx/d*fx+dz/d*fz)<0.2) continue;
     if(d<bd){ bd=d; best=c; }
   }
   if(!best) return;
-  const dx=best.x-player.x, dz=best.z-player.z, d=Math.hypot(dx,dz)||1;
+  const dx=best.x-p.x, dz=best.z-p.z, d=Math.hypot(dx,dz)||1;
   best.kbx=dx/d*PUSH_KB; best.kbz=dz/d*PUSH_KB;
   if((best.state==='rob'||best.state==='grab')&&best.robEgg){
     const e=best.robEgg;                          // 강탈 닭 명중 시 알 방출 — 펀치도 승계 (마지막 알의 유일한 물리 회수 수단)
@@ -1832,13 +1948,14 @@ function tryShove(){
     e.claimed=false; e.touched=true;
     best.robEgg=null;
   }
-  if(punch) koChicken(best);
+  if(punch) koChicken(best,p);
   else { best.state='stunned'; best.t=PUSH_STUN; }
   squawkS(best.x,best.z);
   burst(best.x,24,best.z,20,COL_FEATHER,20,1.1,5);
 }
-function koChicken(c){
+function koChicken(c,p){
   c.state='stunned'; c.t=KO_T; c.ko=true; c.snoreT=1.2;
+  c.tgt=p.idx;                                    // 기상 격노의 표적 = 때린 사람
   if(!c.meatGiven){                               // 마리당 최초 1회 — 이후 '털린 닭' (파밍 방지)
     c.meatGiven=true;
     dropMeat(c.x,c.z);
@@ -1846,11 +1963,11 @@ function koChicken(c){
     c.m.g.scale.set(1,0.88,1);
   }
   alarmFlock(c.x,c.z);                            // KO 비명 — 무리 경보 발화점 2/2
-  for(const o of chickens){                       // 복수: 목격자(200+LOS)는 빈손이어도 5초 쫓는다
+  for(const o of chickens){                       // 복수: 목격자(200+LOS)는 빈손이어도 5초 쫓는다 — 때린 사람을
     if(o===c||o.state==='chase'||o.state==='grab'||o.state==='rob'||o.state==='peck'||o.state==='stunned') continue;
-    if(Math.hypot(o.x-player.x,o.z-player.z)<REVENGE_R && !lineBlocked(o.x,o.z,player.x,player.z)){
+    if(Math.hypot(o.x-p.x,o.z-p.z)<REVENGE_R && !lineBlocked(o.x,o.z,p.x,p.z)){
       o.revengeT=REVENGE_T;
-      toAlertForce(o);
+      toAlertForce(o,p.idx);
     }
   }
   burst(c.x,20,c.z,30,COL_FEATHER,26,1.4,6);
@@ -1880,7 +1997,9 @@ function steerMove(c,tx,tz,spd,dt){
 }
 function updChickens(dt){
   for(const c of chickens){
-    const pd=Math.hypot(c.x-player.x,c.z-player.z);
+    const tp=targetOf(c);                     // 현재 표적 (비추격 상태에선 마지막 표적 — 위치 참조용)
+    const td=Math.hypot(c.x-tp.x,c.z-tp.z);
+    let nd=1e9; eachP(p=>{ const d=Math.hypot(c.x-p.x,c.z-p.z); if(d<nd) nd=d; });  // 최근접 (파동 게이트용 — D20)
     const hd=Math.hypot(c.x-c.ax,c.z-c.az);   // 앵커 리쉬 — 순찰·지킴이는 "지금 있어야 할 곳" 기준
     const inC=inFloorRect(c.x,c.z);
     let moving=false, spd=0;
@@ -1888,10 +2007,11 @@ function updChickens(dt){
     c.investCd=Math.max(0,c.investCd-dt);
     c.alarmCd=Math.max(0,c.alarmCd-dt);
     c.revengeT=Math.max(0,c.revengeT-dt);
-    // 발각: 밝은 구간 = 게이지 적분, 정전 = 즉발 (아래 각 상태의 blackout 분기)
+    // 발각: 밝은 구간 = 게이지 적분 (플레이어별 — D1), 정전 = 즉발 (아래 각 상태의 blackout 분기)
     if(phase==='play'&&!blackout&&(c.state==='wander'||c.state==='return'||c.state==='invest'))
-      updDet(c,dt,pd);
-    else if(c.state!=='alert'&&c.state!=='chase') c.det=Math.max(0,c.det-DET_DECAY*dt);
+      updDet(c,dt);
+    else if(c.state!=='alert'&&c.state!=='chase')
+      for(let i=0;i<MAX_PLAYERS;i++) c.det[i]=Math.max(0,c.det[i]-DET_DECAY*dt);
     if(Math.abs(c.kbx)>1||Math.abs(c.kbz)>1){
       c.x+=c.kbx*dt; c.z+=c.kbz*dt;
       const f=Math.pow(0.002,dt);
@@ -1904,7 +2024,7 @@ function updChickens(dt){
         c.cluck=blackout?(CLUCK_DARK_MIN+Math.random()*(CLUCK_DARK_MAX-CLUCK_DARK_MIN))
                         :(4+Math.random()*8);
         cluckS(c.x,c.z);
-        if(blackout&&pd<CLUCK_WAVE_MAX) spawnWave(c.x,c.z,VIS_CLUCK,'cluck');  // 닭도 어둠이 불안하다
+        if(blackout&&nd<CLUCK_WAVE_MAX) waveCast(c.x,c.z,VIS_CLUCK,'cluck');  // 닭도 어둠이 불안하다 (게이트: 최근접 — D20)
       }
       if(c.loop){
         // C1 순찰 — 리터럴 루프를 그래프 내비로 순회. 조우는 루프가 정하고 체류 지터만 랜덤
@@ -1928,22 +2048,22 @@ function updChickens(dt){
         moving=true; spd=CHK_WANDER;
         if(d<12) pickWander(c);
       }
-      if(blackout && carriesEgg() && phase==='play' && chickenSee(c)) toAlert(c);   // 정전 즉발 (밝은 구간은 게이지)
+      if(blackout && phase==='play'){ const cp=nearestSeenCarrier(c); if(cp) toAlert(c,cp.idx); }   // 정전 즉발 (밝은 구간은 게이지)
     }
     else if(c.state==='alert'){
       c.t-=dt;
       if(c.t<=0){
-        c.state='chase'; c.loseT=0; c.heading=Math.atan2(player.x-c.x,player.z-c.z);
+        c.state='chase'; c.loseT=0; c.heading=Math.atan2(tp.x-c.x,tp.z-c.z);
         alarmFlock(c.lsX,c.lsZ);              // C3 — 추격 진입 스냅샷 펄스 (발화점 1/2)
       }
     }
     else if(c.state==='chase'){
       spd=CHK_CHASE*(inC?1:OUT_CHASE_MULT);
-      const see=chickenSee(c);
+      const see=chickenSee(c,tp);
       if(see){
-        c.lsX=player.x; c.lsZ=player.z; c.lsT=simT;
+        c.lsX=tp.x; c.lsZ=tp.z; c.lsT=simT;
         c.seeAcc+=dt; c.predicted=false;
-        c.lsVX=player.vx; c.lsVZ=player.vz;   // 관찰된 도주 방향 — 예측의 유일한 재료
+        c.lsVX=tp.vx; c.lsVZ=tp.vz;           // 관찰된 도주 방향 — 예측의 유일한 재료
       } else {
         // C2 — 연속 목격 ≥0.5s 후 시야 상실: 1회만 목격점을 도주 방향 다음 갈림목으로 전진
         if(!c.predicted&&c.seeAcc>=0.5){ c.predicted=true; predictAdvance(c); }
@@ -1951,11 +2071,11 @@ function updChickens(dt){
       }
       const fresh=(simT-c.lsT)<CONFIRM_FRESH_T;
       // 라이브 추적은 확정(시야/신선 파동)일 때만 — 아니면 최후 목격점 (벽투시·협공 차단)
-      const tx=fresh?((see)?player.x:c.lsX):c.lsX;
-      const tz=fresh?((see)?player.z:c.lsZ):c.lsZ;
-      if(see&&!lineBlocked(c.x,c.z,player.x,player.z)){
-        steerMove(c,player.x,player.z,spd,dt);            // 보일 때는 몸으로 (몸개그 보존)
-        c.tx=player.x; c.tz=player.z;
+      const tx=fresh?((see)?tp.x:c.lsX):c.lsX;
+      const tz=fresh?((see)?tp.z:c.lsZ):c.lsZ;
+      if(see&&!lineBlocked(c.x,c.z,tp.x,tp.z)){
+        steerMove(c,tp.x,tp.z,spd,dt);                    // 보일 때는 몸으로 (몸개그 보존)
+        c.tx=tp.x; c.tz=tp.z;
       } else {
         const nav=navTo(c,tx,tz);
         c.tx=nav.x; c.tz=nav.z;
@@ -1964,16 +2084,16 @@ function updChickens(dt){
       moving=true;
       if(c.t>0.9 && Math.random()<dt*0.7) squawkS(c.x,c.z);
       c.t+=dt;
-      if(pd<CHK_R+PLR_R+3 && player.invuln<=0 && player.stun<=0 && phase==='play') onCaught(c);
+      if(td<CHK_R+PLR_R+3 && tp.invuln<=0 && tp.stun<=0 && phase==='play') onCaught(c);
       if(c.state==='chase'){
         if(!see&&!fresh) c.loseT+=dt; else c.loseT=0;
         const arrivedLS=Math.hypot(c.x-c.lsX,c.z-c.lsZ)<30;
         if(hd>CHK_LEASH){ c.state='return'; }
-        else if(!carriesEgg() && c.revengeT<=0 && pd>170){ c.state='return'; }  // 복수 중엔 빈손이어도 쫓는다
+        else if(!carriesEgg(tp) && c.revengeT<=0 && td>170){ c.state='return'; }  // 개인 술어 (D2) — 복수 중엔 빈손이어도 쫓는다
         else if(c.loseT>CHASE_LOSE_T || (arrivedLS&&!see&&!fresh)){
-          // 실내외 공통 강등: 시야도 신선 확정도 없으면 최후 목격점 수색 후 복귀. 의심 잔량 0.5 유지
+          // 실내외 공통 강등: 시야도 신선 확정도 없으면 최후 목격점 수색 후 복귀. 의심 잔량 0.5 유지 (표적분만)
           c.state='invest'; c.ivX=c.lsX; c.ivZ=c.lsZ; c.ivArr=false; c.t=INVEST_DWELL; c.chainN=INVEST_CHAIN;
-          c.ivT=0; c.det=DET_DEMOTE;
+          c.ivT=0; c.det[c.tgt]=DET_DEMOTE;
         }
       }
     }
@@ -1990,7 +2110,7 @@ function updChickens(dt){
         c.t-=dt;                               // 두리번 (렌더에서 머리 홱)
         if(c.t<=0){ c.state='return'; }
       }
-      if(blackout && carriesEgg() && phase==='play' && chickenSee(c)) toAlertForce(c);
+      if(blackout && phase==='play'){ const cp=nearestSeenCarrier(c); if(cp) toAlertForce(c,cp.idx); }
     }
     else if(c.state==='peck'){
       if(!c.arrived){
@@ -2024,7 +2144,10 @@ function updChickens(dt){
     else if(c.state==='grab'){
       const e=c.robEgg;
       if(!e || e.state==='gone'){ if(e)e.claimed=false; c.robEgg=null; c.state='return'; }
-      else if(e.state==='held'){ e.claimed=false; c.robEgg=null; toAlertForce(c); }
+      else if(e.state==='held'||e.state==='pocket'){  // 채가려던 알을 누가 집었다 — 그 사람에게 격노
+        e.claimed=false; c.robEgg=null;
+        const h=holderOf(e); toAlertForce(c,h?h.idx:c.tgt);
+      }
       else if(e.state==='rest'){
         const nav=navTo(c,e.x,e.z);
         c.tx=nav.x; c.tz=nav.z;
@@ -2058,7 +2181,7 @@ function updChickens(dt){
         if(c.strutT<=0){
           c.strutT=ROB_CLUCK_T;
           cluckS(c.x,c.z);
-          if(blackout) spawnWave(c.x,c.z,VIS_STRUT,'cluck');
+          if(blackout) waveCast(c.x,c.z,VIS_STRUT,'cluck');
         }
         if(Math.hypot(c.tx-c.x,c.tz-c.z)<14){
           e.state='rest'; e.x=c.tx; e.z=c.tz; e.y=EGG_R; e.carrier=null; e.claimed=false; e.restT=0;
@@ -2071,17 +2194,17 @@ function updChickens(dt){
       c.t-=dt;
       if(c.ko&&blackout){                      // KO 코골이 — 눕혀놓은 자리가 어둠 속에서 파동으로 보인다
         c.snoreT-=dt;
-        if(c.snoreT<=0){ c.snoreT=2; spawnWave(c.x,c.z,VIS_STRUT,'cluck'); }
+        if(c.snoreT<=0){ c.snoreT=2; waveCast(c.x,c.z,VIS_STRUT,'cluck'); }
       }
       if(c.t<=0){
         if(c.ko){                              // KO 기상은 무조건 격노 — 단 원점은 KO 지점 (벽투시 금지 정합)
           c.ko=false;
           c.state='alert'; c.t=CHK_REACT;
           c.lsX=c.x; c.lsZ=c.z; c.lsT=simT;
-          c.seeAcc=0; c.predicted=false; c.det=1;
+          c.seeAcc=0; c.predicted=false; c.det[c.tgt]=1;
           alertS(c.x,c.z);
         }
-        else if(blackout && carriesEgg() && chickenSee(c)) toAlertForce(c);
+        else if(blackout){ const cp=nearestSeenCarrier(c); if(cp) toAlertForce(c,cp.idx); else c.state='return'; }
         else c.state='return';                 // 밝은 구간: 게이지가 자연 재충전 (밀치기 탈출 버프 — 의도된 변경)
       }
     }
@@ -2091,7 +2214,7 @@ function updChickens(dt){
       moveToward(c,nav.x,nav.z,CHK_WANDER*1.5*dt);
       moving=true; spd=CHK_WANDER*1.5;
       if(Math.hypot(c.x-c.ax,c.z-c.az)<14){ c.state='wander'; if(!c.loop) pickWander(c); else c.dwell=0.5; }
-      if(blackout && carriesEgg() && phase==='play' && chickenSee(c)) toAlert(c);
+      if(blackout && phase==='play'){ const cp=nearestSeenCarrier(c); if(cp) toAlert(c,cp.idx); }
     }
 
     collideCircle(c);
@@ -2123,113 +2246,144 @@ function updChickens(dt){
 // ============================================================
 //  플레이어
 // ============================================================
-function updPlayer(dt){
-  if(phase!=='play') return;
-  player.shoveCd=Math.max(0,player.shoveCd-dt);
-  player.shoveAnim=Math.max(0,player.shoveAnim-dt);
-  player.elbow=Math.max(0,player.elbow-dt);
-  player.stagger=Math.max(0,player.stagger-dt);
-  player.swapT=Math.max(0,player.swapT-dt);
-  // 점프 물리 — 렌더·카메라 y 전용. 로직은 평면 그대로 (공중 잡힘 회피 없음)
-  if(player.jy>0||player.jvy!==0){
-    player.jy+=player.jvy*dt; player.jvy-=JUMP_G*dt;
-    if(player.jy<=0){
-      player.jy=0; player.jvy=0;
-      const runL=player.running;
-      thudS();
-      burst(player.x,2,player.z,runL?6:3,COL_DUST,10,0.4,3);
-      // 착지: 걷기 LOGIC 0(무소음 계약)/VIS 180 · 달리기 310/310 — 2열 표 신설 행
-      if(runL) alarmNoise(player.x,player.z,AGGRO_RUN);
-      spawnWave(player.x,player.z, runL?VIS_RUN:VIS_WALK, runL?'run':'dim', true);
-      if(held) player.shake=Math.min(1,player.shake+0.2);   // 계란 들고 착지 — 자업자득 리스크
+// 인텐트 큐 소화 — 프레임 시작 일괄 처리. 로컬·원격 입력이 같은 경로를 탄다 (금지선 위반 상환)
+function processActs(p){
+  const acts=p.acts; p.acts=[];
+  for(const a of acts){
+    if(a.a==='pick') tryPickOrPlace(p);
+    else if(a.a==='pocket') tryPocket(p);
+    else if(a.a==='cart') toggleCart(p);
+    else if(a.a==='jump') tryJump(p);
+    else if(a.a==='shove') tryShove(p,a.yaw);
+    else if(a.a==='throw'){
+      if(phase==='play'&&p.held&&p.stun<=0){
+        const pw=Math.max(0,Math.min(1,+a.pw||0));   // 호스트 클램프 (D18)
+        throwEgg(p,pw,a.yaw,a.pitch);
+      }
     }
   }
-  if(player.stun>0){
-    player.stun-=dt;
-    if(player.stun<=0){ player.invuln=INVULN_T; caughtFocus=null; }
-    collideCircle(player);
+}
+function updPlayer(p,dt){
+  if(phase!=='play') return;
+  processActs(p);
+  p.shoveCd=Math.max(0,p.shoveCd-dt);
+  p.shoveAnim=Math.max(0,p.shoveAnim-dt);
+  p.elbow=Math.max(0,p.elbow-dt);
+  p.stagger=Math.max(0,p.stagger-dt);
+  p.swapT=Math.max(0,p.swapT-dt);
+  // 점프 물리 — 렌더·카메라 y 전용. 로직은 평면 그대로 (공중 잡힘 회피 없음)
+  if(p.jy>0||p.jvy!==0){
+    p.jy+=p.jvy*dt; p.jvy-=JUMP_G*dt;
+    if(p.jy<=0){
+      p.jy=0; p.jvy=0;
+      const runL=p.running;
+      thudS(sxz(p),szz(p));
+      burst(p.x,2,p.z,runL?6:3,COL_DUST,10,0.4,3);
+      // 착지: 걷기 LOGIC 0(무소음 계약)/VIS 180 · 달리기 310/310 — 2열 표 신설 행
+      if(runL) alarmNoise(p.x,p.z,AGGRO_RUN,p.idx);
+      waveCast(p.x,p.z, runL?VIS_RUN:VIS_WALK, runL?'run':'dim', p);
+      if(p.held) p.shake=Math.min(1,p.shake+0.2);   // 계란 들고 착지 — 자업자득 리스크
+    }
+  }
+  if(p.stun>0){
+    p.stun-=dt;
+    if(p.stun<=0){ p.invuln=INVULN_T; if(p.idx===me) caughtFocus=null; }
+    collideCircle(p);
     return;
   }
-  player.invuln=Math.max(0,player.invuln-dt);
-  let mx=0,mz=0;
-  if(keys.has('KeyW'))mz--; if(keys.has('KeyS'))mz++;
-  if(keys.has('KeyA'))mx--; if(keys.has('KeyD'))mx++;
-  const wantRun=keys.has('ShiftLeft')||keys.has('ShiftRight');
+  p.invuln=Math.max(0,p.invuln-dt);
+  let mx=p.mv.x, mz=p.mv.z;
+  const wantRun=p.mv.run;
   const moving=(mx||mz);
   // 스태미나 — 질주만 소모. 바닥나면 걷기 강제 (걷기는 무소음 계약 그대로라 페널티는 속도뿐)
-  const run=wantRun&&moving&&!player.exhausted&&player.stam>0;
+  const run=wantRun&&moving&&!p.exhausted&&p.stam>0;
   if(run){
-    player.stam-=dt/STAM_DRAIN_T;
-    if(player.stam<=0){
-      player.stam=0; player.exhausted=true;
-      puffS();
-      burst(player.x,44,player.z,6,[0.7,0.82,1],10,0.8,4);   // 땀방울 — 탈진은 코미디지 처벌이 아니다
+    p.stam-=dt/STAM_DRAIN_T;
+    if(p.stam<=0){
+      p.stam=0; p.exhausted=true;
+      puffS(sxz(p),szz(p));
+      burst(p.x,44,p.z,6,[0.7,0.82,1],10,0.8,4);   // 땀방울 — 탈진은 코미디지 처벌이 아니다
     }
   } else {
-    player.stam=Math.min(1,player.stam+dt/STAM_REGEN_T);
-    if(player.exhausted&&player.stam>=STAM_MIN_RESUME) player.exhausted=false;
+    p.stam=Math.min(1,p.stam+dt/STAM_REGEN_T);
+    if(p.exhausted&&p.stam>=STAM_MIN_RESUME) p.exhausted=false;
   }
-  player.running=!!(run&&moving);
-  let spd=(run?SPD_RUN:SPD_WALK)*((held||pocket)?CARRY_MULT:1);  // 감속은 몸에 계란 ≥1이면 적용 (품도 짐이다)
-  if(cart.pulled) spd*=CART_MULT;
-  if(player.stagger>0) spd*=0.4;
+  p.running=!!(run&&moving);
+  let spd=(run?SPD_RUN:SPD_WALK)*((p.held||p.pocket)?CARRY_MULT:1);  // 감속은 몸에 계란 ≥1이면 적용 (품도 짐이다)
+  if(cart.owner===p.idx) spd*=CART_MULT;         // 견인 감속은 견인자에게만 (D10)
+  if(p.stagger>0) spd*=0.4;
   if(moving){
     const l=Math.hypot(mx,mz); mx/=l; mz/=l;
-    const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
-    const rx=Math.cos(yaw),  rz=-Math.sin(yaw);
+    const fx=-Math.sin(p.yaw), fz=-Math.cos(p.yaw);
+    const rx=Math.cos(p.yaw),  rz=-Math.sin(p.yaw);
     const wx=fx*(-mz)+rx*mx, wz=fz*(-mz)+rz*mx;
     const wl=Math.hypot(wx,wz)||1;
-    player.x+=wx/wl*spd*dt; player.z+=wz/wl*spd*dt;
-    player.vx=wx/wl*spd; player.vz=wz/wl*spd;    // 관찰용 속도 — C2 예측의 유일한 재료
-    player.stepAcc+=spd*dt;
-    if(player.stepAcc>=(run?52:42)){
-      player.stepAcc=0; stepS(run);
-      burst(player.x,2,player.z,run?4:2,COL_DUST,run?10:7,0.35,3);
-      if(run) alarmNoise(player.x,player.z,AGGRO_RUN);
+    p.x+=wx/wl*spd*dt; p.z+=wz/wl*spd*dt;
+    p.vx=wx/wl*spd; p.vz=wz/wl*spd;    // 관찰용 속도 — C2 예측의 유일한 재료
+    p.stepAcc+=spd*dt;
+    if(p.stepAcc>=(run?52:42)){
+      p.stepAcc=0; stepS(run,sxz(p),szz(p));
+      burst(p.x,2,p.z,run?4:2,COL_DUST,run?10:7,0.35,3);
+      if(run) alarmNoise(p.x,p.z,AGGRO_RUN,p.idx);
       // 파동: 걷기는 시각 전용(어그로 0 — 무소음 계약), 달리기는 어그로와 동반
-      spawnWave(player.x,player.z, run?VIS_RUN:VIS_WALK, run?'run':'dim', true);
-      if(cart.pulled&&run) spawnWave(cart.x,cart.z,VIS_RUN,'run');  // 수레 덜컹 — VIS만 (로직은 견인자 소음이 담당)
-      if(blackout) fxPool.add(player.x,groundY(player.x,player.z)+1.2,player.z,0.35,0.4,0.5,20,2.6);  // 발자국 빵부스러기
+      waveCast(p.x,p.z, run?VIS_RUN:VIS_WALK, run?'run':'dim', p);
+      if(cart.owner===p.idx&&run) waveCast(cart.x,cart.z,VIS_RUN,'run');  // 수레 덜컹 — VIS만 (로직은 견인자 소음이 담당)
+      if(blackout) fxPool.add(p.x,groundY(p.x,p.z)+1.2,p.z,0.35,0.4,0.5,20,2.6);  // 발자국 빵부스러기
     }
-  } else { player.stepAcc=Math.min(player.stepAcc,20); player.vx=0; player.vz=0; }
-  if(run&&moving) player.lastRunT=simT;
-  collideCircle(player);
+  } else { p.stepAcc=Math.min(p.stepAcc,20); p.vx=0; p.vz=0; }
+  if(run&&moving) p.lastRunT=simT;
+  collideCircle(p);
 
-  if(held){
+  if(p.held){
     if(run&&moving){
-      player.shake+=dt/SHAKE_FULL_T;
-      if(player.shake>SHAKE_TELE && rattleCd<=0){ rattleCd=0.15; rattleS(); }
+      p.shake+=dt/SHAKE_FULL_T;
+      if(p.shake>SHAKE_TELE && p.idx===me && rattleCd<=0){ rattleCd=0.15; rattleS(); }  // 미끄럼 경고음은 본인만
     } else {
-      player.shake=Math.max(0,player.shake-dt/SHAKE_DRAIN_T);
+      p.shake=Math.max(0,p.shake-dt/SHAKE_DRAIN_T);
     }
-    if(player.shake>=1) slipEgg();
-  } else player.shake=0;
-  rattleCd=Math.max(0,rattleCd-dt);
+    if(p.shake>=1) slipEgg(p);
+  } else p.shake=0;
 
-  if(held){ held.x=player.x; held.z=player.z; held.y=CARRY_H+groundY(player.x,player.z); }
-  if(pocket){ pocket.x=player.x; pocket.z=player.z; pocket.y=CARRY_H+groundY(player.x,player.z); }
-  if(inPad(player.x,player.z)&&(held||pocket)){   // 반납은 배치 — 손+품 동시 집계 후 승리 판정 1회
-    if(held){ const e=held; held=null; deliverEgg(e); }
-    if(pocket){ const e=pocket; pocket=null; deliverEgg(e); }
+  if(p.held){ p.held.x=p.x; p.held.z=p.z; p.held.y=CARRY_H+groundY(p.x,p.z); }
+  if(p.pocket){ p.pocket.x=p.x; p.pocket.z=p.z; p.pocket.y=CARRY_H+groundY(p.x,p.z); }
+  if(inPad(p.x,p.z)&&(p.held||p.pocket)){   // 반납은 배치 — 손+품 동시 집계 후 승리 판정 1회
+    if(p.held){ const e=p.held; p.held=null; deliverEgg(e); }
+    if(p.pocket){ const e=p.pocket; p.pocket=null; deliverEgg(e); }
     checkWin();
   }
 }
-// 수레 — 브레드크럼 트레일러: 0.55s 전의 플레이어 위치를 따라온다
-// (플레이어가 통과한 경로만 밟으므로 U턴·포켓에서 구조적으로 안 낀다)
+// 플레이어끼리 소프트 분리 — 겹침 방지 (표시용 밀어내기, 규칙 아님)
+function sepPlayers(){
+  for(const a of players){
+    if(!a.active) continue;
+    for(const b of players){
+      if(!b.active||b.idx<=a.idx) continue;
+      const dx=a.x-b.x, dz=a.z-b.z, d=Math.hypot(dx,dz);
+      if(d<PLR_SEP&&d>1e-4){
+        const push=(PLR_SEP-d)*0.5;
+        a.x+=dx/d*push; a.z+=dz/d*push;
+        b.x-=dx/d*push; b.z-=dz/d*push;
+      }
+    }
+  }
+}
+// 수레 — 브레드크럼 트레일러: 0.55s 전의 견인자 위치를 따라온다 (D10)
+// (견인자가 통과한 경로만 밟으므로 U턴·포켓에서 구조적으로 안 낀다)
 function updCart(dt){
   if(phase!=='play') return;
-  if(cart.pulled){
-    cart.trail.push({x:player.x,z:player.z,t:simT});
+  if(cart.owner>=0){
+    const ow=players[cart.owner];
+    cart.trail.push({x:ow.x,z:ow.z,t:simT});
     while(cart.trail.length&&simT-cart.trail[0].t>CART_LAG+0.25) cart.trail.shift();
     let tx=cart.x, tz=cart.z;
-    for(const p of cart.trail){ if(simT-p.t>=CART_LAG){ tx=p.x; tz=p.z; } else break; }
+    for(const q of cart.trail){ if(simT-q.t>=CART_LAG){ tx=q.x; tz=q.z; } else break; }
     const px=cart.x, pz=cart.z;
     moveToward(cart,tx,tz,Math.min(420,Math.hypot(tx-cart.x,tz-cart.z)*8)*dt);
     collideCircle(cart);
     const mdx=cart.x-px, mdz=cart.z-pz;
     if(Math.hypot(mdx,mdz)>0.5) cart.dir=Math.atan2(mdx,mdz);
-    // 달리기 견인 누적 4s → 알 1개 결정적 이탈 (RNG 없는 카운터)
-    if(player.running&&cart.slots.length>0){
+    // 달리기 견인 누적 4s → 알 1개 결정적 이탈 (RNG 없는 카운터. 판정은 견인자의 running)
+    if(ow.running&&cart.slots.length>0){
       cart.runAcc+=dt;
       if(cart.runAcc>=CART_EJECT_T){
         cart.runAcc=0;
@@ -2237,8 +2391,8 @@ function updCart(dt){
         e.state='fly'; e.touched=true; e.mesh.visible=true;
         e.x=cart.x; e.z=cart.z; e.y=34+groundY(cart.x,cart.z);
         e.vx=-Math.sin(cart.dir)*90; e.vz=-Math.cos(cart.dir)*90; e.vy=85;  // 뒤로 — 결정적 방향
-        rattleS(); thudS();
-        bigmsg('알이 튀어나왔다!!');
+        rattleS(); thudS(cart.x,cart.z);
+        bigmsgCast('알이 튀어나왔다!!');
       }
     } else cart.runAcc=Math.max(0,cart.runAcc-dt*0.7);
   }
@@ -2248,23 +2402,29 @@ function updCart(dt){
     checkWin();
   }
 }
-function tryJump(){
-  if(phase!=='play'||player.stun>0) return;
-  if(player.jy>0||player.jvy!==0) return;
-  if(cart.pulled){ return; }                     // 수레를 끌 때는 뛸 수 없다
-  player.jvy=JUMP_V;
-  whipS(0.25);
+function tryJump(p){
+  if(phase!=='play'||p.stun>0) return;
+  if(p.jy>0||p.jvy!==0) return;
+  if(cart.owner===p.idx){ return; }              // 수레를 끌 때는 뛸 수 없다
+  p.jvy=JUMP_V;
+  whipS(0.25,sxz(p),szz(p));
 }
 
 // ============================================================
 //  진행
 // ============================================================
+// 판정(호스트)과 연출(로컬)의 분리 (D15) — 클라는 스냅샷 phase 전이에 반응해 같은 연출 함수를 부른다
 function win(){
   phase='win';
   endBlackout();
+  showWinOv();
+}
+function showWinOv(){
   document.getElementById('winStats').innerHTML=
     '시간 '+stats.t.toFixed(1)+'초<br>깨뜨린 계란 '+stats.broken+'개 · 닭에게 잡힘 '+stats.caught+'번'+
     (stats.meat?'<br>보너스 수확 — 닭고기 '+stats.meat+'개':'');
+  document.querySelector('#winOv .r').textContent=
+    (NET.on&&!NET.host)?'호스트가 다시 시작한다 — 대기 중':'R — 다시 시작';   // 죽은 입력을 안내하지 않는다 (D12)
   document.getElementById('winOv').style.display='flex';
   document.getElementById('cross').style.display='none';
   document.getElementById('pw').style.display='none';
@@ -2281,20 +2441,29 @@ function showFailOv(){
   document.getElementById('failStats').innerHTML=
     '깨뜨린 계란 '+stats.broken+'개 · 닭에게 잡힘 '+stats.caught+'번 · 버틴 시간 '+stats.t.toFixed(1)+'초'+
     (stats.meat?'<br>그래도 닭고기 '+stats.meat+'개는 건졌다':'');
+  document.querySelector('#failOv .r').textContent=
+    (NET.on&&!NET.host)?'호스트가 다시 시작한다 — 대기 중':'R — 다시 시작';
   document.getElementById('failOv').style.display='flex';
   document.getElementById('cross').style.display='none';
   document.getElementById('pw').style.display='none';
   document.exitPointerLock && document.exitPointerLock();
 }
 function resetWorld(){
-  player.x=SPAWN.x; player.z=SPAWN.z; player.stepAcc=0; player.stun=0; player.invuln=0;
-  player.shake=0; player.lastRunT=-9; player.stagger=0; player.shoveCd=0; player.shoveAnim=0; player.elbow=0;
-  player.jy=0; player.jvy=0; player.swapT=0; player.vx=0; player.vz=0; player.running=false;
-  player.stam=1; player.exhausted=false; lastCarried=0;
-  player.glove=false; gloveMesh.visible=true;
-  yaw=-Math.PI/2; pitch=0; held=null; pocket=null; charge=-1; caughtFocus=null;
+  for(const p of players){
+    p.x=SPAWN.x+SPAWN_OFFS[p.idx][0]; p.z=SPAWN.z+SPAWN_OFFS[p.idx][1];
+    p.stepAcc=0; p.stun=0; p.invuln=0;
+    p.shake=0; p.lastRunT=-9; p.stagger=0; p.shoveCd=0; p.shoveAnim=0; p.elbow=0;
+    p.jy=0; p.jvy=0; p.swapT=0; p.vx=0; p.vz=0; p.running=false;
+    p.stam=1; p.exhausted=false;
+    p.glove=false; p.held=null; p.pocket=null;
+    p.yaw=-Math.PI/2; p.pitch=0;
+    p.mv.x=0; p.mv.z=0; p.mv.run=false; p.acts.length=0;
+  }
+  lastCarried=0;
+  gloveMesh.visible=true;
+  charge=-1; caughtFocus=null;
   warned30=false; warned10=false;
-  cart.pulled=false; cart.slots.length=0; cart.trail.length=0; cart.runAcc=0;
+  cart.owner=-1; cart.slots.length=0; cart.trail.length=0; cart.runAcc=0;
   cart.x=CART_HOME.x; cart.z=CART_HOME.z; cart.dir=0;
   for(const m of meats){ m.active=false; m.g.visible=false; }
   endBlackout();
@@ -2307,7 +2476,7 @@ function resetWorld(){
     c.loopI=0; c.dwell=0; c.ax=c.hx; c.az=c.hz;
     c.alarmCd=0; c.revengeT=0; c.ko=false; c.snoreT=0;
     c.seeAcc=0; c.predicted=false; c.lsVX=0; c.lsVZ=0;
-    c.det=0; c.detGrace=0; c.detTicked=false; c.ivT=0;
+    c.det.fill(0); c.detG.fill(0); c.detTicked=false; c.ivT=0; c.tgt=0;
     if(c.meatGiven){ c.meatGiven=false; c.m.tail.visible=true; c.m.g.scale.set(1,1,1); }
     c.m.alert.visible=false; pickWander(c);
   }
@@ -2327,6 +2496,7 @@ function start(){
   document.getElementById('title').style.display='none';
   document.getElementById('cross').style.display='block';
   renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock();
+  if(NET.on) introSeen=true;                    // 멀티는 인트로 생략 (D27 — endIntro 로컬 변이의 phase 산개 방지)
   if(!introSeen){
     introSeen=true;
     phase='intro'; introT=INTRO_T;
@@ -2340,15 +2510,33 @@ function endIntro(){
   phase='play';
 }
 function restart(){
+  if(NET.on&&!NET.host) return;                 // 클라 R은 인텐트가 아니다 (D14) — 안내는 오버레이 카피
   phase='play';
   fade=1;
   resetWorld();
   document.getElementById('winOv').style.display='none';
   document.getElementById('failOv').style.display='none';
   document.getElementById('cross').style.display='block';
+  if(NET.host){ netSend({t:'unlock'}); netCast({g:'restart'}); }   // 방 잠금 해제 + 클라 재입장 게이트
   if(!locked) pauseEl.style.display='flex';
 }
-function paused(){ return phase==='play' && !locked; }
+function paused(){ return phase==='play' && !locked; }   // 솔로 의미 유지 (하위호환)
+// 시뮬 정지 술어 — 솔로: 포인터락 상실. 멀티 호스트: 락 상실·탭 숨김 = 정직한 전원 정지 (D13).
+// 클라는 시뮬이 없으므로 이 술어와 무관 (호스트가 알려준 NET.pause로 연출만 멈춘다)
+function simPaused(){
+  if(phase!=='play') return false;
+  if(!NET.on) return !locked;
+  return !locked||document.hidden;
+}
+// 로컬 입력 → 이동 인텐트 (호스트·클라 공통. 원격 플레이어의 mv는 넷이 채운다)
+function pollInput(){
+  const p=players[me];
+  let mx=0,mz=0;
+  if(keys.has('KeyW'))mz--; if(keys.has('KeyS'))mz++;
+  if(keys.has('KeyA'))mx--; if(keys.has('KeyD'))mx++;
+  p.mv.x=mx; p.mv.z=mz;
+  p.mv.run=keys.has('ShiftLeft')||keys.has('ShiftRight');
+}
 
 function update(dt){
   now+=dt; simT+=dt;
@@ -2357,6 +2545,7 @@ function update(dt){
   const hadFlick=flickT>0;
   flickT=Math.max(0,flickT-dt);
   if(hadFlick&&flickT<=0&&!blackout) applyDark(false);   // 예고 딥 복구 (플리커 기구 재사용의 뒷정리)
+  if(NET.on&&!NET.host){ clientTick(dt); return; }       // 클라: 규칙 코드는 구조적으로 도달 불가 (D15)
   if(phase==='intro'){
     introT-=dt;
     const p=1-Math.max(0,introT)/INTRO_T;
@@ -2367,14 +2556,15 @@ function update(dt){
     if(introT<=0) endIntro();
     return;
   }
-  if(paused()) return;
+  if(simPaused()) return;
   if(phase==='play'){
+    pollInput();
     stats.t+=dt;
     if(charge>=0 && charge<THROW_CHARGE_T) charge=Math.min(THROW_CHARGE_T,charge+dt);
     // 정전 타이머 — 확보 총량 트리거와 먼저 오는 쪽. 잔여 30/10초에 조명 딥 예고
     if(!blackout&&darkEnabled){
       const left=DARK_TIMER-stats.t;
-      if(left<=0) startBlackout();
+      if(left<=0) startBlackout(null);
       else {
         if(left<=30&&!warned30){ warned30=true; flickT=WARN_DIP_T; rattleS(); clunkS(); }
         if(left<=10&&!warned10){ warned10=true; flickT=WARN_DIP_T; rattleS(); clunkS(); }
@@ -2383,7 +2573,7 @@ function update(dt){
   }
   shake=Math.max(0,shake-dt*1.8);
   flash=Math.max(0,flash-dt*2.2);
-  // 계란 0→1 순간 — 전 닭 머리에서 글린트: "지금부터 보인다"의 한 방 신호
+  // 계란 0→1 순간 — 전 닭 머리에서 글린트: "지금부터 보인다"의 한 방 신호 (팀 단위 — D22)
   if(phase==='play'){
     const cc=carriedEggCount();
     if(cc>0&&lastCarried===0){
@@ -2392,7 +2582,9 @@ function update(dt){
     }
     lastCarried=cc;
   }
-  updPlayer(dt);
+  rattleCd=Math.max(0,rattleCd-dt);
+  eachP(p=>updPlayer(p,dt));
+  sepPlayers();
   updCart(dt);
   updEggs(dt);
   updChickens(dt);
@@ -2401,6 +2593,7 @@ function update(dt){
     failT-=dt;
     if(failT<=0 && document.getElementById('failOv').style.display!=='flex') showFailOv();
   }
+  if(NET.host) hostNetFlush(dt);                // 20Hz 스냅샷+이벤트 방송 (M2)
 }
 
 // ============================================================
@@ -2408,28 +2601,30 @@ function update(dt){
 // ============================================================
 const _fwd=new THREE.Vector3();
 function camDistRaw(dx,dz){
+  const v=P();                                  // 카메라는 뷰어 전용
   const l=Math.hypot(dx,dz);
   if(l<1e-4) return TP_DIST;
   const ux=dx/l, uz=dz/l;
   let best=TP_DIST;
-  const list=segsFor(player.x,player.z);
+  const list=segsFor(v.x,v.z);
   for(let k=0;k<list.length;k++){
     if(JUMP_SKIP[list[k].kind]) continue;                 // 카메라가 물통에 스냅하지 않게
-    const t=raySeg(player.x,player.z,ux,uz,list[k]);
+    const t=raySeg(v.x,v.z,ux,uz,list[k]);
     if(t<best) best=t;
   }
   return Math.max(46,Math.min(TP_DIST,best-14));
 }
 function lookTowards(tx,tz,ty,rate,dt){
-  const dx=tx-player.x, dz=tz-player.z;
+  const v=P();
+  const dx=tx-v.x, dz=tz-v.z;
   const wantYaw=Math.atan2(-dx,-dz);
-  let dy=wantYaw-yaw;
+  let dy=wantYaw-v.yaw;
   while(dy>Math.PI) dy-=TAU;
   while(dy<-Math.PI) dy+=TAU;
-  yaw+=dy*Math.min(1,rate*dt);
+  v.yaw+=dy*Math.min(1,rate*dt);
   const dist=Math.hypot(dx,dz)||1;
   const wantPitch=Math.atan2((ty||EYE*0.3)-EYE,dist)*0.9;
-  pitch+=(wantPitch-pitch)*Math.min(1,rate*dt);
+  v.pitch+=(wantPitch-v.pitch)*Math.min(1,rate*dt);
 }
 function render(){
   // 소등 플리커 (연출 전용 — 로직은 t=0에 이미 어둡다)
@@ -2449,26 +2644,27 @@ function render(){
     camera.position.set(TRUCK_X+120,170,TRUCK_Z+560);
     camera.lookAt(truckG.position.x+90,50,TRUCK_Z);
   } else {
-    if(player.stun>0 && caughtFocus) lookTowards(caughtFocus.x,caughtFocus.z,8,6,1/60);
+    const v=P();
+    if(v.stun>0 && caughtFocus) lookTowards(caughtFocus.x,caughtFocus.z,8,6,1/60);
     if(phase==='fail') lookTowards(lastLoss.x,lastLoss.z,4,3,1/60);
-    const roll=player.stun>0 ? Math.sin((STUMBLE_T-player.stun)*7)*0.5*(player.stun/STUMBLE_T) : 0;
-    const sink=player.stun>0 ? -26*(player.stun/STUMBLE_T) : 0;
-    camera.rotation.y=yaw;
-    camera.rotation.x=pitch+(player.stun>0?-0.35*(player.stun/STUMBLE_T):0);
+    const roll=v.stun>0 ? Math.sin((STUMBLE_T-v.stun)*7)*0.5*(v.stun/STUMBLE_T) : 0;
+    const sink=v.stun>0 ? -26*(v.stun/STUMBLE_T) : 0;
+    camera.rotation.y=v.yaw;
+    camera.rotation.x=v.pitch+(v.stun>0?-0.35*(v.stun/STUMBLE_T):0);
     camera.rotation.z=roll;
     _fwd.set(0,0,-1).applyQuaternion(camera.quaternion);
-    const pgy=groundY(player.x,player.z);
-    let cx=player.x, cz=player.z, cy=EYE+sink+player.jy+pgy;
+    const pgy=groundY(v.x,v.z);
+    let cx=v.x, cz=v.z, cy=EYE+sink+v.jy+pgy;
     if(camMode===1){
-      const indoor=inZoneOrCorr(player.x,player.z);
+      const indoor=inZoneOrCorr(v.x,v.z);
       // 실내 목표거리 110 캡 — 코너마다 46↔155 줌 펌핑(멀미) 완화
       const target=Math.min(camDistRaw(-_fwd.x,-_fwd.z), indoor?110:TP_DIST);
       if(target<tpCur) tpCur=target;
       else tpCur+=(target-tpCur)*Math.min(1,1/60*6);
-      const rx=Math.cos(yaw), rz=-Math.sin(yaw);
+      const rx=Math.cos(v.yaw), rz=-Math.sin(v.yaw);
       const side=(indoor?18:TP_SIDE)*Math.min(1,tpCur/TP_DIST);
-      cx=player.x-_fwd.x*tpCur+rx*side; cz=player.z-_fwd.z*tpCur+rz*side;
-      cy=EYE+TP_UP-_fwd.y*tpCur+player.jy+pgy;
+      cx=v.x-_fwd.x*tpCur+rx*side; cz=v.z-_fwd.z*tpCur+rz*side;
+      cy=EYE+TP_UP-_fwd.y*tpCur+v.jy+pgy;
       const cgy=groundY(cx,cz);
       if(cy<cgy+20) cy=cgy+20;                 // 바닥 클램프 — 카메라 위치의 지면 기준 (램프 뒤 관통 방지)
       if(inZoneOrCorr(cx,cz)&&cy>cgy+BARN_H-14) cy=cgy+BARN_H-14;   // 부감 클램프 — 층 천장 기준
@@ -2480,30 +2676,53 @@ function render(){
     camera.position.set(cx,cy,cz);
   }
 
-  plr.g.visible=(camMode===1 && phase!=='title' && phase!=='intro');
-  plr.g.position.set(player.x,player.jy+groundY(player.x,player.z),player.z);
-  plr.g.rotation.y=yaw;
-  plr.gl.visible=player.glove;                 // 장비는 손에 보인다 (3인칭)
-  fpArms.gl.visible=player.glove;              // (1인칭 왼손 — 오른손은 계란 담당)
-  plr.g.rotation.z=player.stun>0?0.9*(player.stun/STUMBLE_T):0;
-  const carryHands=(held!==null);
-  const shoving=player.shoveAnim>0;
-  plr.a1.position.set(carryHands||shoving?16:8, carryHands?38:32, carryHands||shoving?7:10);
-  plr.a2.position.set(carryHands||shoving?16:8, carryHands?38:32, carryHands||shoving?-7:-10);
-  plr.a1.rotation.z=plr.a2.rotation.z=(carryHands||shoving)?-Math.PI/2.6:0;
+  // 아바타 ×4 — 뷰어 본인은 3인칭에서만, 원격은 항상 (M1 D29)
+  for(let i=0;i<MAX_PLAYERS;i++){
+    const p=players[i], av=avatars[i];
+    const show=p.active&&(phase!=='title'&&phase!=='intro')&&(i!==me||camMode===1);
+    av.g.visible=show;
+    if(!show) continue;
+    av.g.position.set(p.x,p.jy+groundY(p.x,p.z),p.z);
+    av.g.rotation.y=p.yaw;
+    av.gl.visible=p.glove;                     // 장비는 손에 보인다 (3인칭)
+    av.g.rotation.z=p.stun>0?0.9*(p.stun/STUMBLE_T):0;
+    const carryHands=(p.held!==null);
+    const shoving=p.shoveAnim>0;
+    av.a1.position.set(carryHands||shoving?16:8, carryHands?38:32, carryHands||shoving?7:10);
+    av.a2.position.set(carryHands||shoving?16:8, carryHands?38:32, carryHands||shoving?-7:-10);
+    av.a1.rotation.z=av.a2.rotation.z=(carryHands||shoving)?-Math.PI/2.6:0;
+    // 팀 가독성 (D28): 운반 표지 계란 (품 포함) + 정전 중 몸통 은은한 틴트 발광
+    av.carryE.visible=NET.on&&i!==me&&(p.held!==null||p.pocket!==null);
+    if(av.carryE.visible) av.carryE.position.y=86+Math.sin(now*4+i)*3;
+    av.bodyM.emissive.setHex(NET.on&&blackout&&i!==me?0x2a3450:0x22201c);
+  }
+  fpArms.gl.visible=P().glove;                 // (1인칭 왼손 — 오른손은 계란 담당)
 
   fpArms.g.visible=(camMode===0 && (phase==='play'||phase==='fail'));
   if(fpArms.g.visible){
-    const lunge=player.shoveAnim>0 ? Math.sin((0.25-player.shoveAnim)/0.25*Math.PI)*22 : 0;
-    const elb=player.elbow>0 ? Math.sin(now*40)*4 : 0;
+    const v=P();
+    const lunge=v.shoveAnim>0 ? Math.sin((0.25-v.shoveAnim)/0.25*Math.PI)*22 : 0;
+    const elb=v.elbow>0 ? Math.sin(now*40)*4 : 0;
     fpArms.l.position.set(-14+elb,-14,-30-lunge);
     fpArms.r.position.set(14-elb,-14,-30-lunge);
-    fpArms.g.position.y = held?4:0;
+    fpArms.g.position.y = v.held?4:0;
   }
 
+  let heldMine=null;
   for(const e of eggs){
     if(e.state==='gone'||e.state==='pocket'){ e.mesh.visible=false; continue; }
     e.mesh.visible=true;
+    if(e.state==='held'){
+      const h=holderOf(e);
+      if(!h){ e.mesh.visible=false; continue; }
+      if(h.idx===me){ heldMine=e; continue; }  // 뷰어 본인 손 — 아래 전용 블록 (흔들림 연출 포함)
+      const fx=-Math.sin(h.yaw), fz=-Math.cos(h.yaw);
+      const rx=Math.cos(h.yaw),  rz=-Math.sin(h.yaw);
+      e.mesh.position.set(h.x+fx*24+rx*11,
+        CARRY_H+10+h.jy+groundY(h.x,h.z)+Math.sin(now*7)*1.2, h.z+fz*24+rz*11);
+      e.mesh.rotation.set(0,0,0);
+      continue;
+    }
     if(e.state==='cart'){
       const i=cart.slots.indexOf(e);
       const rx=Math.sin(cart.dir), rz=Math.cos(cart.dir);
@@ -2522,31 +2741,35 @@ function render(){
       e.mesh.rotation.set(0,0,0);
     }
   }
-  if(held){
-    held.mesh.visible=true;
-    const amp=player.shake*player.shake*(camMode===0?5:7);
-    const wob=Math.sin(now*(8+player.shake*18))*amp;
-    const wobY=Math.cos(now*(9+player.shake*16))*amp*0.6;
+  if(heldMine){
+    const v=P();
+    heldMine.mesh.visible=true;
+    const amp=v.shake*v.shake*(camMode===0?5:7);
+    const wob=Math.sin(now*(8+v.shake*18))*amp;
+    const wobY=Math.cos(now*(9+v.shake*16))*amp*0.6;
     if(camMode===0){
-      const rx=Math.cos(yaw), rz=-Math.sin(yaw);
-      held.mesh.position.set(
+      const rx=Math.cos(v.yaw), rz=-Math.sin(v.yaw);
+      heldMine.mesh.position.set(
         camera.position.x+_fwd.x*72+rx*(26+wob),
         camera.position.y+_fwd.y*72-32+Math.sin(now*7)*1.1+wobY,
         camera.position.z+_fwd.z*72+rz*(26+wob));
     } else {
-      const fx=-Math.sin(yaw), fz=-Math.cos(yaw);
-      const rx=Math.cos(yaw),  rz=-Math.sin(yaw);
-      held.mesh.position.set(player.x+fx*24+rx*(11+wob),
-                             CARRY_H+10+player.jy+groundY(player.x,player.z)+Math.sin(now*7)*1.2+wobY,
-                             player.z+fz*24+rz*(11+wob));
+      const fx=-Math.sin(v.yaw), fz=-Math.cos(v.yaw);
+      const rx=Math.cos(v.yaw),  rz=-Math.sin(v.yaw);
+      heldMine.mesh.position.set(v.x+fx*24+rx*(11+wob),
+                             CARRY_H+10+v.jy+groundY(v.x,v.z)+Math.sin(now*7)*1.2+wobY,
+                             v.z+fz*24+rz*(11+wob));
     }
-    held.mesh.rotation.set(0,0,wob*0.06);
+    heldMine.mesh.rotation.set(0,0,wob*0.06);
   }
-  // 랜턴은 든 알에만 (싱글턴 — 강탈·바닥 알은 emissive만)
-  if(blackout&&held){
-    LANTERN.intensity=LANTERN_INT;
-    LANTERN.position.set(held.mesh.position.x,Math.max(30,held.mesh.position.y),held.mesh.position.z);
-  } else LANTERN.intensity=0;
+  // 랜턴은 든 알에만 — 소지자별 1개 (강탈·바닥 알은 emissive만)
+  for(let i=0;i<MAX_PLAYERS;i++){
+    const p=players[i], L=LANTERNS[i];
+    if(blackout&&p.active&&p.held&&p.held.mesh.visible){
+      L.intensity=LANTERN_INT;
+      L.position.set(p.held.mesh.position.x,Math.max(30,p.held.mesh.position.y),p.held.mesh.position.z);
+    } else L.intensity=0;
+  }
 
   for(const c of chickens){
     const m=c.m;
@@ -2572,9 +2795,10 @@ function render(){
       m.neck.rotation.z=0.25;
       m.neck.rotation.y=Math.sin(now*30)*0.35;
     }
-    else if(!blackout&&c.det>0.3&&eligible){
-      // 응시 — det>0.3이면 목이 플레이어를 좇는다: "UI가 아니라 닭이 알아챈다"
-      let rel=Math.atan2(player.x-c.x,player.z-c.z)-c.dir;
+    else if(!blackout&&eligible&&detMax(c)>0.3){
+      // 응시 — 게이지 최고 소지자를 좇는다 (세계 진실 — 모든 화면에서 같은 곳을 본다. D6)
+      const gi=detArgmax(c), gz=gi>=0?players[gi]:P();
+      let rel=Math.atan2(gz.x-c.x,gz.z-c.z)-c.dir;
       while(rel>Math.PI) rel-=TAU;
       while(rel<-Math.PI) rel+=TAU;
       m.neck.rotation.y=Math.max(-1.1,Math.min(1.1,rel));
@@ -2594,57 +2818,59 @@ function render(){
     m.alertM.color.setHex(rage?0xd01424:0xff5040);
     m.alert.visible=(c.state==='alert'||c.state==='chase')&&(!rage||Math.sin(now*16)>-0.5);
     if(m.alert.visible) m.alert.position.y=54+Math.abs(Math.sin(now*8))*7;
-    // 발각 게이지 — det>0.05, 밝은 구간 한정. 카메라 빌보드
-    const showG=(!blackout&&c.det>0.05&&eligible&&phase==='play');
+    // 발각 게이지 — 뷰어 자신의 det[me]만 (내 위험은 내 것 — D1. 동료 위험은 응시 방향으로 읽는다)
+    const dv=c.det[me];
+    const showG=(!blackout&&dv>0.05&&eligible&&phase==='play');
     m.gauge.visible=showG;
     if(showG){
-      m.gFill.scale.x=Math.max(0.02,c.det);
-      m.gFill.position.x=-9+9*c.det;
-      m.gFillM.color.setHex(c.det>0.7?0xff5040:0xffc040);
-      m.gauge.rotation.y=yaw-(c.dir-Math.PI/2);
+      m.gFill.scale.x=Math.max(0.02,dv);
+      m.gFill.position.x=-9+9*dv;
+      m.gFillM.color.setHex(dv>0.7?0xff5040:0xffc040);
+      m.gauge.rotation.y=P().yaw-(c.dir-Math.PI/2);
     }
     // ? — 소리 반응 (invest·미끼 접근) + 표적 마커 (강탈 — "나 말고 알을 노린다"). 게이지가 ?를 대체
     m.questM.color.setHex((c.state==='grab'||c.state==='rob')?0xff8830:0xffc040);
     m.quest.visible=!showG&&(c.state==='invest'||(c.state==='peck'&&!c.arrived)||c.state==='grab'||c.state==='rob');
     if(m.quest.visible) m.quest.position.y=54+Math.sin(now*6)*4;
-    // 시야 원 — 알 소지·밝은 구간·LOS·거리 400 이내·chickenSee를 읽는 상태만 (벽 뒤 링 없음 — 갑툭튀 보존)
-    const ringOk=carriesEgg()&&!blackout&&phase==='play'&&(eligible||c.state==='alert')&&
-      Math.hypot(c.x-player.x,c.z-player.z)<=RING_MAX_D&&!lineBlocked(player.x,player.z,c.x,c.z);
+    // 시야 원 — 뷰어 자신 기준 (내가 소지 중·밝은 구간·LOS·거리 400 이내 — 벽 뒤 링 없음, 갑툭튀 보존)
+    const ringOk=carriesEgg(P())&&!blackout&&phase==='play'&&(eligible||c.state==='alert')&&
+      Math.hypot(c.x-P().x,c.z-P().z)<=RING_MAX_D&&!lineBlocked(P().x,P().z,c.x,c.z);
     m.ring.visible=ringOk;
     if(ringOk){
-      const r=sightRadius();
+      const r=sightRadius(P());
       m.ring.scale.set(r,r,1);
       m.ring.position.set(c.x,cgy+1.6,c.z);
     }
-    // 눈 — carriesEgg()가 곧 규칙: 알을 드는 순간 떠지고, 내려놓으면 도로 실눈
-    const eyeOpen=carriesEgg()?1:0.16;
+    // 눈 — "아무나 알을 들면" 떠진다 (세계 진실 — 계획 문서 3절 재정의)
+    const eyeOpen=anyCarrier()?1:0.16;
     m.e1.scale.y+=(eyeOpen-m.e1.scale.y)*0.2;
     m.e2.scale.y=m.e1.scale.y;
   }
-  EYE_MAT.color.setHex(carriesEgg()?0xffe9c8:0x241d18);
+  EYE_MAT.color.setHex(anyCarrier()?0xffe9c8:0x241d18);
 
   // 인벤토리 HUD — 손·품·수레 슬롯 + 스태미나 상시 (표시 전용, 규칙 변경 0)
   {
     const inv=document.getElementById('inv');
     if(phase==='play'){
+      const v=P();
       inv.style.display='block';
       const sh=document.getElementById('slotHand'), ih=document.getElementById('icoHand');
-      if(held){ ih.textContent='🥚'; sh.classList.remove('dim'); }
-      else if(player.glove){ ih.textContent='🥊'; sh.classList.remove('dim'); }  // 빈손+글러브 = 펀치 준비
+      if(v.held){ ih.textContent='🥚'; sh.classList.remove('dim'); }
+      else if(v.glove){ ih.textContent='🥊'; sh.classList.remove('dim'); }  // 빈손+글러브 = 펀치 준비
       else { ih.textContent='–'; sh.classList.add('dim'); }
       const sp=document.getElementById('slotPocket'), ip=document.getElementById('icoPocket');
-      if(pocket){ ip.textContent='🥚'; sp.classList.remove('dim'); }
+      if(v.pocket){ ip.textContent='🥚'; sp.classList.remove('dim'); }
       else { ip.textContent='–'; sp.classList.add('dim'); }
       const sc=document.getElementById('slotCart');
-      if(cart.pulled){
+      if(cart.owner===me){
         sc.style.display='block';
         const ic=document.getElementById('icoCart');
         if(cart.slots.length){ ic.textContent='🥚'.repeat(cart.slots.length); sc.classList.remove('dim'); }
         else { ic.textContent='–'; sc.classList.add('dim'); }
       } else sc.style.display='none';
       const f=document.getElementById('stamFill');
-      f.style.width=(player.stam*100).toFixed(0)+'%';
-      f.style.background=player.exhausted?'#e2564a':'#8fd77b';
+      f.style.width=(v.stam*100).toFixed(0)+'%';
+      f.style.background=v.exhausted?'#e2564a':'#8fd77b';
     } else inv.style.display='none';
   }
 
@@ -2671,58 +2897,74 @@ function render(){
       const mm=Math.floor(left/60), ss=Math.floor(left%60);
       timerStr=' · '+(left<30?'<span class="warn">':'<span>')+'정전까지 '+mm+':'+(ss<10?'0':'')+ss+'</span>';
     }
+    // 동료 칩 (D28) — 틴트·층·알 개수. 팀 합산 "확보 n/3"는 정전 트리거의 인과 가시화
+    let mates='';
+    if(NET.on){
+      for(const p of players){
+        if(!p.active||p.idx===me) continue;
+        const zn=zoneOfArea(p.x,p.z);
+        const fl=zn===1?'지하':(zn===2?'계단':(inCoopPt(p.x,p.z)?'1층':'마당'));
+        const egg=(p.held?1:0)+(p.pocket?1:0);
+        mates+=' · <span style="color:#'+PLAYER_TINTS[p.idx].toString(16).padStart(6,'0')+'">●</span>'+
+          PLAYER_NAMES[p.idx]+' '+fl+(egg?' 🥚'+egg:'')+(p.stun>0?' 넘어짐!':'');
+      }
+      mates+=' · 확보 '+Math.min(NEED_EGGS,stats.delivered+carriedEggCount())+'/'+NEED_EGGS;
+    }
+    const vz=zoneOfArea(P().x,P().z);
     hud.innerHTML=
       '<span class="big">계란 '+stats.delivered+' / '+NEED_EGGS+'</span>'+
       ' · 남은 계란 '+(spare<=0?'<span class="warn">'+alive+' — 하나도 못 깨진다!</span>':alive)+
       (stats.meat?' · 닭고기 '+stats.meat:'')+
-      (blackout?' · <span class="warn">정전</span>':'')+timerStr+'<br>'+
+      (blackout?' · <span class="warn">정전</span>':'')+timerStr+mates+'<br>'+
       '시간 '+stats.t.toFixed(1)+'초 · 깨짐 '+stats.broken+' · 잡힘 '+stats.caught+
-      ' · '+(zoneOfArea(player.x,player.z)===1?'지하':(zoneOfArea(player.x,player.z)===2?'계단':(inCoopPt(player.x,player.z)?'1층':'마당')))+
+      ' · '+(vz===1?'지하':(vz===2?'계단':(inCoopPt(P().x,P().z)?'1층':'마당')))+
       ' · 시점 '+(camMode?'3인칭':'1인칭');
   }
   const pr=document.getElementById('prompt');
+  const v=P();
   if(phase==='intro'){ pr.textContent='아무 키나 누르면 바로 내린다'; }
   else if(phase!=='play'){ pr.textContent=''; }
-  else if(player.stun>0){ pr.textContent='넘어졌다…'; }
-  else if(blackout&&held){
-    const below=zoneOfArea(player.x,player.z)!==0;   // 지하·계단이면 탈출 유도가 다르다
-    pr.textContent=(player.shake>SHAKE_TELE)?'계란이 미끄러진다!! — 걸어!'
+  else if(NET.on&&!NET.host&&NET.pause){ pr.textContent=''; }
+  else if(v.stun>0){ pr.textContent='넘어졌다…'; }
+  else if(blackout&&v.held){
+    const below=zoneOfArea(v.x,v.z)!==0;   // 지하·계단이면 탈출 유도가 다르다
+    pr.textContent=(v.shake>SHAKE_TELE)?'계란이 미끄러진다!! — 걸어!'
       :(stats.delivered+carriedEggCount()>=NEED_EGGS
         ?(below?'어둠이다 — 파란 계단 불빛으로 올라가라. 소리가 지형을 보여준다'
                :'어둠이다 — 서쪽 문의 불빛으로. 소리가 지형을 보여준다')
         :'정전이다 — 알은 어둠 속에서 빛난다. 소리가 지형을 보여준다');
   }
-  else if(held){
-    const nearCart=Math.hypot(cart.x-player.x,cart.z-player.z)<CART_LOAD_R;
-    pr.textContent=(player.shake>SHAKE_TELE)
+  else if(v.held){
+    const nearCart=Math.hypot(cart.x-v.x,cart.z-v.z)<CART_LOAD_R;
+    pr.textContent=(v.shake>SHAKE_TELE)
       ? '계란이 미끄러진다!! — 걸어!'
       : (nearCart&&cart.slots.length<CART_SLOTS
         ? 'E — 수레에 싣기 · Q — 품에 넣기 · 좌클릭 꾹 미끼 던지기'
         : '좌클릭 꾹 — 미끼 던지기 (닭들이 몰려간다) · E — 살살 내려놓기 · Q — 품에 넣기');
   }
-  else if(blackout&&pocket){
+  else if(blackout&&v.pocket){
     pr.textContent='품속 알은 빛나지 않는다 — 하지만 닭 눈에는 팔린다. Q — 꺼내면 랜턴';
   }
   else {
     let near=false;
-    for(const e of eggs) if(e.state==='rest' && Math.hypot(e.x-player.x,e.z-player.z)<PICK_R){ near=true; break; }
+    for(const e of eggs) if(e.state==='rest' && Math.hypot(e.x-v.x,e.z-v.z)<PICK_R){ near=true; break; }
     let robber=false;
-    for(const c of chickens) if(c.state==='rob' && Math.hypot(c.x-player.x,c.z-player.z)<160){ robber=true; break; }
+    for(const c of chickens) if(c.state==='rob' && Math.hypot(c.x-v.x,c.z-v.z)<160){ robber=true; break; }
     let meatNear=false;
-    for(const m of meats) if(m.active && Math.hypot(m.x-player.x,m.z-player.z)<PICK_R){ meatNear=true; break; }
-    const gloveNear=!player.glove&&Math.hypot(GLOVE_POS.x-player.x,GLOVE_POS.z-player.z)<PICK_R+40;
-    const nearCart=Math.hypot(cart.x-player.x,cart.z-player.z)<CART_GRAB_R;
-    pr.textContent = robber ? (player.glove?'저 닭이 계란을 훔쳐간다! 좌클릭 — 펀치로 떨구기':'저 닭이 계란을 훔쳐간다! 좌클릭 — 밀쳐서 떨구기')
+    for(const m of meats) if(m.active && Math.hypot(m.x-v.x,m.z-v.z)<PICK_R){ meatNear=true; break; }
+    const gloveNear=!v.glove&&gloveMesh.visible&&Math.hypot(GLOVE_POS.x-v.x,GLOVE_POS.z-v.z)<PICK_R+40;
+    const nearCart=Math.hypot(cart.x-v.x,cart.z-v.z)<CART_GRAB_R;
+    pr.textContent = robber ? (v.glove?'저 닭이 계란을 훔쳐간다! 좌클릭 — 펀치로 떨구기':'저 닭이 계란을 훔쳐간다! 좌클릭 — 밀쳐서 떨구기')
                    : gloveNear ? 'E — 권투 글러브 줍기'
                    : meatNear ? 'E — 닭고기 수확'
                    : near ? 'E — 계란 줍기 (달리던 중이면 시끄럽다)'
-                   : nearCart ? (cart.pulled?'F — 수레 놓기':(cart.slots.length?'F — 수레 끌기 · E — 꺼내기':'F — 수레 끌기'))
+                   : nearCart ? (cart.owner===me?'F — 수레 놓기':(cart.owner>=0?'':(cart.slots.length?'F — 수레 끌기 · E — 꺼내기':'F — 수레 끌기')))
                    : '';
   }
   const bm=document.getElementById('bigmsg');
   bm.style.opacity=Math.min(1,bigmsgT).toFixed(2);
   const pw=document.getElementById('pw');
-  if(charge>=0 && held && phase==='play'){
+  if(charge>=0 && P().held && phase==='play'){
     const f=charge/THROW_CHARGE_T;
     pw.style.display='block';
     const fill=document.getElementById('pwFill');
@@ -2764,46 +3006,68 @@ pauseEl.addEventListener('click',e=>{
 }
 document.addEventListener('pointerlockchange',()=>{
   locked=(document.pointerLockElement===renderer.domElement);
-  if(phase==='play') pauseEl.style.display=locked?'none':'flex';
+  if(phase==='play'){
+    pauseEl.style.display=locked?'none':'flex';
+    // 죽은 입력을 안내하지 않는다 (D12): 클라의 락 상실은 로컬 오버레이일 뿐, 게임은 계속 돈다
+    document.querySelector('#pauseOv .t').textContent=
+      (NET.on&&!NET.host)?'메뉴 — 게임은 계속 진행 중! 클릭해서 복귀':'일시정지 — 클릭해서 계속';
+  }
   if(!locked){ keys.clear(); charge=-1; }
 });
 document.addEventListener('mousemove',e=>{
   if(!locked||phase!=='play') return;
-  if(player.stun>0) return;
-  yaw  -=e.movementX*0.0023*sens;
-  pitch-=e.movementY*0.0023*sens;
-  pitch=Math.max(-1.2,Math.min(1.2,pitch));
+  const v=P();
+  if(v.stun>0) return;
+  v.yaw  -=e.movementX*0.0023*sens;
+  v.pitch-=e.movementY*0.0023*sens;
+  v.pitch=Math.max(-1.2,Math.min(1.2,v.pitch));
 });
+// 액션 인텐트 — 로컬도 원격도 같은 큐를 탄다 (M1). 클라는 큐 대신 호스트로 송신 (M2)
+function pushAct(a){
+  if(NET.on&&!NET.host){ NET.actOut.push(a); return; }
+  players[me].acts.push(a);
+}
 renderer.domElement.addEventListener('mousedown',e=>{
   if(e.button!==0) return;
   if(phase==='intro'){ endIntro(); return; }
   if(phase!=='play'||!locked) return;
-  if(player.stun>0) return;
-  if(held){ charge=0; }
-  else tryShove();
+  const v=P();
+  if(v.stun>0) return;
+  if(v.held){ charge=0; }
+  else { pushAct({a:'shove',yaw:v.yaw}); }      // 누른 순간의 조준 동봉 (D18)
 });
 window.addEventListener('mouseup',e=>{
   if(e.button!==0) return;
   if(charge>=0){
     const pw=charge/THROW_CHARGE_T;
     charge=-1;
-    if(phase==='play'&&held&&player.stun<=0) throwEgg(pw);
+    const v=P();
+    if(phase==='play'&&v.held&&v.stun<=0) pushAct({a:'throw',pw,yaw:v.yaw,pitch:v.pitch});
   }
 });
+let rHold=0;   // 멀티 호스트 R 홀드 (D14) — keydown repeat로 적산
 window.addEventListener('keydown',e=>{
   if(e.code==='Space') e.preventDefault();
   if(phase==='title') return;
   if(phase==='intro'){ endIntro(); return; }
-  if(e.code==='KeyR'){ restart(); return; }
+  if(e.code==='KeyR'){
+    if(NET.on&&!NET.host) return;               // 클라 R은 인텐트가 아니다 (D14)
+    if(NET.on&&phase==='play'){                 // 플레이 중 호스트 R = 1초 홀드 (4인 런 오타 증발 방지)
+      rHold+=e.repeat?0.08:0.001;
+      if(rHold<R_HOLD_T){ if(!e.repeat) bigmsg('R 꾹 — 처음부터'); return; }
+      rHold=0;
+    }
+    restart(); return;
+  }
   if(e.code==='KeyM'){ toggleMute(); return; }
   if(e.code==='KeyV'){ camMode=camMode?0:1; tpCur=TP_DIST; return; }
-  if(e.code==='KeyE'){ tryPickOrPlace(); return; }
-  if(e.code==='KeyQ'){ tryPocket(); return; }
-  if(e.code==='KeyF'){ toggleCart(); return; }
-  if(e.code==='Space'){ if(!e.repeat) tryJump(); return; }
+  if(e.code==='KeyE'){ pushAct({a:'pick'}); return; }
+  if(e.code==='KeyQ'){ pushAct({a:'pocket'}); return; }
+  if(e.code==='KeyF'){ pushAct({a:'cart'}); return; }
+  if(e.code==='Space'){ if(!e.repeat) pushAct({a:'jump'}); return; }
   keys.add(e.code);
 });
-window.addEventListener('keyup',e=>keys.delete(e.code));
+window.addEventListener('keyup',e=>{ if(e.code==='KeyR') rHold=0; keys.delete(e.code); });
 window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
 
 // ============================================================
@@ -2864,8 +3128,15 @@ window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
   // 글러브 스폰 (승계)
   if(!(GLOVE_POS.x>=600&&GLOVE_POS.x<=660&&GLOVE_POS.z>=TRUCK_Z-90&&GLOVE_POS.z<=TRUCK_Z-30))
     bad.push('glove off crate');
+  // 13) v0.10 멀티 구조 불변 — targetOf 액세서·틴트 신호색 분리·스폰 4자리 존 정합·det 배열 크기
+  if(players.length!==MAX_PLAYERS||SPAWN_OFFS.length!==MAX_PLAYERS) bad.push('players/spawn size');
+  chickens[0].tgt=1; if(targetOf(chickens[0])!==players[1]) bad.push('targetOf not players[tgt]');
+  chickens[0].tgt=0;
+  for(const t of PLAYER_TINTS) if(t===0xff5040||t===0xffc040) bad.push('tint collides signal hue');
+  for(const o of SPAWN_OFFS) if(zoneOfArea(SPAWN.x+o[0],SPAWN.z+o[1])!==0) bad.push('spawn off zone');
+  for(const c of chickens) if(c.det.length!==MAX_PLAYERS) bad.push('det array size');
   if(bad.length){ console.error('[검증 실패]',bad); }
-  else console.log('[검증] 12/12 통과 — 셀 '+CELL_N+' (1F 48+B1 24), 닭 '+CHK_COUNT+' (1F 4/B1 6), 알 2+4, 이격 '+gap+', 타이머 '+DARK_TIMER+'s');
+  else console.log('[검증] 13/13 통과 — 셀 '+CELL_N+' (1F 48+B1 24), 닭 '+CHK_COUNT+' (1F 4/B1 6), 알 2+4, 이격 '+gap+', 타이머 '+DARK_TIMER+'s, 슬롯 '+MAX_PLAYERS);
 })();
 
 // ============================================================
