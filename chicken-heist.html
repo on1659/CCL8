@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.7</title>
+<title>양계장 습격 — 웹 프로토타입 v0.8</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -42,9 +42,18 @@
   #pw{position:fixed;left:50%;bottom:64px;width:220px;height:9px;margin-left:-110px;display:none;
     background:rgba(0,0,0,0.45);border-radius:5px;overflow:hidden;pointer-events:none;}
   #pwFill{height:100%;width:0%;background:#7bd77b;border-radius:5px;}
-  #stam{position:fixed;left:50%;bottom:79px;width:220px;height:5px;margin-left:-110px;display:none;
-    background:rgba(0,0,0,0.45);border-radius:3px;overflow:hidden;pointer-events:none;}
-  #stamFill{height:100%;width:100%;background:#8fd77b;border-radius:3px;}
+  #inv{position:fixed;left:16px;bottom:40px;pointer-events:none;display:none;}
+  #inv .slots{display:flex;gap:9px;margin-bottom:9px;}
+  #inv .slot{width:52px;height:52px;background:rgba(6,10,20,0.55);border:1px solid rgba(255,224,138,0.35);
+    border-radius:9px;position:relative;text-align:center;}
+  #inv .slot .lab{position:absolute;top:-8px;left:6px;font-size:10px;font-weight:600;
+    color:rgba(255,236,205,0.8);background:rgba(6,10,20,0.85);padding:0 5px;border-radius:4px;}
+  #inv .slot .ico{font-size:26px;line-height:52px;}
+  #inv .slot.dim .ico{opacity:0.22;font-size:20px;color:#fff;}
+  #stamRow{font-size:10px;color:rgba(255,236,205,0.7);}
+  #stamBox{width:174px;height:8px;margin-top:3px;background:rgba(0,0,0,0.5);border-radius:4px;
+    overflow:hidden;border:1px solid rgba(255,255,255,0.14);}
+  #stamFill{height:100%;width:100%;background:#8fd77b;border-radius:4px;}
   #setPanel{margin-top:26px;font-size:14px;color:rgba(255,244,226,0.85);pointer-events:auto;cursor:default;line-height:2.2;}
   #setPanel input[type=range]{width:170px;vertical-align:middle;margin:0 10px;accent-color:#ffe08a;}
   #setPanel span{display:inline-block;min-width:44px;color:#ffe08a;}
@@ -62,13 +71,20 @@
 <div id="prompt"></div>
 <div id="bigmsg"></div>
 <div id="pw"><div id="pwFill"></div></div>
-<div id="stam"><div id="stamFill"></div></div>
+<div id="inv">
+  <div class="slots">
+    <div class="slot" id="slotHand"><div class="lab">손</div><div class="ico" id="icoHand"></div></div>
+    <div class="slot" id="slotPocket"><div class="lab">품</div><div class="ico" id="icoPocket"></div></div>
+    <div class="slot" id="slotCart" style="display:none"><div class="lab">수레</div><div class="ico" id="icoCart"></div></div>
+  </div>
+  <div id="stamRow">스태미나<div id="stamBox"><div id="stamFill"></div></div></div>
+</div>
 <div id="help">마우스 시점 · WASD 이동 · Shift 달리기(스태미나) · Space 점프 · E 줍기/내려놓기 · Q 품 · F 수레<br>좌클릭 미끼 던지기(빈손 밀치기 · 글러브 있으면 펀치) · V 시점전환 · R 재시작 · M 소리 · Esc 일시정지·설정</div>
 <div id="cross"></div>
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.7</div>
+  <div class="sub">웹 프로토타입 v0.8</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -87,11 +103,13 @@
 <script>
 "use strict";
 /* ============================================================
-   양계장 습격 — 웹 프로토타입 v0.7
+   양계장 습격 — 웹 프로토타입 v0.8
    스펙: docs/goal/chicken-heist-stamina-telegraph.md (v0.7)
         + docs/goal/chicken-heist-dark-surprise.md (v0.6, 4관점 패널 검증)
    v0.7 회계 (신규 시스템 1개 원칙 복원): 신규 1 = 스태미나(달리기 전용).
    수리 = 인지 텔레그래프(닭 눈·?/! 마커 — 규칙 변경 0), 미끼 카피, 감도·음량 설정.
+   v0.8: 인벤토리 HUD — 손(🥚/🥊)·품·수레 슬롯 + 스태미나 상시. 표시 전용, 규칙 변경 0.
+   HP는 설계상 없음(즉사 금지 — 잡힘=넘어짐+강탈이지 피해가 아니다).
    v0.5 대비 (신규 시스템 1개 원칙은 이번 라운드 개발자 결정으로 해제):
    - 갑툭튀: 케이지·마개 벽을 천장(210)까지 — 렌더+계란 물리 동기.
      시야 로직은 원래 2D라 불변 (벽 너머 투척 전술 삭제는 의도된 변경)
@@ -2313,15 +2331,29 @@ function render(){
   }
   EYE_MAT.color.setHex(carriesEgg()?0xffe9c8:0x241d18);
 
-  // 스태미나 바 — 가득이면 숨김, 탈진이면 빨강
+  // 인벤토리 HUD — 손·품·수레 슬롯 + 스태미나 상시 (표시 전용, 규칙 변경 0)
   {
-    const st=document.getElementById('stam');
-    if(phase==='play'&&player.stam<1){
-      st.style.display='block';
+    const inv=document.getElementById('inv');
+    if(phase==='play'){
+      inv.style.display='block';
+      const sh=document.getElementById('slotHand'), ih=document.getElementById('icoHand');
+      if(held){ ih.textContent='🥚'; sh.classList.remove('dim'); }
+      else if(player.glove){ ih.textContent='🥊'; sh.classList.remove('dim'); }  // 빈손+글러브 = 펀치 준비
+      else { ih.textContent='–'; sh.classList.add('dim'); }
+      const sp=document.getElementById('slotPocket'), ip=document.getElementById('icoPocket');
+      if(pocket){ ip.textContent='🥚'; sp.classList.remove('dim'); }
+      else { ip.textContent='–'; sp.classList.add('dim'); }
+      const sc=document.getElementById('slotCart');
+      if(cart.pulled){
+        sc.style.display='block';
+        const ic=document.getElementById('icoCart');
+        if(cart.slots.length){ ic.textContent='🥚'.repeat(cart.slots.length); sc.classList.remove('dim'); }
+        else { ic.textContent='–'; sc.classList.add('dim'); }
+      } else sc.style.display='none';
       const f=document.getElementById('stamFill');
       f.style.width=(player.stam*100).toFixed(0)+'%';
       f.style.background=player.exhausted?'#e2564a':'#8fd77b';
-    } else st.style.display='none';
+    } else inv.style.display='none';
   }
 
   // v0.6 소품 — 글러브 둥실, 수레 위치
@@ -2350,11 +2382,9 @@ function render(){
     hud.innerHTML=
       '<span class="big">계란 '+stats.delivered+' / '+NEED_EGGS+'</span>'+
       ' · 남은 계란 '+(spare<=0?'<span class="warn">'+alive+' — 하나도 못 깨진다!</span>':alive)+
-      (pocket?' · 품에 계란':'')+
       (stats.meat?' · 닭고기 '+stats.meat:'')+
       (blackout?' · <span class="warn">정전</span>':'')+timerStr+'<br>'+
       '시간 '+stats.t.toFixed(1)+'초 · 깨짐 '+stats.broken+' · 잡힘 '+stats.caught+
-      (player.glove?' · 글러브':'')+
       ' · 시점 '+(camMode?'3인칭':'1인칭');
   }
   const pr=document.getElementById('prompt');
