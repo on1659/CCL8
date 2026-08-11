@@ -1,0 +1,13 @@
+{
+  "name": "ccl8-relay",
+  "version": "0.10.0",
+  "private": true,
+  "description": "양계장 습격 멀티플레이 릴레이 서버 — 방 코드 발급 + 중계 전용 (게임은 chicken-heist.html)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.21.0"
+  }
+}
