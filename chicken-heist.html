@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.9</title>
+<title>양계장 습격 — 웹 프로토타입 v0.10</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -59,6 +59,24 @@
   #setPanel span{display:inline-block;min-width:44px;color:#ffe08a;}
   #cross{position:fixed;left:50%;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;border-radius:50%;
     background:rgba(255,255,255,0.75);box-shadow:0 0 0 1px rgba(0,0,0,0.4);pointer-events:none;display:none;}
+  /* v0.10 멀티 — 로비·게이트·넷 상태 */
+  #mpArea{margin-top:22px;pointer-events:auto;}
+  #mpBtn{font-size:13px;color:rgba(255,236,205,0.85);background:rgba(255,224,138,0.08);
+    border:1px solid rgba(255,224,138,0.4);border-radius:8px;padding:8px 18px;cursor:pointer;font-family:inherit;}
+  #mpBtn:hover{background:rgba(255,224,138,0.18);}
+  #mpPanel{display:none;background:rgba(6,10,20,0.7);border:1px solid rgba(255,224,138,0.3);
+    border-radius:10px;padding:14px 18px;font-size:13px;color:rgba(255,244,226,0.9);line-height:2;}
+  #mpLinkRow{display:none;gap:6px;}
+  #mpLink{width:300px;font-size:11px;background:rgba(0,0,0,0.5);color:#ffe08a;border:1px solid rgba(255,224,138,0.3);
+    border-radius:6px;padding:4px 8px;font-family:inherit;}
+  #mpCopy,#mpStart{font-size:13px;color:#1c1408;background:#ffe08a;border:0;border-radius:7px;
+    padding:5px 14px;cursor:pointer;font-weight:700;font-family:inherit;}
+  #mpStart{display:none;margin-top:8px;font-size:15px;padding:8px 26px;}
+  #netMsg{position:fixed;left:0;right:0;top:12%;text-align:center;font-size:15px;font-weight:600;
+    color:#ffb08a;text-shadow:0 1px 5px rgba(0,0,0,0.8);pointer-events:none;display:none;}
+  #gateOv{background:rgba(6,10,20,0.72);display:none;pointer-events:auto;cursor:pointer;color:#fff4e2;}
+  #gateOv .t{font-size:30px;font-weight:800;color:#ffe08a;margin-bottom:10px;animation:pulse 1.4s ease-in-out infinite;}
+  #gateOv .s{font-size:14px;color:rgba(255,236,205,0.7);}
   #flash{position:fixed;inset:0;background:#ffd0a0;opacity:0;pointer-events:none;}
   #fade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;}
 </style>
@@ -84,12 +102,22 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.9</div>
+  <div class="sub">웹 프로토타입 v0.10</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
+  <div id="mpArea">
+    <button id="mpBtn">🧑‍🤝‍🧑 친구와 함께 (최대 4명)</button>
+    <div id="mpPanel">
+      <div id="mpStatus"></div>
+      <div id="mpLinkRow"><input id="mpLink" readonly><button id="mpCopy">복사</button></div>
+      <button id="mpStart">시작</button>
+    </div>
+  </div>
   <div class="pc" id="pcNote">이 버전은 PC 전용이에요 — 마우스와 키보드가 필요해요</div>
 </div>
+<div id="netMsg"></div>
+<div class="ov" id="gateOv"><div class="t">클릭해서 입장</div><div class="s">마우스 시점과 소리가 켜진다</div></div>
 <div class="ov" id="pauseOv"><div class="t">일시정지 — 클릭해서 계속</div>
   <div id="setPanel">
     <div>마우스 감도 <input type="range" id="sensR" min="0.2" max="3" step="0.1"> <span id="sensV"></span></div>
@@ -103,9 +131,14 @@
 <script>
 "use strict";
 /* ============================================================
-   양계장 습격 — 웹 프로토타입 v0.9
-   스펙: docs/goal/chicken-heist-building-legible-ai.md (4관점 패널+교차심문)
-        + 멀티 계획: docs/design-multiplayer-plan-20260812.md (문서만 — 구현 금지 유지)
+   양계장 습격 — 웹 프로토타입 v0.10
+   스펙: docs/goal/chicken-heist-multiplayer.md (4관점 패널+교차심문 33결정)
+        + 멀티 계획: docs/design-multiplayer-plan-20260812.md (2026-08-12 개발자 승인 — 구현 해제)
+   v0.10 회계: 멀티플레이 M1~M4 — players[4]+인텐트 큐(M1), WebSocket 릴레이+
+   호스트 권위+20Hz 스냅샷+이벤트 채널 wave·bigmsg(M2), ?room 링크 로비+
+   입장 게이트(M3), 팀 합산 정전·층별 닭 타게팅·det 닭×플레이어 배열·
+   수레 소유권·이탈 안착 처리(M4). 밝은 구간 LOGIC 상수 변경 0 — 술어의
+   표적 개인화만 (솔로 N=1 동작 동일). 서버는 server.js (중계 전용 ~100줄)
    v0.9 회계: 신규 1 = 다층 건물 (1F 촘촘화 스케일 9 + 신규 B1, 오프셋 존 + groundY —
    로직은 여전히 평면 하나다). 수리 = 발각 게이지(밝은 구간 로직 최초 변경 —
    개발자 권한 해제 2026-08-12)·시야 원·글러브 손. 닭은 층을 못 넘는다(봉쇄 규칙).
@@ -656,11 +689,10 @@ const NET={on:false,host:false,ws:null,room:'',started:false,
   lastSnapT:-9,     // 클라: 마지막 스냅샷 수신 시각 (침묵 >2s = "연결이 불안하다")
   pause:false,pauseWhy:'',
   peers:0,url:''};
-// M2 전송 계층 스텁 — M1 커밋 단계에선 불활성 (M2에서 실구현으로 교체)
-function netSend(o){}
-function netCast(o){}
-function hostNetFlush(dt){}
-function clientTick(dt){}
+// M2 전송 저수준 헬퍼 — 본체는 아래 "전송 계층" 섹션
+function netSend(o){ if(NET.ws&&NET.ws.readyState===1) NET.ws.send(JSON.stringify(o)); }
+function netCast(d){ netSend({t:'cast',d}); }
+function netToHost(d){ netSend({t:'host',d}); }
 let lastCarried=0;   // 팀 계란 0→1 순간 감지 — "눈이 떠진다" 신호용 (호스트 판정)
 // 설정 — localStorage 첫 사용 (v0.7. 감도·음량 두 키뿐)
 let sens=parseFloat(localStorage.getItem('ch_sens'));
@@ -683,7 +715,7 @@ let caughtFocus=null, lastLoss={x:0,z:0};
 let locked=false;
 const keys=new Set();
 // 정전
-const darkEnabled=!/[?&]dark=0/.test(location.search);   // 개발자 격리 플래그 — 친구 링크는 항상 기본값
+let darkEnabled=!/[?&]dark=0/.test(location.search);   // 개발자 격리 플래그 — 친구 링크는 항상 기본값. 멀티에선 호스트 값이 덮는다 (D25)
 let blackout=false, flickT=0, bigmsgT=0;
 const waves=[];
 
@@ -2556,7 +2588,7 @@ function update(dt){
     if(introT<=0) endIntro();
     return;
   }
-  if(simPaused()) return;
+  if(simPaused()){ if(NET.host) hostNetFlush(dt); return; }   // 정지 중에도 pz 플래그는 흘러야 한다 (D13)
   if(phase==='play'){
     pollInput();
     stats.t+=dt;
@@ -2920,6 +2952,13 @@ function render(){
       ' · '+(vz===1?'지하':(vz===2?'계단':(inCoopPt(P().x,P().z)?'1층':'마당')))+
       ' · 시점 '+(camMode?'3인칭':'1인칭');
   }
+  // 클라: 호스트발 일시정지 오버레이 (D13) — 로컬 락 상실 오버레이와 같은 판때기, 다른 문구
+  if(NET.on&&!NET.host&&phase==='play'){
+    const tEl=document.querySelector('#pauseOv .t');
+    if(NET.pause){ pauseEl.style.display='flex'; tEl.textContent=(NET.pauseWhy||'호스트 일시정지')+' — 잠깐 멈췄다'; }
+    else if(locked) pauseEl.style.display='none';
+    else { pauseEl.style.display='flex'; tEl.textContent='메뉴 — 게임은 계속 진행 중! 클릭해서 복귀'; }
+  }
   const pr=document.getElementById('prompt');
   const v=P();
   if(phase==='intro'){ pr.textContent='아무 키나 누르면 바로 내린다'; }
@@ -2976,13 +3015,513 @@ function render(){
 }
 
 // ============================================================
+//  M2 전송 계층 — WebSocket 릴레이 + 호스트 권위 (패널 D15~D25)
+//  스냅샷 20Hz(짧은 키·1소수 양자화·enum 상태) + 이벤트 채널(wave·bigmsg만).
+//  클라: 자기 이동만 로컬 예측, 규칙 판정 전부 호스트. 원격은 지수 lerp (지연 버퍼 없음 — D16)
+// ============================================================
+const CK_STATES=['wander','alert','chase','invest','peck','flap','grab','rob','stunned','return'];
+const EGG_STATES=['gone','rest','held','fly','pocket','cart','robbed'];
+const PHASES=['title','intro','play','win','fail'];
+const q1=v=>Math.round(v*10)/10;
+
+// ws URL 결정 (D24): ?ws= 우선. https+ws://는 연결 시도 전 명시 에러 (혼합 콘텐츠 차단은 콘솔에만 뜬다)
+function resolveWsUrl(){
+  const m=location.search.match(/[?&]ws=([^&]+)/);
+  let url=m?decodeURIComponent(m[1]):'';
+  if(!url){
+    if(location.protocol==='http:'&&/^(localhost|127\.)/.test(location.hostname)) url='ws://'+location.hostname+':8787';
+    else if(location.protocol==='file:') url='ws://localhost:8787';
+    else return {url:'',err:'릴레이 서버 주소가 없다 — 링크에 ?ws=wss://… 가 필요하다 (docs/multiplayer-deploy 참조)'};
+  }
+  if(!/^wss?:\/\//.test(url)) url='wss://'+url;
+  if(location.protocol==='https:'&&url.indexOf('ws://')===0)
+    return {url:'',err:'https 페이지에서는 ws:// 릴레이에 연결할 수 없다 (브라우저 차단) — wss:// 주소가 필요하다'};
+  return {url,err:''};
+}
+function setNetMsg(txt){ const el=document.getElementById('netMsg'); el.textContent=txt||''; el.style.display=txt?'block':'none'; }
+
+// ---------- 스냅샷 직렬화 (호스트 — D21) ----------
+function buildSnap(){
+  return {g:'s',
+    ph:PHASES.indexOf(phase), bo:blackout?1:0,
+    pz:simPaused()?1:0, pw:document.hidden?'호스트 자리 비움':'호스트 일시정지',
+    st:[q1(stats.t),stats.broken,stats.delivered,stats.caught,stats.meat],
+    gl:gloveMesh.visible?0:1,
+    pl:players.map(p=>[p.active?1:0,q1(p.x),q1(p.z),q1(p.jy),q1(p.yaw),q1(p.stun),p.glove?1:0,
+        q1(p.stam),p.exhausted?1:0,p.held?eggs.indexOf(p.held):-1,p.pocket?eggs.indexOf(p.pocket):-1,
+        q1(p.shake),p.running?1:0]),
+    ck:chickens.map(c=>[q1(c.x),q1(c.z),q1(c.dir),CK_STATES.indexOf(c.state),c.ko?1:0,
+        q1(c.det[0]),q1(c.det[1]),q1(c.det[2]),q1(c.det[3]),c.tgt]),
+    eg:eggs.map(e=>[EGG_STATES.indexOf(e.state),q1(e.x),q1(e.y),q1(e.z),e.cracked?1:0,
+        e.carrier?chickens.indexOf(e.carrier):-1]),
+    mt:meats.map(m=>[m.active?1:0,q1(m.x),q1(m.z)]),
+    ct:[q1(cart.x),q1(cart.z),q1(cart.dir),cart.owner,cart.slots.map(e=>eggs.indexOf(e))],
+    ev:NET.ev};
+}
+let netAcc=0;
+function hostNetFlush(dt){
+  netAcc+=dt;
+  if(netAcc<1/NET_HZ) return;
+  netAcc=0;
+  netCast(buildSnap());
+  NET.ev=[];
+}
+function activeCount(){ let n=0; for(const p of players) if(p.active) n++; return n; }
+function lobbyCast(){ netCast({g:'lobby',n:activeCount()}); updMpCount(); }
+
+// ---------- 호스트: 수신 처리 ----------
+function hostOnPeer(slot,on){
+  if(!on){ dropLeaver(slot); return; }
+  // 참가 통지 — 실제 활성화는 클라의 hi(버전 검증) 이후
+}
+function hostOnFrom(slot,d){
+  if(!d||slot<1||slot>3) return;
+  const p=players[slot];
+  if(d.g==='hi'){
+    if(d.v!==PROTO_V){ netSend({t:'to',slot,d:{g:'bad',why:'ver'}}); return; }   // D25
+    p.active=true;
+    p.x=SPAWN.x+SPAWN_OFFS[slot][0]; p.z=SPAWN.z+SPAWN_OFFS[slot][1];
+    netSend({t:'to',slot,d:{g:'hello',v:PROTO_V,slot,dark:darkEnabled,started:NET.started}});
+    lobbyCast();
+    return;
+  }
+  if(!p.active) return;
+  if(d.g==='in'){
+    // 호스트 검증 (D18): isFinite + 이동 벡터 재정규화. 신뢰 모델은 친구 — 그 이상은 안 한다
+    const mx=+d.mv[0], mz=+d.mv[1];
+    if(Number.isFinite(mx)&&Number.isFinite(mz)){
+      const l=Math.hypot(mx,mz);
+      p.mv.x=l>1?mx/l:mx; p.mv.z=l>1?mz/l:mz;
+    }
+    p.mv.run=!!d.mv[2];
+    if(Number.isFinite(+d.yaw)) p.yaw=+d.yaw;
+    if(Array.isArray(d.acts)) for(const a of d.acts){
+      if(!a||typeof a.a!=='string') continue;
+      if(a.yaw!==undefined&&!Number.isFinite(+a.yaw)) continue;
+      if(a.pitch!==undefined&&!Number.isFinite(+a.pitch)) continue;
+      if(a.pw!==undefined&&!Number.isFinite(+a.pw)) continue;
+      if(p.acts.length<12) p.acts.push(a);
+    }
+  }
+}
+// 클라 이탈 (D11): 소지품은 살살 내려놓기 경로로 안착 (fly 금지 — 존밖 파손→팀 패배 캐스케이드 차단)
+function dropLeaver(slot){
+  const p=players[slot];
+  if(!p||!p.active) return;
+  for(const e of [p.held,p.pocket]){
+    if(!e) continue;
+    const t={x:p.x,z:p.z,r:EGG_R+2}; collideCircle(t);
+    e.x=t.x; e.z=t.z; e.y=groundY(t.x,t.z)+EGG_R;
+    e.vx=e.vy=e.vz=0; e.state='rest'; e.restT=0; e.mesh.visible=true;
+  }
+  p.held=null; p.pocket=null;
+  if(cart.owner===slot) cart.owner=-1;
+  for(const c of chickens){
+    if(c.tgt===slot){
+      if(c.state==='chase'||c.state==='alert'){
+        c.state='invest'; c.ivX=p.x; c.ivZ=p.z; c.ivArr=false;
+        c.t=INVEST_DWELL; c.ivT=0; c.chainN=INVEST_CHAIN;
+      }
+      c.tgt=0;
+    }
+    c.det[slot]=0; c.detG[slot]=0;
+  }
+  p.active=false;
+  bigmsgCast(PLAYER_NAMES[slot]+' 연결 끊김');
+  lobbyCast();
+}
+
+// ---------- 클라: 스냅샷 적용 ----------
+let gotSnap=false;
+function handleEv(ev){
+  if(ev[0]==='wave') spawnWave(ev[2],ev[3],ev[4],ev[5],ev[1]>=0?ev[1]:undefined);
+  else if(ev[0]==='big'){
+    const who=ev[2];
+    if(who===undefined||who===-1||who===me) bigmsg(ev[1]);
+    else if(who===-2&&ev[3]!==me) bigmsg(ev[1]);      // 당사자 제외 동료 알림
+  }
+}
+function ckTransitionFx(c,os,ns){
+  if(ns==='alert') alertS(c.x,c.z);
+  else if(ns==='stunned'){ squawkS(c.x,c.z); burst(c.x,24,c.z,20,COL_FEATHER,20,1.1,5); if(c.ko)punchS(c.x,c.z); }
+  else if(ns==='flap') flapS(c.x,c.z);
+}
+function applySnap(s){
+  NET.lastSnapT=now;
+  NET.pause=!!s.pz; NET.pauseWhy=s.pw||'';
+  const nst={t:s.st[0],broken:s.st[1],delivered:s.st[2],caught:s.st[3],meat:s.st[4]};
+  // 파생 세리머니 (D20/D22): 스냅샷 델타가 곧 이벤트다
+  const goneNew=[];
+  for(let i=0;i<eggs.length;i++){
+    const a=s.eg[i], e=eggs[i], ns2=EGG_STATES[a[0]];
+    if(ns2!==e.state){
+      if(ns2==='gone') goneNew.push([e.x,e.z]);
+      else if(ns2==='held'&&e.state==='rest') pickS(a[1],a[3]);
+      else if((ns2==='rest'||ns2==='cart')&&e.state==='held') placeS(a[1],a[3]);
+      else if(ns2==='fly'&&e.state==='held') whipS(0.5,a[1],a[3]);
+    }
+  }
+  if(nst.broken>stats.broken){
+    for(const g of goneNew){ addSplat(g[0],g[1]); burst(g[0],6,g[1],26,COL_YOLK,16,0.9,7); }
+    crackS(); shake=Math.max(shake,0.25);
+  }
+  if(nst.delivered>stats.delivered){ dingS(); burst(truckPad.x,20,truckPad.z,24,[1,0.9,0.55],26,1.0,6); }
+  if(nst.meat>stats.meat) dingS();
+  stats=nst;
+  drawSign();
+  for(let i=0;i<deliveredMesh.length;i++) deliveredMesh[i].visible=(i<stats.delivered);
+  gloveMesh.visible=!s.gl;
+  // 플레이어
+  for(let i=0;i<MAX_PLAYERS;i++){
+    const a=s.pl[i], p=players[i];
+    p.active=!!a[0];
+    p.stun=a[5]; p.glove=!!a[6]; p.stam=a[7]; p.exhausted=!!a[8];
+    const ph2=a[9]>=0?eggs[a[9]]:null, pp2=a[10]>=0?eggs[a[10]]:null;
+    p.held=ph2; p.pocket=pp2;
+    p.shake=a[11];
+    if(i===me){
+      // 자기 예측 보정 (D17): 데드밴드 밖·벽 불일치·잡힘 순간만 개입
+      const hx=a[1],hz=a[2];
+      const wasStun=NET.myStun||0;
+      if(wasStun<=0&&p.stun>0){
+        p.x=hx; p.z=hz; keys.clear(); charge=-1;
+        shake=1; flash=1; caughtS();                    // 잡힘 스냅 — 낙법 연출이 가린다
+      } else if(!gotSnap){ p.x=hx; p.z=hz; }
+      else {
+        const err=Math.hypot(p.x-hx,p.z-hz);
+        if(err>NET_SNAP_R){ p.x=hx; p.z=hz; }
+        else if(err>PRED_DEADBAND||lineBlocked(p.x,p.z,hx,hz)){ p.x+=(hx-p.x)*0.35; p.z+=(hz-p.z)*0.35; }
+      }
+      NET.myStun=p.stun;
+    } else {
+      p.running=!!a[12];
+      if(!gotSnap){ p.x=a[1]; p.z=a[2]; p.yaw=a[4]; p.jy=a[3]; }
+      p.nx=a[1]; p.nz=a[2]; p.njy=a[3]; p.nyaw=a[4];
+    }
+  }
+  // 닭
+  for(let i=0;i<chickens.length;i++){
+    const a=s.ck[i], c=chickens[i];
+    if(!gotSnap){ c.x=a[0]; c.z=a[1]; c.dir=a[2]; }
+    c.nx=a[0]; c.nz=a[1]; c.ndir=a[2];
+    c.ko=!!a[4];
+    const ns2=CK_STATES[a[3]];
+    if(ns2!==c.state){ ckTransitionFx(c,c.state,ns2); c.state=ns2; }
+    c.det[0]=a[5]; c.det[1]=a[6]; c.det[2]=a[7]; c.det[3]=a[8]; c.tgt=a[9];
+    if(c.ko&&!c.meatGiven){ c.meatGiven=true; c.m.tail.visible=false; c.m.g.scale.set(1,0.88,1); }
+  }
+  // 계란
+  for(let i=0;i<eggs.length;i++){
+    const a=s.eg[i], e=eggs[i];
+    e.state=EGG_STATES[a[0]];
+    if(!gotSnap){ e.x=a[1]; e.y=a[2]; e.z=a[3]; }
+    e.nx=a[1]; e.ny=a[2]; e.nz=a[3];
+    if(!!a[4]!==e.cracked){ e.cracked=!!a[4]; if(e.cracked) crackVisual(e); else uncrackVisual(e); }
+    e.carrier=a[5]>=0?chickens[a[5]]:null;
+    e.mesh.visible=(e.state!=='gone'&&e.state!=='pocket');
+  }
+  // 닭고기
+  for(let i=0;i<meats.length&&i<s.mt.length;i++){
+    const a=s.mt[i], mm=meats[i];
+    if(a[0]&&!mm.active){
+      mm.active=true; mm.x=a[1]; mm.z=a[2];
+      mm.g.visible=true; mm.g.position.set(mm.x,groundY(mm.x,mm.z)+7,mm.z);
+    } else if(!a[0]&&mm.active){ mm.active=false; mm.g.visible=false; }
+  }
+  // 수레
+  if(!gotSnap){ cart.x=s.ct[0]; cart.z=s.ct[1]; cart.dir=s.ct[2]; }
+  cart.nx=s.ct[0]; cart.nz=s.ct[1]; cart.ndir=s.ct[2]; cart.owner=s.ct[3];
+  cart.slots=s.ct[4].map(j=>eggs[j]);
+  // 정전 전이 — 연출 일체는 applyDark가 (플리커·발광·문스필)
+  if(!!s.bo!==blackout){
+    if(s.bo){ blackout=true; flickT=FLICKER_T; clunkS(); applyDark(true); }
+    else { blackout=false; flickT=0; waves.length=0; applyDark(false); }
+  }
+  // 팀 글린트 (D22)
+  {
+    const cc=stats.delivered<NEED_EGGS?cart.slots.length+players.reduce((n,p)=>n+(p.active?((p.held?1:0)+(p.pocket?1:0)):0),0):0;
+    if(cc>0&&lastCarried===0&&phase==='play'){
+      for(const c of chickens) burst(c.x,46,c.z,3,[1,0.95,0.8],7,0.55,3.4);
+      blip(1250,0.09,0.1,'triangle');
+    }
+    lastCarried=cc;
+  }
+  // phase 전이 → 로컬 연출 (D15: 판정은 오지 않는다, 결과만 온다)
+  const nph=PHASES[s.ph]||'play';
+  if(nph!==phase) clientPhase(phase,nph);
+  for(const ev of s.ev||[]) handleEv(ev);
+  gotSnap=true;
+}
+function clientPhase(op,np){
+  phase=np;
+  if(np==='win'){ endBlackout(); showWinOv(); }
+  else if(np==='fail'){ failT=FAIL_HOLD; failS(); }
+  else if(np==='play'&&(op==='win'||op==='fail'||op==='title')){
+    document.getElementById('winOv').style.display='none';
+    document.getElementById('failOv').style.display='none';
+    document.getElementById('cross').style.display='block';
+    fade=1; caughtFocus=null; warned30=false; warned10=false;
+    for(const m of splats) m.visible=false;
+    fxPool.clear(); wavePool.clear(); waves.length=0;
+  }
+}
+
+// ---------- 클라: 프레임 틱 (예측 + 보간 + 송신 — 규칙 코드 없음, D15) ----------
+function clientPredict(dt){
+  const p=players[me];
+  if(p.stun>0) return;
+  // 점프 y — 로컬 체감용 (규칙 판정은 호스트의 jy가 담당. 소음도 호스트 몫)
+  if(p.jy>0||p.jvy!==0){
+    p.jy+=p.jvy*dt; p.jvy-=JUMP_G*dt;
+    if(p.jy<=0){ p.jy=0; p.jvy=0; }
+  }
+  let mx=p.mv.x, mz=p.mv.z;
+  const moving=(mx||mz);
+  const run=p.mv.run&&moving&&!p.exhausted&&p.stam>0;
+  p.running=!!run;
+  let spd=(run?SPD_RUN:SPD_WALK)*((p.held||p.pocket)?CARRY_MULT:1);
+  if(cart.owner===me) spd*=CART_MULT;
+  if(moving){
+    const l=Math.hypot(mx,mz); mx/=l; mz/=l;
+    const fx=-Math.sin(p.yaw), fz=-Math.cos(p.yaw);
+    const rx=Math.cos(p.yaw),  rz=-Math.sin(p.yaw);
+    const wx=fx*(-mz)+rx*mx, wz=fz*(-mz)+rz*mx;
+    const wl=Math.hypot(wx,wz)||1;
+    p.x+=wx/wl*spd*dt; p.z+=wz/wl*spd*dt;
+    p.stepAcc+=spd*dt;
+    if(p.stepAcc>=(run?52:42)){                 // 자기 발소리·먼지만 (파동·어그로는 호스트 방송분)
+      p.stepAcc=0; stepS(run);
+      burst(p.x,2,p.z,run?4:2,COL_DUST,run?10:7,0.35,3);
+    }
+  } else p.stepAcc=Math.min(p.stepAcc,20);
+  collideCircle(p);
+}
+function lerpAngle(a,b,k){
+  let d=b-a;
+  while(d>Math.PI) d-=TAU;
+  while(d<-Math.PI) d+=TAU;
+  return a+d*k;
+}
+function clientTick(dt){
+  const silent=gotSnap&&(now-NET.lastSnapT)>2&&phase==='play';
+  setNetMsg(silent&&!NET.pause?'연결이 불안하다…':'');
+  if(phase==='play'&&!NET.pause&&!silent){
+    pollInput();
+    if(charge>=0&&charge<THROW_CHARGE_T) charge=Math.min(THROW_CHARGE_T,charge+dt);
+    clientPredict(dt);
+    // 정전 예고 딥 (30/10초) — 파생 연출 (D22)
+    if(!blackout&&darkEnabled){
+      const left=DARK_TIMER-stats.t;
+      if(left<=30&&!warned30){ warned30=true; flickT=WARN_DIP_T; rattleS(); clunkS(); }
+      if(left<=10&&!warned10){ warned10=true; flickT=WARN_DIP_T; rattleS(); clunkS(); }
+    }
+  }
+  // 원격 보간 (D16): 지수 lerp + 큰 오차·벽 분리 시 하드 스냅
+  const k=Math.min(1,dt*12);
+  for(const p of players){
+    if(!p.active||p.idx===me||p.nx===undefined) continue;
+    if(Math.hypot(p.x-p.nx,p.z-p.nz)>NET_SNAP_R||lineBlocked(p.x,p.z,p.nx,p.nz)){ p.x=p.nx; p.z=p.nz; }
+    else { p.x+=(p.nx-p.x)*k; p.z+=(p.nz-p.z)*k; }
+    p.jy+=(p.njy-p.jy)*k;
+    p.yaw=lerpAngle(p.yaw,p.nyaw,k);
+  }
+  for(const c of chickens){
+    if(c.nx===undefined) continue;
+    if(Math.hypot(c.x-c.nx,c.z-c.nz)>NET_SNAP_R){ c.x=c.nx; c.z=c.nz; }
+    else { c.x+=(c.nx-c.x)*k; c.z+=(c.nz-c.z)*k; }
+    c.dir=lerpAngle(c.dir,c.ndir,k);
+    if(Math.hypot(c.x-c.nx,c.z-c.nz)>2) c.bob+=dt*8;   // 이동 중 다리 애니
+  }
+  for(const e of eggs){
+    if(e.nx===undefined) continue;
+    if(e.state==='rest'||e.state==='fly'){
+      e.x+=(e.nx-e.x)*k; e.y+=(e.ny-e.y)*k; e.z+=(e.nz-e.z)*k;
+      if(e.state==='fly') e.spin+=dt*10;
+    } else { e.x=e.nx; e.y=e.ny; e.z=e.nz; }
+  }
+  if(cart.nx!==undefined){
+    cart.x+=(cart.nx-cart.x)*k; cart.z+=(cart.nz-cart.z)*k;
+    cart.dir=lerpAngle(cart.dir,cart.ndir,k);
+  }
+  shake=Math.max(0,shake-dt*1.8);
+  flash=Math.max(0,flash-dt*2.2);
+  rattleCd=Math.max(0,rattleCd-dt);
+  updWaves(dt);
+  if(phase==='fail'){
+    failT-=dt;
+    if(failT<=0 && document.getElementById('failOv').style.display!=='flex') showFailOv();
+  }
+  // 입력 송신 20Hz (D18)
+  netAcc+=dt;
+  if(netAcc>=1/NET_HZ&&NET.started){
+    netAcc=0;
+    const p=players[me];
+    const acts=NET.actOut; NET.actOut=[];
+    netToHost({g:'in',mv:[p.mv.x,p.mv.z,p.mv.run?1:0],yaw:q1(p.yaw),acts});
+  }
+}
+
+// ---------- 접속 수립 (호스트·클라 공통) ----------
+function netConnect(url,onOpen){
+  const ws=new WebSocket(url);
+  NET.ws=ws; NET.url=url;
+  ws.onopen=onOpen;
+  ws.onmessage=ev=>{
+    let m; try{ m=JSON.parse(ev.data); }catch(e){ return; }
+    if(NET.host){
+      if(m.t==='peer') hostOnPeer(m.slot,m.on);
+      else if(m.t==='from') hostOnFrom(m.slot,m.d);
+      else if(m.t==='created'){ NET.room=m.code; mpShowRoom(); }
+      else if(m.t==='err') setNetMsg('방을 만들 수 없다 ('+m.why+')');
+    } else {
+      if(m.t==='d') clientOnD(m.d);
+      else if(m.t==='joined'){ me=m.slot; players[m.slot].active=true; netToHost({g:'hi',v:PROTO_V}); }
+      else if(m.t==='err') clientJoinErr(m.why);
+      else if(m.t==='closed') hostLost();
+    }
+  };
+  ws.onclose=()=>{ if(NET.on&&!NET.host) hostLost(); };
+  ws.onerror=()=>{ if(!NET.on) setNetMsg('릴레이 서버에 연결할 수 없다 — 서버가 꺼져 있거나 주소가 틀렸다'); };
+}
+function clientOnD(d){
+  if(d.g==='s') applySnap(d);
+  else if(d.g==='hello'){
+    NET.on=true; NET.host=false;
+    darkEnabled=!!d.dark;                       // 호스트 값이 로컬 ?dark=0을 덮는다 (D25)
+    setAvatarTints(true);
+    mpWaiting(d.started);
+  }
+  else if(d.g==='lobby') mpWaitCount(d.n);
+  else if(d.g==='start'||d.g==='restart') clientGate();
+  else if(d.g==='bad'){ setNetMsg('버전이 다르다 — 새로고침하세요'); try{ NET.ws.close(); }catch(e){} }
+}
+function hostLost(){
+  if(NET.dead) return;
+  NET.dead=true;
+  document.getElementById('gateOv').style.display='none';
+  bigmsg('호스트가 나갔다 — 방이 닫혔다');       // 실패도 구경거리 문법 (D11)
+  setNetMsg('호스트가 나갔다 — 방이 닫혔다. 잠시 후 타이틀로…');
+  setTimeout(()=>location.replace(location.pathname),2200);
+}
+// 멀티 진입 시 아바타 틴트 활성 (솔로 첫인상은 기존 백색 유지)
+function setAvatarTints(on){
+  avatars[0].bodyM.color.setHex(on?PLAYER_TINTS[0]:0xd8d2c4);
+  avatars[0].hatM.color.setHex(on?PLAYER_TINTS[0]:0xf4f4f0);
+}
+// 호스트 자리 비움 브로드캐스트 (D13) — RAF가 멎어도 1s 인터벌(브라우저 클램프 하한)로 pz는 흐른다
+document.addEventListener('visibilitychange',()=>{ if(NET.on&&NET.host&&NET.started) netCast(buildSnap()); });
+setInterval(()=>{ if(NET.on&&NET.host&&NET.started&&(document.hidden||!locked)) netCast(buildSnap()); },1000);
+
+// ============================================================
 //  입력
 // ============================================================
 const titleEl=document.getElementById('title');
 const pauseEl=document.getElementById('pauseOv');
 if(('ontouchstart' in window) && !matchMedia('(pointer:fine)').matches)
   document.getElementById('pcNote').style.display='block';
-titleEl.addEventListener('click',start);
+
+// ---------- M3 로비 — 참가는 ?room 링크만 (D26: 친구 클릭 수는 1을 유지한다) ----------
+const ROOM_PARAM=((location.search.match(/[?&]room=([A-Za-z0-9]+)/)||[])[1]||'').toUpperCase();
+if(ROOM_PARAM){
+  document.querySelector('#title .desc').innerHTML=
+    '친구의 습격에 초대받았다 — 방 '+ROOM_PARAM+'.<br>같이 세 개만 훔쳐서 트럭까지.';
+  document.querySelector('#title .go').textContent='클릭해서 참가';
+  document.getElementById('mpBtn').style.display='none';
+}
+titleEl.addEventListener('click',e=>{
+  if(e.target.closest&&e.target.closest('#mpArea')) return;   // 로비 패널 조작이 시작으로 새지 않게
+  if(ROOM_PARAM){ joinRoom(); return; }                        // 링크로 온 친구: 전면 클릭 = 참가
+  if(NET.on&&NET.host) return;                                 // 방 연 호스트는 [시작] 버튼으로만
+  start();
+});
+function joinRoom(){
+  if(NET.joining) return;
+  const r=resolveWsUrl();
+  if(!r.url){ setNetMsg(r.err); return; }
+  NET.joining=true;
+  setNetMsg('서버 깨우는 중… (최대 1분)');
+  netConnect(r.url,()=>{ netSend({t:'join',code:ROOM_PARAM}); });
+}
+function clientJoinErr(why){
+  if(why==='noroom') setNetMsg('그 방이 없다 — 링크가 오래됐거나 호스트가 나갔다');
+  else if(why==='full') setNetMsg('방이 가득 찼다 (4/4)');
+  else if(why==='started'){
+    setNetMsg('판 진행 중 — 다음 판까지 대기 (자동 재시도)');
+    setTimeout(()=>{ if(!NET.on) netSend({t:'join',code:ROOM_PARAM}); },5000);
+  }
+  else setNetMsg('참가 실패: '+why);
+}
+function mpWaiting(started){
+  setNetMsg('');
+  document.querySelector('#title .go').textContent='접속 완료 — 호스트가 시작하길 기다리는 중…';
+  if(started) clientGate();
+}
+function mpWaitCount(n){
+  if(phase==='title'&&!NET.started)
+    document.querySelector('#title .go').textContent='접속 완료 — '+n+'명 모임. 호스트 대기 중…';
+}
+// 시작 후 클라 입장 게이트 (D27) — 포인터락·오디오는 로컬 제스처가 필요하다
+function clientGate(){
+  NET.started=true;
+  document.getElementById('title').style.display='none';
+  if(locked&&AC){ enterPlayClient(); return; }   // 재시작 판: 이미 락 보유면 게이트 생략
+  document.getElementById('gateOv').style.display='flex';
+}
+document.getElementById('gateOv').addEventListener('click',()=>{
+  document.getElementById('gateOv').style.display='none';
+  enterPlayClient();
+});
+function enterPlayClient(){
+  initAudio();
+  if(AC&&AC.state==='suspended') AC.resume();
+  document.getElementById('winOv').style.display='none';
+  document.getElementById('failOv').style.display='none';
+  document.getElementById('cross').style.display='block';
+  renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock();
+  gotSnap=false;
+  phase='play';                                  // 첫 스냅샷이 곧바로 진실을 덮는다
+}
+// 호스트 경로 — "친구와 함께" → 방 생성 → 링크 공유 → [시작]
+document.getElementById('mpBtn').addEventListener('click',e=>{
+  e.stopPropagation();
+  const r=resolveWsUrl();
+  if(!r.url){ setNetMsg(r.err); return; }
+  document.getElementById('mpBtn').style.display='none';
+  document.getElementById('mpPanel').style.display='block';
+  document.getElementById('mpStatus').textContent='서버 깨우는 중… (무료 티어는 최대 1분)';
+  NET.host=true;
+  netConnect(r.url,()=>{ netSend({t:'create'}); });
+});
+function mpShowRoom(){
+  NET.on=true; NET.started=false;
+  setAvatarTints(true);
+  setNetMsg('');
+  document.getElementById('mpStatus').textContent='방 '+NET.room+' — 이 링크를 친구에게 보내라:';
+  const base=location.href.split('?')[0];
+  document.getElementById('mpLink').value=base+'?room='+NET.room+'&ws='+encodeURIComponent(NET.url);
+  document.getElementById('mpLinkRow').style.display='flex';
+  document.getElementById('mpStart').style.display='inline-block';
+  updMpCount();
+}
+function updMpCount(){
+  document.getElementById('mpStart').textContent='시작 ('+activeCount()+'명)';
+}
+document.getElementById('mpCopy').addEventListener('click',e=>{
+  e.stopPropagation();
+  const inp=document.getElementById('mpLink');
+  inp.select();
+  try{ navigator.clipboard.writeText(inp.value); }catch(err){ try{ document.execCommand('copy'); }catch(e2){} }
+  document.getElementById('mpCopy').textContent='복사됨';
+  setTimeout(()=>{ document.getElementById('mpCopy').textContent='복사'; },1200);
+});
+document.getElementById('mpStart').addEventListener('click',e=>{
+  e.stopPropagation();
+  if(!NET.on||NET.started) return;
+  NET.started=true;
+  netSend({t:'lock'});                           // 이후 참가는 서버가 'started'로 거절 (D23)
+  netCast({g:'start'});
+  start();                                       // 호스트: 인트로 생략 경로 (D27)
+});
 pauseEl.addEventListener('click',e=>{
   if(e.target.closest&&e.target.closest('#setPanel')) return;   // 설정 조작이 재개로 새지 않게
   renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock();
