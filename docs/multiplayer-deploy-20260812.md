@@ -40,6 +40,21 @@ wss 왕복 1.2초 안에 전부 통과.
 
 ### 다시 배포할 때 (server.js를 고쳤을 때)
 
+**보통은 아무것도 안 해도 된다 — `git push`가 곧 릴레이 배포다.** (2026-08-13 확인)
+
+Railway 서비스가 GitHub 저장소 `on1659/CCL8`의 `main`에 연결돼 있어서, 푸시하면 릴레이가
+자동으로 다시 빌드된다. 게임(Pages)과 릴레이(Railway)가 **같은 푸시 한 번에 같이 나간다.**
+
+- 그래서 `server.js`를 건드린 커밋을 푸시하면 **의도와 무관하게 프로덕션 릴레이가 재시작된다.**
+  진행 중인 방은 그때 끊긴다 — 친구들과 붙어 있는 중이면 푸시 타이밍을 고를 것.
+- 반대로 `chicken-heist.html`만 고친 푸시도 릴레이를 재빌드하지만, 중계 코드가 같으므로
+  결과는 무해한 재시작이다.
+- 배포 상태 확인: `railway status --json`의 `latestDeployment.status`
+  (`WAITING`→`BUILDING`→`SUCCESS`). JSON 안에 과거 배포도 같이 들어 있으니
+  **첫 `"status"` 문자열을 grep하면 엉뚱한 걸 읽는다** — `latestDeployment`를 짚어서 볼 것.
+
+수동 배포가 필요할 때(저장소에 안 올린 변경을 급히 올릴 때)만:
+
 ```bash
 railway up --ci
 ```
