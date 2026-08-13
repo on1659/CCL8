@@ -11,9 +11,21 @@
 // ============================================================
 "use strict";
 const { WebSocketServer } = require('ws');
+const http = require('http');
 const PORT = process.env.PORT || 8787;
 
-const wss = new WebSocketServer({ port: PORT });
+// 브라우저로 릴레이 주소를 그냥 열었을 때의 안내 (판정·파일 서빙 아님 — 텍스트 한 줄).
+// 없으면 ws가 규격대로 426 Upgrade Required만 뱉어서 매번 고장으로 오해받는다.
+const httpServer = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end(
+    '양계장 습격 — 멀티플레이 릴레이 정상 작동 중\n\n' +
+    '이 주소는 게임 페이지가 아니다. WebSocket 중계만 한다.\n' +
+    '게임은 아래 링크로 열 것:\n' +
+    'https://on1659.github.io/CCL8/chicken-heist.html?ws=wss://' + (req.headers.host || 'ccl8.up.railway.app') + '\n'
+  );
+});
+const wss = new WebSocketServer({ server: httpServer });
 const rooms = new Map();   // code → {host, clients:Map(slot→ws), locked}
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';   // 혼동 문자(ILO01) 제외
 
@@ -91,4 +103,6 @@ setInterval(() => {
   }
 }, 15000);
 
-console.log('[릴레이] ws://localhost:' + PORT + ' — 방 코드 4자, 중계 전용 (시뮬은 호스트 브라우저)');
+httpServer.listen(PORT, () => {
+  console.log('[릴레이] ws://localhost:' + PORT + ' — 방 코드 4자, 중계 전용 (시뮬은 호스트 브라우저)');
+});
