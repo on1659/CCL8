@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.11</title>
+<title>양계장 습격 — 웹 프로토타입 v0.12</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -102,8 +102,8 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.11</div>
-  <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.<br>그리고 해가 뜨면 끝이다 — 수탉이 울기 전에 나와라.</div>
+  <div class="sub">웹 프로토타입 v0.12</div>
+  <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
   <div id="mpArea">
@@ -131,8 +131,13 @@
 <script>
 "use strict";
 /* ============================================================
-   양계장 습격 — 웹 프로토타입 v0.11
-   스펙: docs/goal/chicken-heist-dawn-deadline.md (v0.11 새벽 마감)
+   양계장 습격 — 웹 프로토타입 v0.12
+   스펙: docs/goal/chicken-heist-dawn-deadline.md (v0.11 새벽 마감 + v0.12 설정화)
+   v0.12 회계: 신규 0 — v0.11 마감을 "숫자"에서 "설정"으로. (1) 하늘이 밤→여명→
+   일출로 물든다 (렌더 전용, dawnProg는 stats.t 파생이라 클라도 저절로 맞는다).
+   (2) 마감의 주체는 트럭 기사 — 경적으로 재촉하고 6시에 진짜로 떠난다(인트로
+   진입 애니의 역재생). (3) 6시의 이유를 카피로: 농장 사람들이 깨기 전에.
+   판정 로직·스냅샷 스키마·어그로 상수 변경 0.
         + docs/goal/chicken-heist-multiplayer.md (4관점 패널+교차심문 33결정)
         + 멀티 계획: docs/design-multiplayer-plan-20260812.md (2026-08-12 개발자 승인 — 구현 해제)
    v0.11 회계: 신규 1 = 밤 시계+새벽 마감 — stats.t를 00:00→06:00 시계로 표기(측정→제한),
@@ -307,8 +312,14 @@ const VIS_WALK=180, VIS_RUN=310, VIS_LAND=300, VIS_BREAK=380, VIS_SHOVE=200,
 const DARK_TIMER=300;            // 정전 카운트다운(초) — v0.9: 2층 볼륨 재산정 240→300. 튜닝 상수
 // v0.11 신설 — 밤 시계·새벽 마감 (docs/goal/chicken-heist-dawn-deadline.md)
 const NIGHT_LEN=480;             // 밤 전체 길이(초) — 시계 00:00→06:00 매핑, 만료 = 새벽 실패. DARK_TIMER보다 길어야 한다. 튜닝 상수
-const DAWN_WARNS=[60,30,10];     // 수탉 예고 시점 (잔여 실초)
-const DAWN_MSGS=['멀리서 수탉이 뒤척인다…','수탉이 울었다 — 곧 해가 뜬다!','해가 뜬다!!'];
+const DAWN_WARNS=[60,30,10];     // 예고 시점 (잔여 실초) — 수탉은 세계의 신호, 경적은 기사의 신호
+const DAWN_MSGS=['멀리서 수탉이 뒤척인다…','수탉이 울었다 — 기사가 시동을 건다','경적!! 트럭이 떠난다!!'];
+// 밤의 이 지점부터 하늘이 물들기 시작 (렌더 전용 — "그냥 타이머"가 아니게 하는 축).
+// 정전(DARK_TIMER=300s=62%)보다 확실히 앞이어야 한다 — 뒤면 밝은 구간에 하늘을 볼 시간이 안 남는다
+const DAWN_SKY_T=0.35;
+const DAWN_SKY_DARK_K=0.45;      // 정전 중 하늘 진행 비율 — 올려다보면 시간은 읽히되 발밑은 여전히 캄캄하게
+const TRUCK_GO_T=2.2, TRUCK_GO_D=900;  // 새벽에 트럭이 떠나는 연출 (시간/거리) — 충돌 세그는 그대로 둔다
+const HEMI_LIT=0.58, HEMI_DARK=0.06, MOON_LIT=0.22, MOON_DARK=0.04;   // 광량 기준값 (정전·새벽이 공유)
 const WARN_DIP_T=0.12;           // 잔여 30/10초 조명 딥 (flickT 기구 재사용)
 const PATROL_SPD=65;             // 순찰 전용 속도 — 배회 42와 invest 110 사이 (신설 상태의 신설 상수)
 const PACK_R=500;                // 무리 경보 반경 (소리 기반 — 앵커 리쉬 600이 자연 상한)
@@ -351,7 +362,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=200;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.11'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.11: 새벽 마감 룰 추가로 범프
+const NET_HZ=20, PROTO_V='v0.12'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -713,6 +724,7 @@ const eggs=[], chickens=[];
 let stats={t:0,broken:0,delivered:0,caught:0,meat:0};
 let warned30=false, warned10=false;
 let dawnWarned=[false,false,false], failWhy='';   // 새벽 예고 발화 여부(경고별) / 실패 사유 ('dawn'|'' — 클라는 stats.t로 파생)
+let truckGoT=-1;                                  // 트럭 출발 연출 경과(초). -1 = 안 떠남
 const CART_HOME={x:TRUCK_X+60,z:TRUCK_Z+160};
 // cart.pulled → cart.owner (플레이어 인덱스, -1=없음) — 견인자 신원 (패널 D10)
 const cart={x:CART_HOME.x,z:CART_HOME.z,r:26,dir:0,owner:-1,slots:[],trail:[],runAcc:0};
@@ -750,6 +762,10 @@ const hemi=new THREE.HemisphereLight(0x33506c,0x1a2412,0.58);
 scene.add(hemi);
 const moon=new THREE.DirectionalLight(0x9fb4d8,0.22);
 moon.position.set(300,700,-400); scene.add(moon);
+// v0.11 새벽 팔레트 — 밤 → 여명 → 해 뜸. 렌더 전용이며 어그로·시야 상수는 어디도 참조하지 않는다
+const C_SKY_NIGHT=new THREE.Color(0x0c1424), C_SKY_DAWN=new THREE.Color(0x243056), C_SKY_SUN=new THREE.Color(0x7a5348);
+const C_HEMI_NIGHT=new THREE.Color(0x33506c), C_HEMI_SUN=new THREE.Color(0xd09a6e);
+const _sky=new THREE.Color();
 const lampLights=[];
 // 1F: 코너 4 + 척추 2 (하나는 첫 트레이 위 — 불웅덩이) / B1: 코너 2 + 척추 1 (전부 정전 시 일괄 소등)
 const LAMP_POS=[
@@ -1508,13 +1524,37 @@ function endBlackout(){
   applyDark(false);
 }
 function applyDark(on){
-  hemi.intensity=on?0.06:0.58;
-  moon.intensity=on?0.04:0.22;
+  hemi.intensity=on?HEMI_DARK:HEMI_LIT;
+  moon.intensity=on?MOON_DARK:MOON_LIT;
   for(const L of lampLights) L.intensity=on?0:L.userData.lit;
   bulbMat.color.setHex(on?0x241d14:0xffd9a0);
   headA.distance=headB.distance=on?HEADLIGHT_DARK:1400;
   doorSpill.visible=on;
   eggGlow(on);
+  updSky();                                  // 복구 직후 1프레임 밤색으로 튀는 것 방지 (새벽 진행분을 즉시 덮어쓴다)
+}
+// 새벽 진행도 0→1 (렌더 전용 파생). 판정은 update의 NIGHT_LEN 비교가 하고 여기선 아무것도 결정하지 않는다.
+// 클라도 동기화된 stats.t를 쓰므로 하늘이 저절로 맞는다 — 새 스냅샷 필드 없음
+function dawnProg(){
+  if(phase==='title'||phase==='intro') return 0;
+  return Math.min(1,Math.max(0,(stats.t/NIGHT_LEN-DAWN_SKY_T)/(1-DAWN_SKY_T)));
+}
+// 하늘이 시간을 말한다 — HUD 숫자를 안 봐도 "곧 아침"이 읽히게 (v0.11 2차)
+function updSky(){
+  const d=dawnProg();
+  if(d<0.7) _sky.lerpColors(C_SKY_NIGHT,C_SKY_DAWN,d/0.7);
+  else _sky.lerpColors(C_SKY_DAWN,C_SKY_SUN,(d-0.7)/0.3);
+  if(blackout){
+    // 정전이 해를 멈추진 못한다 — 하늘은 계속 밝아지되 비율을 낮춰 발밑 어둠은 지킨다.
+    // 광량(hemi·moon·램프)은 건드리지 않으므로 파동 없이 길을 찾는 시험은 그대로다
+    _sky.lerp(C_SKY_NIGHT,1-DAWN_SKY_DARK_K);   // 밤색 쪽으로 되끌어 당긴다
+    scene.background.copy(_sky); scene.fog.color.copy(_sky);
+    return;
+  }
+  scene.background.copy(_sky); scene.fog.color.copy(_sky);
+  hemi.color.lerpColors(C_HEMI_NIGHT,C_HEMI_SUN,d);
+  hemi.intensity=HEMI_LIT+d*0.5;
+  moon.intensity=MOON_LIT*(1-d*0.7);
 }
 function bigmsg(txt){
   const el=document.getElementById('bigmsg');
@@ -2503,16 +2543,28 @@ function startFail(){
 }
 function startDawnFail(){                      // 새벽 마감 (v0.11) — 해가 뜨면 정전도 끝 (endBlackout이 일출을 겸한다)
   failWhy='dawn';
-  const p=P(); lastLoss.x=p.x; lastLoss.z=p.z; // 잃은 알이 없으니 카메라 앵커는 자기 자리
-  flash=1; crowS(2);
+  dawnCeremony();
   startFail();
+}
+// 새벽 예고 i단계 — 수탉은 세계가 알려주는 시간, 경적은 기사가 재촉하는 시간.
+// 둘이 겹칠수록 마감이 사람의 일이 된다 (호스트·클라 각자 시계에서 파생, D22)
+function dawnWarn(i){
+  crowS(i);
+  if(i>=1) setTimeout(()=>hornS(),i===1?700:260);
+  bigmsg(DAWN_MSGS[i]);
+}
+// 새벽 실패 연출 — 호스트·클라 공용 (클라는 ph 전이에서 부른다, D15)
+function dawnCeremony(){
+  lastLoss.x=TRUCK_X; lastLoss.z=TRUCK_Z;     // 잃은 건 알이 아니라 트럭이다 — 카메라가 떠나는 쪽을 본다
+  truckGoT=0;
+  flash=1; crowS(2); hornS();
 }
 function showFailOv(){
   // 새벽 실패 판별 — 호스트는 failWhy, 클라는 동기화된 시계로 파생 (st[0]은 q1 반올림이라 1초 여유)
   const dawn=failWhy==='dawn'||stats.t>=NIGHT_LEN-1;
-  document.querySelector('#failOv .t').textContent=dawn?'해가 떴다 — 오늘 장사는 글렀다…':'오늘 장사는 글렀다…';
+  document.querySelector('#failOv .t').textContent=dawn?'트럭은 그냥 갔다':'오늘 장사는 글렀다…';
   document.getElementById('failStats').innerHTML=
-    (dawn?'수탉이 울 때까지 못 빠져나왔다<br>':'')+
+    (dawn?'해가 떴고, 농장이 깨어난다 — 너는 아직 닭 마당에 있다<br>':'')+
     '깨뜨린 계란 '+stats.broken+'개 · 닭에게 잡힘 '+stats.caught+'번 · '+nightClock(stats.t)+' ('+stats.t.toFixed(0)+'초)'+
     (stats.meat?'<br>그래도 닭고기 '+stats.meat+'개는 건졌다':'');
   document.querySelector('#failOv .r').textContent=
@@ -2538,6 +2590,7 @@ function resetWorld(){
   charge=-1; caughtFocus=null;
   warned30=false; warned10=false;
   dawnWarned[0]=dawnWarned[1]=dawnWarned[2]=false; failWhy='';
+  truckGoT=-1; truckG.position.x=TRUCK_X;      // 떠났던 트럭을 제자리로
   cart.owner=-1; cart.slots.length=0; cart.trail.length=0; cart.runAcc=0;
   cart.x=CART_HOME.x; cart.z=CART_HOME.z; cart.dir=0;
   for(const m of meats){ m.active=false; m.g.visible=false; }
@@ -2620,6 +2673,13 @@ function update(dt){
   const hadFlick=flickT>0;
   flickT=Math.max(0,flickT-dt);
   if(hadFlick&&flickT<=0&&!blackout) applyDark(false);   // 예고 딥 복구 (플리커 기구 재사용의 뒷정리)
+  // 새벽 — 트럭이 떠난다 (연출 전용. 충돌 세그는 제자리라 실패 홀드 중 몸이 끼지 않는다).
+  // 클라 조기 반환보다 위 = 호스트·클라 모두 같은 그림을 본다
+  if(truckGoT>=0){
+    truckGoT+=dt;
+    const p=Math.min(1,truckGoT/TRUCK_GO_T);
+    truckG.position.x=TRUCK_X-TRUCK_GO_D*p*p;
+  }
   if(NET.on&&!NET.host){ clientTick(dt); return; }       // 클라: 규칙 코드는 구조적으로 도달 불가 (D15)
   if(phase==='intro'){
     introT-=dt;
@@ -2669,7 +2729,7 @@ function update(dt){
     const dl=NIGHT_LEN-stats.t;
     if(dl<=0) startDawnFail();
     else for(let i=0;i<DAWN_WARNS.length;i++)
-      if(dl<=DAWN_WARNS[i]&&!dawnWarned[i]){ dawnWarned[i]=true; crowS(i); bigmsg(DAWN_MSGS[i]); }
+      if(dl<=DAWN_WARNS[i]&&!dawnWarned[i]){ dawnWarned[i]=true; dawnWarn(i); }
   }
   if(phase==='fail'){
     failT-=dt;
@@ -2709,6 +2769,7 @@ function lookTowards(tx,tz,ty,rate,dt){
   v.pitch+=(wantPitch-v.pitch)*Math.min(1,rate*dt);
 }
 function render(){
+  updSky();                       // 새벽 물들기 — 플리커보다 먼저 (플리커가 덮어써야 하므로)
   // 소등 플리커 (연출 전용 — 로직은 t=0에 이미 어둡다)
   if(flickT>0){
     const j=Math.random();
@@ -3307,13 +3368,14 @@ function applySnap(s){
 function clientPhase(op,np){
   phase=np;
   if(np==='win'){ endBlackout(); showWinOv(); }
-  else if(np==='fail'){ failT=FAIL_HOLD; failS(); if(stats.t>=NIGHT_LEN-1){ flash=1; crowS(2); } }   // 새벽 실패 세리머니 동기 (파생 — D22)
+  else if(np==='fail'){ failT=FAIL_HOLD; failS(); if(stats.t>=NIGHT_LEN-1) dawnCeremony(); }   // 새벽 실패 세리머니 동기 (파생 — D22)
   else if(np==='play'&&(op==='win'||op==='fail'||op==='title')){
     document.getElementById('winOv').style.display='none';
     document.getElementById('failOv').style.display='none';
     document.getElementById('cross').style.display='block';
     fade=1; caughtFocus=null; warned30=false; warned10=false;
     dawnWarned[0]=dawnWarned[1]=dawnWarned[2]=false; failWhy='';
+    truckGoT=-1; truckG.position.x=TRUCK_X;
     for(const m of splats) m.visible=false;
     fxPool.clear(); wavePool.clear(); waves.length=0;
   }
@@ -3371,7 +3433,7 @@ function clientTick(dt){
     // 새벽 예고 파생 (D22) — 판정은 하지 않는다 (실패는 ph 전이로 온다)
     const dl=NIGHT_LEN-stats.t;
     for(let i=0;i<DAWN_WARNS.length;i++)
-      if(dl<=DAWN_WARNS[i]&&!dawnWarned[i]){ dawnWarned[i]=true; crowS(i); bigmsg(DAWN_MSGS[i]); }
+      if(dl<=DAWN_WARNS[i]&&!dawnWarned[i]){ dawnWarned[i]=true; dawnWarn(i); }
   }
   // 원격 보간 (D16): 지수 lerp + 큰 오차·벽 분리 시 하드 스냅
   const k=Math.min(1,dt*12);
@@ -3734,8 +3796,10 @@ window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
   // 14) v0.11 새벽 마감 — 밤이 정전 타이머보다 짧으면 정전 경로가 도달 불가
   if(NIGHT_LEN<=DARK_TIMER) bad.push('night shorter than blackout timer');
   if(DAWN_WARNS.length!==DAWN_MSGS.length||DAWN_WARNS.length!==dawnWarned.length) bad.push('dawn warn arrays mismatch');
+  // 15) v0.12 하늘이 시간을 말한다 — 물들기 시작이 정전보다 뒤면 밝은 구간에 볼 시간이 안 남는다
+  if(DAWN_SKY_T*NIGHT_LEN>=DARK_TIMER-60) bad.push('sky warms too late vs blackout');
   if(bad.length){ console.error('[검증 실패]',bad); }
-  else console.log('[검증] 14/14 통과 — 셀 '+CELL_N+' (1F 48+B1 24), 닭 '+CHK_COUNT+' (1F 4/B1 6), 알 2+4, 이격 '+gap+', 타이머 '+DARK_TIMER+'s, 밤 '+NIGHT_LEN+'s, 슬롯 '+MAX_PLAYERS);
+  else console.log('[검증] 15/15 통과 — 셀 '+CELL_N+' (1F 48+B1 24), 닭 '+CHK_COUNT+' (1F 4/B1 6), 알 2+4, 이격 '+gap+', 타이머 '+DARK_TIMER+'s, 밤 '+NIGHT_LEN+'s (하늘 '+Math.round(DAWN_SKY_T*NIGHT_LEN)+'s부터), 슬롯 '+MAX_PLAYERS);
 })();
 
 // ============================================================

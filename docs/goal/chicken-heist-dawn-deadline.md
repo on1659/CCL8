@@ -61,9 +61,10 @@ time-based fail; the only fail is running out of eggs.
 - No change to `DARK_TIMER` semantics or value; the blackout trigger chain
   (확보 총량 vs timer) is untouched.
 - No server/relay changes — `server.js` stays relay-only.
-- No sky/sun simulation or gradual lighting change over the night; the only
-  visual is the fail-moment flash + HUD. (Cheap by design; revisit only if the
-  clock alone doesn't read.)
+- ~~No sky/sun simulation or gradual lighting change over the night.~~
+  **Revisit triggered 2026-08-13** — developer verdict on the shipped v0.11:
+  "이거 시간이 그냥 타이머인데" (this is still just a timer). The clock alone did
+  not read as a *setting*, so round 2 (v0.12) is specified below.
 - Does NOT settle the design doc's open "하루 리듬" (1일 1원정?) question — that
   is meta-structure; this is a single-run clock.
 - NOT the shelved 부패·허기 clock or 영업 러시 — no ingredient decay, no order
@@ -93,6 +94,56 @@ time-based fail; the only fail is running out of eggs.
 - [x] Restart (R) fully resets clock, warnings, and fail framing.
 - [x] Console self-check reports 14/14 including the new
       `NIGHT_LEN > DARK_TIMER` assertion.
+
+Round 2 (v0.12):
+- [x] Sky and light visibly progress night → sunrise, confirmed by reading the
+      actual framebuffer pixels (sky `#0c1424` → `#7a5348`, ground
+      `#3c301f` → `#6f4824`), not just the JS state.
+- [x] The gradient is visible during the bright section — warming starts at 168s,
+      blackout at 300s; self-check 15/15 asserts the ordering.
+- [x] Blackout keeps `hemi`=0.06 / `moon`=0.04 while the sky still advances
+      (muted), so darkness-stage navigation is unchanged.
+- [x] `endBlackout` restores the dawn-progressed sky with no one-frame flash back
+      to night blue (`applyDark` delegates to `updSky`).
+- [x] Truck departs at dawn on host and client (both reach x=-650), camera
+      anchors on it, fail title "트럭은 그냥 갔다".
+- [x] Client sky/clock match host exactly over the relay (`#18223d`, 새벽 3:30,
+      hemi 0.76 on both); restart resets truck and sky on both.
+
+## Round 2 (v0.12) — turning the number into a setting
+
+**Problem.** v0.11 shipped a clock, but the clock was a HUD string. Nothing in the
+world corroborated it and nothing in the fiction enforced it, so it read as a
+relabelled timer. What makes Lethal's 9AM–11PM a *setting* is not the readout —
+it is that the light visibly changes and that an agent (the autopilot) leaves.
+
+**Three additions, no new system** (this finishes v0.11's job rather than starting
+a new one; judgment/aggro/snapshot code is untouched):
+
+1. **The sky tells time.** `updSky()` lerps `scene.background`/fog through
+   night → pre-dawn → sunrise and warms the hemisphere light
+   (`#0c1424` → `#7a5348`; hemi `0.58` → `1.08`, cold blue → warm). Pure render,
+   driven by `dawnProg()`, a derivation of the already-synced `stats.t` — so
+   clients match with no new snapshot fields.
+   - `DAWN_SKY_T=0.35` (starts at 168s), deliberately **before** the blackout at
+     300s. At the first attempt it was 0.55 and the blackout swallowed almost the
+     entire gradient — only 36s of warming was ever visible in a real run. A
+     self-check now asserts the sky starts at least 60s before `DARK_TIMER`.
+   - During blackout the sky keeps progressing at `DAWN_SKY_DARK_K=0.45` while
+     `hemi`/`moon`/lamps stay at their blackout values: a power cut does not stop
+     the sunrise, but the ground stays pitch black, so wave-navigation is
+     unaffected.
+2. **The deadline has an agent — the truck driver.** He honks at T-30/T-10
+   (`hornS` layered under the rooster) and at 06:00 the truck *actually drives
+   away*, reusing the intro drive-in animation in reverse; the fail camera
+   anchors on the truck so you watch it go. Fail title becomes
+   "트럭은 그냥 갔다" — you were left behind, not "time expired".
+   Render-only: collision segs stay put, so nothing traps the player mid-hold.
+3. **06:00 gets a reason.** Title copy: the truck leaves at 6 because the farm
+   wakes at 6, and the driver does not wait.
+
+Rejected: a diegetic dashboard clock on the truck (players never look at it) and
+warming the sky fully during blackout (destroys the darkness stage).
 
 ## Related Files / Modules
 | File | Role |
