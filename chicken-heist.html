@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.10</title>
+<title>양계장 습격 — 웹 프로토타입 v0.11</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -102,8 +102,8 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.10</div>
-  <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.</div>
+  <div class="sub">웹 프로토타입 v0.11</div>
+  <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.<br>그리고 해가 뜨면 끝이다 — 수탉이 울기 전에 나와라.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
   <div id="mpArea">
@@ -131,9 +131,13 @@
 <script>
 "use strict";
 /* ============================================================
-   양계장 습격 — 웹 프로토타입 v0.10
-   스펙: docs/goal/chicken-heist-multiplayer.md (4관점 패널+교차심문 33결정)
+   양계장 습격 — 웹 프로토타입 v0.11
+   스펙: docs/goal/chicken-heist-dawn-deadline.md (v0.11 새벽 마감)
+        + docs/goal/chicken-heist-multiplayer.md (4관점 패널+교차심문 33결정)
         + 멀티 계획: docs/design-multiplayer-plan-20260812.md (2026-08-12 개발자 승인 — 구현 해제)
+   v0.11 회계: 신규 1 = 밤 시계+새벽 마감 — stats.t를 00:00→06:00 시계로 표기(측정→제한),
+   NIGHT_LEN 만료 시 팀 실패(수탉 3회 예고, 즉사 금지 — 쫓겨남 코미디). 스냅샷 스키마
+   무변경: 시계·예고·실패 프레이밍 전부 동기화된 stats.t에서 파생 (D22).
    v0.10 회계: 멀티플레이 M1~M4 — players[4]+인텐트 큐(M1), WebSocket 릴레이+
    호스트 권위+20Hz 스냅샷+이벤트 채널 wave·bigmsg(M2), ?room 링크 로비+
    입장 게이트(M3), 팀 합산 정전·층별 닭 타게팅·det 닭×플레이어 배열·
@@ -301,6 +305,10 @@ const VIS_WALK=180, VIS_RUN=310, VIS_LAND=300, VIS_BREAK=380, VIS_SHOVE=200,
 
 // v0.6 신설 — 갑툭튀 배치 (docs/goal/chicken-heist-dark-surprise.md, 패널 확정)
 const DARK_TIMER=300;            // 정전 카운트다운(초) — v0.9: 2층 볼륨 재산정 240→300. 튜닝 상수
+// v0.11 신설 — 밤 시계·새벽 마감 (docs/goal/chicken-heist-dawn-deadline.md)
+const NIGHT_LEN=480;             // 밤 전체 길이(초) — 시계 00:00→06:00 매핑, 만료 = 새벽 실패. DARK_TIMER보다 길어야 한다. 튜닝 상수
+const DAWN_WARNS=[60,30,10];     // 수탉 예고 시점 (잔여 실초)
+const DAWN_MSGS=['멀리서 수탉이 뒤척인다…','수탉이 울었다 — 곧 해가 뜬다!','해가 뜬다!!'];
 const WARN_DIP_T=0.12;           // 잔여 30/10초 조명 딥 (flickT 기구 재사용)
 const PATROL_SPD=65;             // 순찰 전용 속도 — 배회 42와 invest 110 사이 (신설 상태의 신설 상수)
 const PACK_R=500;                // 무리 경보 반경 (소리 기반 — 앵커 리쉬 600이 자연 상한)
@@ -343,7 +351,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=200;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.10'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내)
+const NET_HZ=20, PROTO_V='v0.11'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.11: 새벽 마감 룰 추가로 범프
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -704,6 +712,7 @@ let charge=-1;                     // 던지기 파워 적산 — 뷰어 로컬 
 const eggs=[], chickens=[];
 let stats={t:0,broken:0,delivered:0,caught:0,meat:0};
 let warned30=false, warned10=false;
+let dawnWarned=[false,false,false], failWhy='';   // 새벽 예고 발화 여부(경고별) / 실패 사유 ('dawn'|'' — 클라는 stats.t로 파생)
 const CART_HOME={x:TRUCK_X+60,z:TRUCK_Z+160};
 // cart.pulled → cart.owner (플레이어 인덱스, -1=없음) — 견인자 신원 (패널 D10)
 const cart={x:CART_HOME.x,z:CART_HOME.z,r:26,dir:0,owner:-1,slots:[],trail:[],runAcc:0};
@@ -1412,6 +1421,23 @@ function squawkS(x,z){
   g.gain.setValueAtTime(gain,t);
   g.gain.exponentialRampToValueAtTime(0.001,t+0.3);
   o.connect(g); g.connect(master); o.start(t); o.stop(t+0.32);
+}
+function crowS(n){               // 수탉 "꼬끼오" — n: 0 멀리서 / 1 가까이 / 2 새벽 (거리감은 음량으로)
+  if(!AC||muted) return;
+  const gain=[0.1,0.17,0.28][n]||0.1;
+  const o=AC.createOscillator(), g=AC.createGain(), t=AC.currentTime;
+  o.type='sawtooth';
+  o.frequency.setValueAtTime(520,t);
+  o.frequency.exponentialRampToValueAtTime(700,t+0.1);    // 꼬
+  o.frequency.setValueAtTime(620,t+0.16);
+  o.frequency.exponentialRampToValueAtTime(880,t+0.26);   // 끼
+  o.frequency.setValueAtTime(760,t+0.34);
+  o.frequency.exponentialRampToValueAtTime(1150,t+0.48);  // 오!
+  o.frequency.exponentialRampToValueAtTime(430,t+0.95);   // 오——
+  g.gain.setValueAtTime(gain,t);
+  g.gain.setValueAtTime(gain,t+0.55);
+  g.gain.exponentialRampToValueAtTime(0.001,t+1.0);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t+1.05);
 }
 function cluckS(x,z){ blip(280+Math.random()*90,0.06,x===undefined?0.07:volAt(x,z,0.09,520),'square'); }
 function alertS(x,z){ blip(760,0.09,volAt(x,z,0.14,600),'triangle'); }
@@ -2446,6 +2472,12 @@ function tryJump(p){
 //  진행
 // ============================================================
 // 판정(호스트)과 연출(로컬)의 분리 (D15) — 클라는 스냅샷 phase 전이에 반응해 같은 연출 함수를 부른다
+// stats.t → 인게임 시각 (밤 12:00 → 아침 6:00). 시계·마감 전부 동기화된 stats.t의 순수 파생
+function nightClock(t){
+  const m=Math.min(360,Math.max(0,t)/NIGHT_LEN*360);
+  const h=Math.floor(m/60), mm=Math.floor(m%60);
+  return (h===0?'밤 12':(h>=6?'아침 6':'새벽 '+h))+':'+(mm<10?'0':'')+mm;
+}
 function win(){
   phase='win';
   endBlackout();
@@ -2453,7 +2485,7 @@ function win(){
 }
 function showWinOv(){
   document.getElementById('winStats').innerHTML=
-    '시간 '+stats.t.toFixed(1)+'초<br>깨뜨린 계란 '+stats.broken+'개 · 닭에게 잡힘 '+stats.caught+'번'+
+    nightClock(stats.t)+' 탈출 ('+stats.t.toFixed(1)+'초)<br>깨뜨린 계란 '+stats.broken+'개 · 닭에게 잡힘 '+stats.caught+'번'+
     (stats.meat?'<br>보너스 수확 — 닭고기 '+stats.meat+'개':'');
   document.querySelector('#winOv .r').textContent=
     (NET.on&&!NET.host)?'호스트가 다시 시작한다 — 대기 중':'R — 다시 시작';   // 죽은 입력을 안내하지 않는다 (D12)
@@ -2469,9 +2501,19 @@ function startFail(){
   failS();
   decoyPulse(lastLoss.x,lastLoss.z,null);
 }
+function startDawnFail(){                      // 새벽 마감 (v0.11) — 해가 뜨면 정전도 끝 (endBlackout이 일출을 겸한다)
+  failWhy='dawn';
+  const p=P(); lastLoss.x=p.x; lastLoss.z=p.z; // 잃은 알이 없으니 카메라 앵커는 자기 자리
+  flash=1; crowS(2);
+  startFail();
+}
 function showFailOv(){
+  // 새벽 실패 판별 — 호스트는 failWhy, 클라는 동기화된 시계로 파생 (st[0]은 q1 반올림이라 1초 여유)
+  const dawn=failWhy==='dawn'||stats.t>=NIGHT_LEN-1;
+  document.querySelector('#failOv .t').textContent=dawn?'해가 떴다 — 오늘 장사는 글렀다…':'오늘 장사는 글렀다…';
   document.getElementById('failStats').innerHTML=
-    '깨뜨린 계란 '+stats.broken+'개 · 닭에게 잡힘 '+stats.caught+'번 · 버틴 시간 '+stats.t.toFixed(1)+'초'+
+    (dawn?'수탉이 울 때까지 못 빠져나왔다<br>':'')+
+    '깨뜨린 계란 '+stats.broken+'개 · 닭에게 잡힘 '+stats.caught+'번 · '+nightClock(stats.t)+' ('+stats.t.toFixed(0)+'초)'+
     (stats.meat?'<br>그래도 닭고기 '+stats.meat+'개는 건졌다':'');
   document.querySelector('#failOv .r').textContent=
     (NET.on&&!NET.host)?'호스트가 다시 시작한다 — 대기 중':'R — 다시 시작';
@@ -2495,6 +2537,7 @@ function resetWorld(){
   gloveMesh.visible=true;
   charge=-1; caughtFocus=null;
   warned30=false; warned10=false;
+  dawnWarned[0]=dawnWarned[1]=dawnWarned[2]=false; failWhy='';
   cart.owner=-1; cart.slots.length=0; cart.trail.length=0; cart.runAcc=0;
   cart.x=CART_HOME.x; cart.z=CART_HOME.z; cart.dir=0;
   for(const m of meats){ m.active=false; m.g.visible=false; }
@@ -2621,6 +2664,13 @@ function update(dt){
   updEggs(dt);
   updChickens(dt);
   updWaves(dt);
+  // 새벽 마감 (v0.11) — 시계 06:00 도달 = 팀 실패. 프레임의 배달 처리 뒤에 판정하므로 같은 프레임의 3알째 반납이 이긴다
+  if(phase==='play'){
+    const dl=NIGHT_LEN-stats.t;
+    if(dl<=0) startDawnFail();
+    else for(let i=0;i<DAWN_WARNS.length;i++)
+      if(dl<=DAWN_WARNS[i]&&!dawnWarned[i]){ dawnWarned[i]=true; crowS(i); bigmsg(DAWN_MSGS[i]); }
+  }
   if(phase==='fail'){
     failT-=dt;
     if(failT<=0 && document.getElementById('failOv').style.display!=='flex') showFailOv();
@@ -2948,7 +2998,9 @@ function render(){
       ' · 남은 계란 '+(spare<=0?'<span class="warn">'+alive+' — 하나도 못 깨진다!</span>':alive)+
       (stats.meat?' · 닭고기 '+stats.meat:'')+
       (blackout?' · <span class="warn">정전</span>':'')+timerStr+mates+'<br>'+
-      '시간 '+stats.t.toFixed(1)+'초 · 깨짐 '+stats.broken+' · 잡힘 '+stats.caught+
+      // v0.11: 측정("시간 X초") → 제한(밤 시계). 첫 수탉 예고부터 경고색
+      (NIGHT_LEN-stats.t<=DAWN_WARNS[0]?'<span class="warn">':'<span>')+nightClock(stats.t)+'</span>'+
+      ' · 깨짐 '+stats.broken+' · 잡힘 '+stats.caught+
       ' · '+(vz===1?'지하':(vz===2?'계단':(inCoopPt(P().x,P().z)?'1층':'마당')))+
       ' · 시점 '+(camMode?'3인칭':'1인칭');
   }
@@ -3255,12 +3307,13 @@ function applySnap(s){
 function clientPhase(op,np){
   phase=np;
   if(np==='win'){ endBlackout(); showWinOv(); }
-  else if(np==='fail'){ failT=FAIL_HOLD; failS(); }
+  else if(np==='fail'){ failT=FAIL_HOLD; failS(); if(stats.t>=NIGHT_LEN-1){ flash=1; crowS(2); } }   // 새벽 실패 세리머니 동기 (파생 — D22)
   else if(np==='play'&&(op==='win'||op==='fail'||op==='title')){
     document.getElementById('winOv').style.display='none';
     document.getElementById('failOv').style.display='none';
     document.getElementById('cross').style.display='block';
     fade=1; caughtFocus=null; warned30=false; warned10=false;
+    dawnWarned[0]=dawnWarned[1]=dawnWarned[2]=false; failWhy='';
     for(const m of splats) m.visible=false;
     fxPool.clear(); wavePool.clear(); waves.length=0;
   }
@@ -3315,6 +3368,10 @@ function clientTick(dt){
       if(left<=30&&!warned30){ warned30=true; flickT=WARN_DIP_T; rattleS(); clunkS(); }
       if(left<=10&&!warned10){ warned10=true; flickT=WARN_DIP_T; rattleS(); clunkS(); }
     }
+    // 새벽 예고 파생 (D22) — 판정은 하지 않는다 (실패는 ph 전이로 온다)
+    const dl=NIGHT_LEN-stats.t;
+    for(let i=0;i<DAWN_WARNS.length;i++)
+      if(dl<=DAWN_WARNS[i]&&!dawnWarned[i]){ dawnWarned[i]=true; crowS(i); bigmsg(DAWN_MSGS[i]); }
   }
   // 원격 보간 (D16): 지수 lerp + 큰 오차·벽 분리 시 하드 스냅
   const k=Math.min(1,dt*12);
@@ -3674,8 +3731,11 @@ window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
   for(const t of PLAYER_TINTS) if(t===0xff5040||t===0xffc040) bad.push('tint collides signal hue');
   for(const o of SPAWN_OFFS) if(zoneOfArea(SPAWN.x+o[0],SPAWN.z+o[1])!==0) bad.push('spawn off zone');
   for(const c of chickens) if(c.det.length!==MAX_PLAYERS) bad.push('det array size');
+  // 14) v0.11 새벽 마감 — 밤이 정전 타이머보다 짧으면 정전 경로가 도달 불가
+  if(NIGHT_LEN<=DARK_TIMER) bad.push('night shorter than blackout timer');
+  if(DAWN_WARNS.length!==DAWN_MSGS.length||DAWN_WARNS.length!==dawnWarned.length) bad.push('dawn warn arrays mismatch');
   if(bad.length){ console.error('[검증 실패]',bad); }
-  else console.log('[검증] 13/13 통과 — 셀 '+CELL_N+' (1F 48+B1 24), 닭 '+CHK_COUNT+' (1F 4/B1 6), 알 2+4, 이격 '+gap+', 타이머 '+DARK_TIMER+'s, 슬롯 '+MAX_PLAYERS);
+  else console.log('[검증] 14/14 통과 — 셀 '+CELL_N+' (1F 48+B1 24), 닭 '+CHK_COUNT+' (1F 4/B1 6), 알 2+4, 이격 '+gap+', 타이머 '+DARK_TIMER+'s, 밤 '+NIGHT_LEN+'s, 슬롯 '+MAX_PLAYERS);
 })();
 
 // ============================================================
