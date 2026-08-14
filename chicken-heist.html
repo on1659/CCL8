@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.12</title>
+<title>양계장 습격 — 웹 프로토타입 v0.13</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -102,7 +102,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.12</div>
+  <div class="sub">웹 프로토타입 v0.13</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -131,8 +131,17 @@
 <script>
 "use strict";
 /* ============================================================
-   양계장 습격 — 웹 프로토타입 v0.12
-   스펙: docs/goal/chicken-heist-dawn-deadline.md (v0.11 새벽 마감 + v0.12 설정화)
+   양계장 습격 — 웹 프로토타입 v0.13
+   스펙: docs/goal/chicken-heist-score-run.md (v0.13 점수제 — 4관점 패널+교차심문 11결정)
+        + docs/goal/chicken-heist-dawn-deadline.md (v0.11 새벽 마감 + v0.12 설정화)
+   v0.13 회계: 신규 1.5 — 진짜 신규는 출발 레버+카운트다운/취소 상태기계 1개.
+   나머지는 감산이거나 데이터다: 쿼터 판정 삭제(checkWin·checkFail 함수째),
+   NEED_EGGS 폐지, 값 테이블(알1/큰알3/고기2·정전 반납 ×2), 정전 트리거를
+   "반납이 시계를 앞당김"으로 교체(360→240), 트레이당 3개로 공급 18,
+   닭고기를 eggs[] 파이프라인에 kind로 흡수(즉시 수확 삭제 — 0.5),
+   HUD 10항목→3항목, 짐칸 랙 12칸, 우회 봉쇄 3곳(던지기 배달·스폰·수레 이탈),
+   SWAP_T 0.5→1.2. 팀 실패 경로는 새벽 하나뿐이고, 06:00은 즉시 끝이 아니라
+   6초 막차 유예다. 밝은 구간 LOGIC 상수 변경 0 (품 무적은 로직 대신 비용으로 눌렀다).
    v0.12 회계: 신규 0 — v0.11 마감을 "숫자"에서 "설정"으로. (1) 하늘이 밤→여명→
    일출로 물든다 (렌더 전용, dawnProg는 stats.t 파생이라 클라도 저절로 맞는다).
    (2) 마감의 주체는 트럭 기사 — 경적으로 재촉하고 6시에 진짜로 떠난다(인트로
@@ -264,7 +273,7 @@ const EGG_R=7, EGG_G=650, CARRY_H=40;
 const BREAK_SPD=420, CRACK_SPD=150, CRACKED_BREAK=250;
 const EGG_REST=0.34, EGG_FRIC=0.62;
 const THROW_MIN=200, THROW_MAX=560, THROW_CHARGE_T=0.85, THROW_LIFT=0.35;
-const NEED_EGGS=3;
+// NEED_EGGS 폐지 (v0.13 D2) — 쿼터가 없으므로 목표치 상수도 없다. 공급량은 TRAY_DEF×PER_TRAY
 const SHAKE_FULL_T=3.0, SHAKE_DRAIN_T=1.5;
 const SHAKE_TELE=1-0.8/SHAKE_FULL_T;
 
@@ -309,7 +318,18 @@ const VIS_WALK=180, VIS_RUN=310, VIS_LAND=300, VIS_BREAK=380, VIS_SHOVE=200,
       VIS_PICK_Q=120, VIS_PICK_L=310, VIS_CLUCK=260, VIS_STRUT=180;
 
 // v0.6 신설 — 갑툭튀 배치 (docs/goal/chicken-heist-dark-surprise.md, 패널 확정)
-const DARK_TIMER=300;            // 정전 카운트다운(초) — v0.9: 2층 볼륨 재산정 240→300. 튜닝 상수
+// v0.13 정전 트리거 — 쿼터가 사라졌으므로 "반납이 시계를 앞당긴다"로 인과 복원 (D1).
+// 가속 인자는 stats.delivered(단조 증가)만 쓴다 — 손·품·수레를 넣으면 파손·강탈 때 시계가 거꾸로 간다
+const DARK_BASE=360, DARK_ACC=8, DARK_MIN=240;
+// v0.13 전리품 — 신규 품목 클래스 0종, 기존 eggs[] 파이프라인에 kind만 얹는다 (D5)
+const LOOT_VAL={egg:1,bigEgg:3,meat:2};
+const PER_TRAY=3;                // 트레이당 개수 — 총 18 (1F 6 / B1 12). 트레이 개수는 6 그대로
+const DEPART_T=20;               // 출발 카운트다운(초) — 1F·마당 다리 기준 (지하 보호는 취소키가 한다, D4)
+const DEPART_NEAR_T=1.5;         // 전원이 패드 안이면 단축 (솔로는 사실상 즉시)
+const DEPART_CD=8;               // 취소 후 재개시 쿨다운
+const LEVER_R=45;                // 운전석 레버 반경 — 반납대(x=380)와 188u 이격
+const GRADE=[1,10,25];           // 인원수 배수 — 빈 트럭 / 오늘 장사는 됐다 / 한탕 했다 / 대형사고
+const DARK_TIMER=300;            // (구) 정전 카운트다운 — v0.13에서 DARK_BASE 계열로 대체. 자가검사 하위호환 참조만 남김
 // v0.11 신설 — 밤 시계·새벽 마감 (docs/goal/chicken-heist-dawn-deadline.md)
 const NIGHT_LEN=480;             // 밤 전체 길이(초) — 시계 00:00→06:00 매핑, 만료 = 새벽 실패. DARK_TIMER보다 길어야 한다. 튜닝 상수
 const DAWN_WARNS=[60,30,10];     // 예고 시점 (잔여 실초) — 수탉은 세계의 신호, 경적은 기사의 신호
@@ -318,7 +338,7 @@ const DAWN_MSGS=['멀리서 수탉이 뒤척인다…','수탉이 울었다 — 
 // 정전(DARK_TIMER=300s=62%)보다 확실히 앞이어야 한다 — 뒤면 밝은 구간에 하늘을 볼 시간이 안 남는다
 const DAWN_SKY_T=0.35;
 const DAWN_SKY_DARK_K=0.45;      // 정전 중 하늘 진행 비율 — 올려다보면 시간은 읽히되 발밑은 여전히 캄캄하게
-const TRUCK_GO_T=2.2, TRUCK_GO_D=900;  // 새벽에 트럭이 떠나는 연출 (시간/거리) — 충돌 세그는 그대로 둔다
+const TRUCK_GO_T=6.0, TRUCK_GO_D=900;   // v0.13(D3): 막차 유예 — 이 6초 안에 패드에 닿으면 짐이 실린다  // 새벽에 트럭이 떠나는 연출 (시간/거리) — 충돌 세그는 그대로 둔다
 const HEMI_LIT=0.58, HEMI_DARK=0.06, MOON_LIT=0.22, MOON_DARK=0.04;   // 광량 기준값 (정전·새벽이 공유)
 const WARN_DIP_T=0.12;           // 잔여 30/10초 조명 딥 (flickT 기구 재사용)
 const PATROL_SPD=65;             // 순찰 전용 속도 — 배회 42와 invest 110 사이 (신설 상태의 신설 상수)
@@ -327,7 +347,10 @@ const ALARM_JOIN_CD=8;           // 같은 닭의 경보 재합류 쿨 (INVEST_C
 const GUARD_HOLD=6;              // 지킴이 트레이 경계 체류 상한 — 유한해야 KO가 대책이 된다
 const KO_T=6;                    // 펀치 KO — 기상은 무조건 격노 (파밍 방지)
 const REVENGE_R=200, REVENGE_T=5;// KO 목격 닭의 복수 추격 (빈손 무관 — 무위험 사냥 봉쇄)
-const SWAP_T=0.5;                // Q 품 동작 시간 (중 밀치기·던지기 불가 — 공짜 순간이동 방지)
+const SWAP_T=1.2;                // Q 품 동작 시간 (중 밀치기·던지기 불가 — 공짜 순간이동 방지)
+                                 // v0.13: 0.5→1.2 (D9). 품은 밝은 구간 발각 게이지에 안 걸리는 무적이라
+                                 // 왕복 루프에선 "집자마자 Q"가 항상 정답이 된다. carriesEgg를 고치면
+                                 // 밝은 구간 LOGIC 불변의 두 번째 예외가 되므로, 로직 대신 비용으로 누른다
 const CART_SLOTS=2, CART_GRAB_R=70, CART_LOAD_R=60;
 const CART_MULT=0.75, CART_LAG=0.55, CART_EJECT_T=4;  // 달리기 견인 누적 4s → 알 1개 결정적 이탈
 const JUMP_V=260, JUMP_G=650;    // 점프 정점 52 — 물통(26)·상자(40)만 넘는다. 벽은 원천 불가
@@ -362,7 +385,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=200;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.12'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.13'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -375,7 +398,7 @@ const SEG_H={wall:96, barn:BARN_H, cage:210, plug:210, truck:92, hay:56, trough:
 
 const TRUCK_X=250, TRUCK_Z=aisleZC(SPINE);
 const truckPad={x:TRUCK_X+130,z:TRUCK_Z,r:45};
-const SPAWN={x:TRUCK_X+165,z:TRUCK_Z};
+const SPAWN={x:TRUCK_X+290,z:TRUCK_Z};   // v0.13(D8): 패드 밖으로 — 스폰이 은행 안이면 즉시 0점 출발이 가능해진다
 const DOOR_W=150, DOOR_Z=aisleZC(SPINE);
 const HOLE_W=120, HOLE_Z=aisleZC(EAST_HOLE_AISLE);
 const DOOR_IN={x:BARN.x0+55,z:DOOR_Z}, DOOR_OUT={x:BARN.x0-55,z:DOOR_Z};
@@ -721,10 +744,13 @@ if(!(vol>=0&&vol<=1)) vol=VOL_DEF;
 let camMode=0, tpCur=TP_DIST;      // 시점·카메라 — 뷰어 로컬 (스냅샷 비대상)
 let charge=-1;                     // 던지기 파워 적산 — 뷰어 로컬 (판정은 인텐트의 pw를 호스트가 클램프)
 const eggs=[], chickens=[];
-let stats={t:0,broken:0,delivered:0,caught:0,meat:0};
+let stats={t:0,broken:0,delivered:0,caught:0,meat:0,score:0};
+// v0.13 출발 상태기계 (D4) — 새 phase가 아니라 필드다 (PHASES 집합 동결, D10)
+let depT=-1, depBy=-1, depCd=0, startN=1;   // startN = 판 시작 시점 활성 인원 (등급 분모)        // 잔여초(-1=미발동) / 개시자 슬롯 / 재개시 쿨다운
+const depUsed=[false,false,false,false]; // 취소권 인당 판당 1회
 let warned30=false, warned10=false;
 let dawnWarned=[false,false,false], failWhy='';   // 새벽 예고 발화 여부(경고별) / 실패 사유 ('dawn'|'' — 클라는 stats.t로 파생)
-let truckGoT=-1;                                  // 트럭 출발 연출 경과(초). -1 = 안 떠남
+let truckGoT=-1; let missed=[];                                  // 트럭 출발 연출 경과(초). -1 = 안 떠남
 const CART_HOME={x:TRUCK_X+60,z:TRUCK_Z+160};
 // cart.pulled → cart.owner (플레이어 인덱스, -1=없음) — 견인자 신원 (패널 D10)
 const cart={x:CART_HOME.x,z:CART_HOME.z,r:26,dir:0,owner:-1,slots:[],trail:[],runAcc:0};
@@ -940,6 +966,24 @@ doorSpill.visible=false; scene.add(doorSpill);
 // ---------- 푸드트럭 ----------
 const truckG=new THREE.Group();
 const deliveredMesh=[];
+const RACK_N=24;                       // 짐칸 랙 칸수 (3열×4행×2단). 넘치면 더 안 쌓이고 숫자만 오른다
+// 짐칸 구성 — 품목별 개수 + 정전 반납분. 스냅샷 bk 필드로 클라에도 그대로 간다 (D7: 점수판은 트럭이다)
+const bank={egg:0,bigEgg:0,meat:0,dark:0};
+function bankItem(kind,dark){ bank[kind]=(bank[kind]||0)+1; if(dark) bank.dark++; paintRack(); }
+function paintRack(){
+  let i=0;
+  const put=(n,col,sx,sy)=>{
+    for(let k=0;k<n&&i<deliveredMesh.length;k++,i++){
+      const m=deliveredMesh[i];
+      m.visible=true; m.scale.set(sx,sy,sx);
+      m.material.color.setHex(i<bank.dark?0xffcf6a:col);   // 정전 반납분은 금빛 (D6 — 새 숫자 대신 색으로)
+    }
+  };
+  put(bank.bigEgg,0xffe3a8,1.4,1.75);    // 지하 큰 알 — 실루엣으로 깊이가 읽힌다
+  put(bank.meat,  0xc9705a,1.15,0.9);    // 닭고기
+  put(bank.egg,   0xfff6e4,1.0,1.25);    // 1층 알
+  for(;i<deliveredMesh.length;i++) deliveredMesh[i].visible=false;
+}
 let headA=null, headB=null;
 {
   const box=new THREE.Mesh(new THREE.BoxGeometry(116,86,140),mat(0x9c3438,0x1c0808));
@@ -968,12 +1012,22 @@ let headA=null, headB=null;
       new THREE.MeshBasicMaterial({color:0xfff3cf}));
     hl.position.set(70,42,z); truckG.add(hl);
   }
+  // 짐칸 랙 (D7) — 진짜 점수판은 HUD가 아니라 트럭이다. 3칸 하드코딩 → 3열×4행 12칸, 넘치면 2단
   const eg=new THREE.SphereGeometry(EGG_R,12,10);
-  for(let i=0;i<NEED_EGGS;i++){
+  for(let i=0;i<RACK_N;i++){
     const m=new THREE.Mesh(eg,mat(0xfff6e4,0x6b5f45));
     m.scale.set(1,1.25,1);
-    m.position.set(67,68,(i-1)*26);
+    m.position.set(52+Math.floor(i/4)*15,68+Math.floor(i/12)*15,((i%4)-1.5)*20);
     m.visible=false; truckG.add(m); deliveredMesh.push(m);
+  }
+  // 출발 레버 (D4) — 반납대 반대편, 운전석 옆. 붉은 손잡이 하나가 "여기서 뜬다"를 말한다
+  {
+    const base=new THREE.Mesh(new THREE.CylinderGeometry(4,5,16,8),mat(0x3a3a42,0x14141a));
+    base.position.set(-58,42,-64); truckG.add(base);
+    const lv=new THREE.Mesh(new THREE.CylinderGeometry(2.2,2.2,26,6),mat(0xd8483a,0x5a1410));
+    lv.position.set(-58,60,-64); lv.rotation.x=-0.35; truckG.add(lv);
+    const knob=new THREE.Mesh(new THREE.SphereGeometry(5,10,8),mat(0xff6a52,0x6a1a10));
+    knob.position.set(-58,73,-68); truckG.add(knob);
   }
   truckG.position.set(TRUCK_X,0,TRUCK_Z);
   scene.add(truckG);
@@ -987,7 +1041,7 @@ function drawSign(){
   signCtx.fillStyle='#ffe08a';
   signCtx.font='bold 44px "Malgun Gothic",sans-serif';
   signCtx.textAlign='center'; signCtx.textBaseline='middle';
-  signCtx.fillText('계란 '+stats.delivered+' / '+NEED_EGGS,128,52);
+  signCtx.fillText('수확 '+stats.score,128,52);
   signTex.needsUpdate=true;
 }
 drawSign();
@@ -1012,25 +1066,29 @@ drawSign();
   }
 }
 const EGG_GEO=new THREE.SphereGeometry(EGG_R,14,12);
-for(let i=0;i<NEED_EGGS*2;i++){
+const LOOT_N=TRAY_DEF.length*PER_TRAY+CHK_COUNT;   // 알 18 + 닭고기 상한 10 (마리당 1회)
+for(let i=0;i<LOOT_N;i++){
   const m=new THREE.Mesh(EGG_GEO,mat(0xfff6e4,EGG_EMISSIVE_LIT));
   m.scale.set(1,1.25,1); scene.add(m);
   const crack=new THREE.Mesh(new THREE.BoxGeometry(9,1.6,1.6),
     new THREE.MeshBasicMaterial({color:0x4a3820}));
   crack.rotation.z=0.6; crack.position.set(0,3,EGG_R-1.5);
   crack.visible=false; m.add(crack);
-  eggs.push({mesh:m,crackM:crack,state:'gone',x:0,y:EGG_R,z:0,vx:0,vy:0,vz:0,
+  eggs.push({mesh:m,crackM:crack,state:'gone',kind:'egg',x:0,y:EGG_R,z:0,vx:0,vy:0,vz:0,
     spin:0,cracked:false,thrown:false,forceBreak:false,forceSurvive:false,carrier:null,
     claimed:false,restT:0,touched:false});
+}
+function applyKindVisual(e){
+  if(e.kind==='bigEgg'){ e.mesh.scale.set(1.4,1.75,1.4); e.mesh.material.color.setHex(0xffe3a8); }
+  else if(e.kind==='meat'){ e.mesh.scale.set(1.15,0.9,1.15); e.mesh.material.color.setHex(0xc9705a); }
+  else { e.mesh.scale.set(1,1.25,1); e.mesh.material.color.setHex(0xfff6e4); }
+  e.crackM.visible=false;
 }
 function crackVisual(e){
   e.crackM.visible=true;
   e.mesh.material.color.setHex(0xefdcc0);
 }
-function uncrackVisual(e){
-  e.crackM.visible=false;
-  e.mesh.material.color.setHex(0xfff6e4);
-}
+function uncrackVisual(e){ applyKindVisual(e); }
 function eggGlow(on){
   for(const e of eggs) e.mesh.material.emissive.setHex(on?EGG_EMISSIVE_DARK:EGG_EMISSIVE_LIT);
   for(const m of deliveredMesh) m.material.emissive.setHex(on?EGG_EMISSIVE_DARK:EGG_EMISSIVE_LIT);
@@ -1083,24 +1141,20 @@ const cartG=(function(){
   bar.position.set(0,26,40); bar.rotation.x=0.5; g.add(bar);
   scene.add(g); return g;
 })();
-const meats=[];
-{
-  const boneG=new THREE.CylinderGeometry(2.2,2.2,13,6);
-  for(let i=0;i<CHK_COUNT;i++){
-    const g=new THREE.Group();
-    const b=new THREE.Mesh(boneG,mat(0xf0ead8,0x2a2620)); b.rotation.z=0.9; g.add(b);
-    const m1=new THREE.Mesh(new THREE.SphereGeometry(7,10,8),mat(0xc98a4b,0x3a230d));
-    m1.position.set(4,3,0); m1.scale.set(1.25,1,1); g.add(m1);
-    g.visible=false; scene.add(g);
-    meats.push({g,active:false,x:0,z:0});
-  }
-}
+// v0.13(D5): 닭고기는 별도 엔티티가 아니라 eggs[] 풀의 kind='meat'다.
+// 즉시 수확은 추출 게임에서 반출 리스크 0인 공짜 점수라 점수제와 양립할 수 없다 —
+// 소유·낙하·강탈·수레·이탈 안착 경로를 새로 짜는 대신 검증된 경로 하나를 그대로 재사용한다
 function dropMeat(x,z){
-  for(const m of meats){
-    if(m.active) continue;
-    m.active=true; m.x=x+14; m.z=z+8;
-    m.g.visible=true; m.g.position.set(m.x,groundY(m.x,m.z)+7,m.z);
-    m.g.rotation.y=Math.random()*TAU;
+  for(let i=TRAY_DEF.length*PER_TRAY;i<eggs.length;i++){
+    const e=eggs[i];
+    if(e.state!=='gone'||holderOf(e)) continue;
+    e.kind='meat'; e.state='rest';
+    e.x=x+14; e.z=z+8; e.y=groundY(e.x,e.z)+EGG_R;
+    e.vx=e.vy=e.vz=0; e.spin=Math.random()*TAU;
+    e.cracked=false; e.thrown=false; e.forceBreak=false; e.forceSurvive=false;
+    e.carrier=null; e.claimed=false; e.restT=0; e.touched=false;
+    applyKindVisual(e);
+    e.mesh.visible=true;
     return;
   }
 }
@@ -1486,20 +1540,23 @@ function sxz(p){ return p.idx===me?undefined:p.x; }
 function szz(p){ return p.idx===me?undefined:p.z; }
 
 // ============================================================
-//  정전 — 시작: 확보 총량(delivered+손+품+수레)≥3이 되는 획득 순간,
-//  또는 DARK_TIMER 만료 — 먼저 오는 쪽. 끝: 승리·실패뿐 (// 임시:
-//  알을 잃어도 어둠 유지 — "반납대 도달" 종료의 착취 없는 최저가 해석.
-//  빈손 도달로 불을 켜고 여유 정찰하는 루트를 원천 차단한다)
+//  정전 — v0.13(D1): 시작은 시계 하나지만, 반납할수록 그 시계가 앞당겨진다.
+//  쿼터 트리거가 우아했던 이유는 "성공하려는 행위가 곧 정전을 켠다"는 인과였다.
+//  쿼터를 지우면서 그 인과를 강제가 아니라 유인으로 복원한다 —
+//  순수 타이머만 남기면 "정전 직전에 출발"이 최적해가 되어 클라이맥스가 회피 가능해진다.
+//  끝: 승리·실패뿐 (// 임시: 알을 잃어도 어둠 유지 — 빈손 귀환으로 불 켜는 착취 차단)
 // ============================================================
-// 팀 합산 (D8 — 계획 문서 권장 그대로): 전원 손+품 + 수레. "4인이 3개를 나눠 들면 그 순간 암전"
+// 팀 합산 — 정전 트리거에서는 빠졌고(D1) 팀 글린트 신호용으로만 남는다
 function carriedEggCount(){
   let n=cart.slots.length;
   eachP(p=>{ n+=(p.held?1:0)+(p.pocket?1:0); });
   return n;
 }
-function checkDarkTrigger(p){
-  // 확보 총량 — 어떤 운반 전략이든 "마지막 필요분을 손에 넣는 순간" (v0.5 픽업 트리거는 부분집합)
-  if(stats.delivered+carriedEggCount()>=NEED_EGGS) startBlackout(p);
+function darkAt(){ return Math.max(DARK_MIN,Math.min(DARK_BASE,DARK_BASE-DARK_ACC*stats.delivered)); }
+// 반납 직후 훅 — 카운트다운이 줄어든 순간을 들리게 한다 (기존 예고 딥 기구 재사용)
+function onDelivered(){
+  if(blackout||!darkEnabled) return;
+  if(darkAt()>DARK_MIN){ flickT=WARN_DIP_T; clunkS(); }   // 하한에 닿기 전까지만 — 안 줄어드는데 소리내면 거짓말이다
 }
 // 정전 한정 피탐 술어: 품·견인 수레의 발광 알도 팔린다 (은신 상위 전략 봉쇄).
 // 밝은 구간은 손만 — v0.4 바이트 동일. 랜턴(빛)은 손 슬롯 전용: 품 = 빛을 잃고 피탐은 유지.
@@ -1571,17 +1628,28 @@ function aliveEggs(){
   for(const e of eggs) if(e.state!=='gone') n++;
   return n;
 }
+// 슬롯 i → 트레이 t (트레이당 PER_TRAY개). 지킴·강탈·자가검사가 전부 이 사상을 공유한다
+function trayOf(i){ return Math.floor(i/PER_TRAY); }
+function trayAlive(t){                       // 그 트레이에 아직 둥지에 남아있는 알 하나 (없으면 null)
+  for(let i=t*PER_TRAY;i<(t+1)*PER_TRAY&&i<eggs.length;i++)
+    if(eggs[i].state==='rest') return eggs[i];
+  return null;
+}
 function spawnEggAt(i){
   const e=eggs[i];
-  e.state='rest'; e.x=NEST_POS[i].x; e.z=NEST_POS[i].z; e.y=NEST_POS[i].gy+EGG_R;
+  const t=trayOf(i), k=i%PER_TRAY, ang=k*(TAU/PER_TRAY);
+  e.kind=TRAY_DEF[t].f===1?'bigEgg':'egg';   // 깊이를 물건에 박는다 — 지하는 큰 금빛 알 (D5)
+  e.state='rest';
+  e.x=NEST_POS[t].x+Math.cos(ang)*13; e.z=NEST_POS[t].z+Math.sin(ang)*13; e.y=NEST_POS[t].gy+EGG_R;
   e.vx=e.vy=e.vz=0; e.spin=Math.random()*TAU;
   e.cracked=false; e.thrown=false; e.forceBreak=false; e.forceSurvive=false;
   e.carrier=null; e.claimed=false; e.restT=0; e.touched=false;
-  uncrackVisual(e);
+  applyKindVisual(e);
   e.mesh.visible=true;
 }
 function inPad(x,z){ return Math.hypot(x-truckPad.x,z-truckPad.z)<truckPad.r; }
 function breakEgg(e){
+  if(e.kind==='meat'){ e.vx=e.vy=e.vz=0; return; }   // 닭고기는 안 깨진다 (D5)
   e.state='gone'; e.mesh.visible=false; e.carrier=null; e.claimed=false;
   stats.broken++;
   lastLoss.x=e.x; lastLoss.z=e.z;
@@ -1592,28 +1660,54 @@ function breakEgg(e){
   waveCast(e.x,e.z,VIS_BREAK,'red');
   shake=Math.max(shake,0.35);
   decoyPulse(e.x,e.z,null);
-  checkFail();
 }
-// 반납은 배치 처리 — 승리 판정은 반납 이벤트가 전부 집계된 뒤 checkWin() 1회
-// (손+품/수레 일괄 반납에서 3번째 알이 먼저 처리돼 나머지가 증발하는 것 방지)
+// v0.13: 쿼터 폐지 — 반납은 승리 판정이 아니라 적립이다 (D2. checkWin·checkFail은 함수째 삭제됨).
+// 정전 중 반납은 ×2 (D6) — 어둠에 남을 유일한 이유. 화면에 새 숫자를 만들지 않고 금빛으로만 말한다
 function deliverEgg(e){
+  const val=LOOT_VAL[e.kind||'egg']*(blackout?2:1);
   e.state='gone'; e.mesh.visible=false; e.carrier=null; e.claimed=false;
-  stats.delivered++;
+  stats.delivered++; stats.score+=val;
+  bankItem(e.kind||'egg',blackout);
   drawSign();
-  for(let i=0;i<deliveredMesh.length;i++) deliveredMesh[i].visible=(i<stats.delivered);
-  burst(truckPad.x,20,truckPad.z,24,[1,0.9,0.55],26,1.0,6);
+  burst(truckPad.x,20,truckPad.z,24,blackout?[1,0.82,0.3]:[1,0.9,0.55],26,1.0,6);
   dingS();
-}
-function checkWin(){ if(phase==='play'&&stats.delivered>=NEED_EGGS) win(); }
-function checkFail(){
-  if(phase!=='play') return;
-  if(aliveEggs()+stats.delivered<NEED_EGGS) startFail();
+  onDelivered();                                // 정전 시계 가속 (D1) — 반납이 카운트다운을 당긴다
 }
 function recentRun(p){ return (simT-p.lastRunT)<RECENT_RUN; }
 
 function holderOf(e){ for(const p2 of players) if(p2.active&&(p2.held===e||p2.pocket===e)) return p2; return null; }
+// ---------- v0.13 출발 레버 (D4) — 이번 라운드의 유일한 진짜 신규 시스템 ----------
+// 운전석 옆(반납대와 188u 이격 — E 폴스루가 반납과 섞이지 않게)에서 E.
+// 카운트다운 길이는 1층·마당 사람의 다리를 위한 값이고, 지하 사람의 보호 장치는 위치 무관 취소키다.
+function leverPos(){ return {x:TRUCK_X-58,z:TRUCK_Z-64}; }
+function nearLever(p){ const L=leverPos(); return Math.hypot(L.x-p.x,L.z-p.z)<LEVER_R; }
+// 단축 조건은 "전원이 트럭에 와 있는가"다 — 패드(은행)든 레버든 트럭 앞이면 온 것으로 친다.
+// 패드만으로 판정하면 레버를 당기는 본인이 정의상 패드 밖이라 솔로에서 단축이 영원히 안 걸린다
+function atTruck(q){ return inPad(q.x,q.z)||nearLever(q); }
+function allAtTruck(){
+  let n=0;
+  for(const q of players){ if(!q.active) continue; n++; if(!atTruck(q)) return false; }
+  return n>0;
+}
+function tryDepart(p){
+  if(phase!=='play'||depT>=0||depCd>0) return;
+  depT=allAtTruck()?DEPART_NEAR_T:DEPART_T; depBy=p.idx;
+  headA.intensity=headB.intensity=2.2;
+  hornS(); setTimeout(()=>hornS(),260); setTimeout(()=>hornS(),520);
+  bigmsgCast((NET.on?PLAYER_NAMES[p.idx]+'가 ':'')+'시동을 걸었다 — '+Math.ceil(depT)+'초 후 출발');
+}
+function tryCancelDepart(p){
+  if(phase!=='play'||depT<0) return;
+  if(depUsed[p.idx]) { if(p.idx===me) bigmsg('취소는 판당 한 번뿐이다'); return; }
+  depUsed[p.idx]=true;
+  depT=-1; depBy=-1; depCd=DEPART_CD;
+  headA.intensity=headB.intensity=1.25;
+  clunkS();
+  bigmsgCast((NET.on?PLAYER_NAMES[p.idx]+'가 ':'')+'출발을 막았다');
+}
 function tryPickOrPlace(p){
   if(phase!=='play'||p.stun>0) return;
+  if(nearLever(p)&&!p.held){ tryDepart(p); return; }   // 빈손일 때만 — 반납하러 온 손을 가로채지 않는다
   // 글러브 — 1회 획득, 이후 절대 상실 없음 (재장착 노가다 방지). 배분은 선착순 (D9 // 임시:)
   if(!p.glove && gloveMesh.visible && Math.hypot(GLOVE_POS.x-p.x,GLOVE_POS.z-p.z)<PICK_R+18){
     p.glove=true; gloveMesh.visible=false;
@@ -1628,7 +1722,6 @@ function tryPickOrPlace(p){
       const e=p.held; p.held=null; p.shake=0;
       e.state='cart'; cart.slots.push(e);
       placeS(sxz(p),szz(p));
-      checkDarkTrigger(p);                       // 합산 불변이지만 획득 이벤트로 명시 통일
       return;
     }
     // 살살 내려놓기 — 절대 안전 (확정 약속. E의 의미는 v0.5와 바이트 동일)
@@ -1642,16 +1735,6 @@ function tryPickOrPlace(p){
     p.shake=0;
     placeS(sxz(p),szz(p));
     return;
-  }
-  // 닭고기 — 즉시 수확 // 임시: 운반물 승격은 v0.7 후보 (goal 문서)
-  for(const m of meats){
-    if(!m.active) continue;
-    if(Math.hypot(m.x-p.x,m.z-p.z)<PICK_R){
-      m.active=false; m.g.visible=false;
-      stats.meat++; dingS();
-      burst(m.x,10,m.z,8,COL_FEATHER,12,0.6,4);
-      return;
-    }
   }
   let best=null, bd=PICK_R;
   for(const e of eggs){
@@ -1676,10 +1759,10 @@ function tryPickOrPlace(p){
   const loud=recentRun(p);
   alarmNoise(p.x,p.z, loud?PICKUP_LOUD:PICKUP_QUIET, p.idx);
   waveCast(p.x,p.z, loud?VIS_PICK_L:VIS_PICK_Q,'pick',p);
-  checkDarkTrigger(p);  // 조용히 접근했으면 초기 열기도 조용하다 — 트리거는 확보 총량
 }
 // Q — 품 전담 (E는 절대 품을 건드리지 않는다). 무소음: 로직·파동 어느 열도 이벤트 없음
 function tryPocket(p){
+  if(p.held&&p.held.kind==='meat'){ if(p.idx===me) bigmsg('닭고기는 품에 안 들어간다'); return; }
   if(phase!=='play'||p.stun>0||p.swapT>0) return;
   if(p.held&&!p.pocket){
     // 정전 중 수납도 허용 — 빛(랜턴)을 잃고 피탐 200은 유지하는 트레이드오프 (패널 확정)
@@ -1734,7 +1817,7 @@ function slipEgg(p){
   e.vx=fx*160+(Math.random()-0.5)*40; e.vz=fz*160+(Math.random()-0.5)*40; e.vy=40;
 }
 function landEgg(e,impact){
-  const soft=inPad(e.x,e.z);
+  const soft=inPad(e.x,e.z)&&!e.thrown;   // v0.13(D8): 던져 넣은 것은 면제 없음 — 마당 횡단을 공짜로 만들던 경로
   if(soft){ e.forceBreak=false; e.forceSurvive=false; return 'ok'; }
   if(e.forceBreak){ breakEgg(e); return 'broke'; }
   if(!e.forceSurvive){
@@ -1748,7 +1831,7 @@ function updEggs(dt){
   for(const e of eggs){
     if(e.state==='rest'){
       e.restT+=dt;
-      if(inPad(e.x,e.z)){ deliverEgg(e); checkWin(); }
+      if(inPad(e.x,e.z)){ deliverEgg(e); }
       continue;
     }
     if(e.state!=='fly') continue;
@@ -1801,7 +1884,7 @@ function updEggs(dt){
       if(e.vy<70 && Math.hypot(e.vx,e.vz)<40){
         e.vx=e.vy=e.vz=0; e.state='rest'; e.restT=0;
         e.forceSurvive=false; e.forceBreak=false;
-        if(inPad(e.x,e.z)){ deliverEgg(e); checkWin(); continue; }
+        if(inPad(e.x,e.z)){ deliverEgg(e); continue; }
         if(e.thrown){ e.thrown=false; decoyPulse(e.x,e.z,e); }
       }
     }
@@ -1916,8 +1999,8 @@ function guardOrInvest(c,x,z){
     x=se.x; z=se.z;
   }
   if(c.guard>=0){
-    const tp=NEST_POS[c.guard], te=eggs[c.guard];
-    if(te.state==='rest'&&Math.hypot(te.x-tp.x,te.z-tp.z)<50&&Math.hypot(x-tp.x,z-tp.z)<DECOY_R){
+    const tp=NEST_POS[c.guard], te=trayAlive(c.guard);
+    if(te&&Math.hypot(te.x-tp.x,te.z-tp.z)<50&&Math.hypot(x-tp.x,z-tp.z)<DECOY_R){
       if(c.state!=='wander'&&c.state!=='return'&&c.state!=='invest') return;
       c.state='invest'; c.ivX=tp.x; c.ivZ=tp.z; c.ivArr=false; c.t=GUARD_HOLD; c.ivT=0;
       c.ax=tp.x; c.az=tp.z;
@@ -2228,7 +2311,6 @@ function updChickens(dt){
             lastLoss.x=e.x; lastLoss.z=e.z;
             burst(e.x,8,e.z,14,COL_SHELL,14,0.8,4);
             eatS(c.x,c.z);
-            checkFail();
           }
           c.peckEgg=null; c.state='return';
         }
@@ -2352,6 +2434,8 @@ function processActs(p){
     else if(a.a==='pocket') tryPocket(p);
     else if(a.a==='cart') toggleCart(p);
     else if(a.a==='jump') tryJump(p);
+    else if(a.a==='depart') tryDepart(p);
+    else if(a.a==='cancelDepart') tryCancelDepart(p);
     else if(a.a==='shove') tryShove(p,a.yaw);
     else if(a.a==='throw'){
       if(phase==='play'&&p.held&&p.stun<=0){
@@ -2447,7 +2531,6 @@ function updPlayer(p,dt){
   if(inPad(p.x,p.z)&&(p.held||p.pocket)){   // 반납은 배치 — 손+품 동시 집계 후 승리 판정 1회
     if(p.held){ const e=p.held; p.held=null; deliverEgg(e); }
     if(p.pocket){ const e=p.pocket; p.pocket=null; deliverEgg(e); }
-    checkWin();
   }
 }
 // 플레이어끼리 소프트 분리 — 겹침 방지 (표시용 밀어내기, 규칙 아님)
@@ -2480,9 +2563,11 @@ function updCart(dt){
     collideCircle(cart);
     const mdx=cart.x-px, mdz=cart.z-pz;
     if(Math.hypot(mdx,mdz)>0.5) cart.dir=Math.atan2(mdx,mdz);
-    // 달리기 견인 누적 4s → 알 1개 결정적 이탈 (RNG 없는 카운터. 판정은 견인자의 running)
-    if(ow.running&&cart.slots.length>0){
-      cart.runAcc+=dt;
+    // 견인 누적 → 알 1개 결정적 이탈 (RNG 없는 카운터).
+    // v0.13(D8): 적재 중이면 항상 누적한다. 예전엔 달릴 때만 차올라서 "걸으면 이탈 0"인
+    // 무위험 2슬롯 배낭이었고, 왕복 루프가 생기면 "무조건 수레·절대 안 달림"이 지배 전략이 된다
+    if(cart.slots.length>0){
+      cart.runAcc+=dt*(ow.running?1:0.25)*(blackout?1.5:1);
       if(cart.runAcc>=CART_EJECT_T){
         cart.runAcc=0;
         const e=cart.slots.pop();
@@ -2492,12 +2577,11 @@ function updCart(dt){
         rattleS(); thudS(cart.x,cart.z);
         bigmsgCast('알이 튀어나왔다!!');
       }
-    } else cart.runAcc=Math.max(0,cart.runAcc-dt*0.7);
+    } else cart.runAcc=0;
   }
   // 패드 접촉 — 내용물 전량 배치 반납 (견인 여부 무관)
   if(cart.slots.length&&Math.hypot(cart.x-truckPad.x,cart.z-truckPad.z)<truckPad.r+20){
     while(cart.slots.length) deliverEgg(cart.slots.pop());
-    checkWin();
   }
 }
 function tryJump(p){
@@ -2518,15 +2602,42 @@ function nightClock(t){
   const h=Math.floor(m/60), mm=Math.floor(m%60);
   return (h===0?'밤 12':(h>=6?'아침 6':'새벽 '+h))+':'+(mm<10?'0':'')+mm;
 }
+// v0.13(D4): 자발 출발 — 뒷문이 닫히고 헤드라이트가 켜지고 뜬다. 새벽 마감의 "버려짐" 그림과 구분된다
+function departNow(){
+  if(phase!=='play') return;
+  failWhy='';
+  hornS(); flash=0.6;
+  win();
+}
 function win(){
   phase='win';
   endBlackout();
   showWinOv();
 }
+// v0.13(D11) 정산 — 승/패 판때기 하나를 공유하고 도장 문구만 다르다.
+// 0 수확은 실패가 아니라 최하 등급이다 (실패로 만들면 "최소 1개는 먹고 뜨기" 미니 쿼터가 되살아난다)
+function gradeOf(sc,n){
+  const g=GRADE.map(v=>v*Math.max(1,n));
+  return sc>=g[2]?'대형사고':sc>=g[1]?'한탕 했다':sc>=g[0]?'오늘 장사는 됐다':'빈 트럭';
+}
+function bestKey(){ return 'ccl8.best.'+Math.max(1,startN); }
+function tallyHTML(){
+  let best=0;
+  try{ best=parseInt(localStorage.getItem(bestKey())||'0',10)||0; }catch(e){}
+  if(stats.score>best){ best=stats.score; try{ localStorage.setItem(bestKey(),String(best)); }catch(e){} }
+  const parts=[];
+  if(bank.egg) parts.push('계란 '+bank.egg);
+  if(bank.bigEgg) parts.push('큰 알 '+bank.bigEgg);
+  if(bank.meat) parts.push('닭고기 '+bank.meat);
+  if(bank.dark) parts.push('<span class="warn">정전 반납 '+bank.dark+' (×2)</span>');
+  return '<span class="big">수확 '+stats.score+'</span> — '+gradeOf(stats.score,startN)+'<br>'+
+    (parts.length?parts.join(' · ')+'<br>':'짐칸이 비었다<br>')+
+    nightClock(stats.t)+' · 깨짐 '+stats.broken+' · 잡힘 '+stats.caught+
+    '<br><span style="opacity:0.7">최고 '+best+'</span>';
+}
 function showWinOv(){
-  document.getElementById('winStats').innerHTML=
-    nightClock(stats.t)+' 탈출 ('+stats.t.toFixed(1)+'초)<br>깨뜨린 계란 '+stats.broken+'개 · 닭에게 잡힘 '+stats.caught+'번'+
-    (stats.meat?'<br>보너스 수확 — 닭고기 '+stats.meat+'개':'');
+  document.querySelector('#winOv .t').textContent=stats.score>0?'털었다':'그냥 나왔다';
+  document.getElementById('winStats').innerHTML=tallyHTML();
   document.querySelector('#winOv .r').textContent=
     (NET.on&&!NET.host)?'호스트가 다시 시작한다 — 대기 중':'R — 다시 시작';   // 죽은 입력을 안내하지 않는다 (D12)
   document.getElementById('winOv').style.display='flex';
@@ -2541,9 +2652,10 @@ function startFail(){
   failS();
   decoyPulse(lastLoss.x,lastLoss.z,null);
 }
-function startDawnFail(){                      // 새벽 마감 (v0.11) — 해가 뜨면 정전도 끝 (endBlackout이 일출을 겸한다)
+function startDawnFail(){                      // 유예(D3) 종료 시점에 호출된다 — 연출은 이미 dawnCeremony가 시작해 뒀다
   failWhy='dawn';
-  dawnCeremony();
+  missed=[];
+  for(const q of players) if(q.active&&!inPad(q.x,q.z)) missed.push(PLAYER_NAMES[q.idx]);
   startFail();
 }
 // 새벽 예고 i단계 — 수탉은 세계가 알려주는 시간, 경적은 기사가 재촉하는 시간.
@@ -2564,9 +2676,8 @@ function showFailOv(){
   const dawn=failWhy==='dawn'||stats.t>=NIGHT_LEN-1;
   document.querySelector('#failOv .t').textContent=dawn?'트럭은 그냥 갔다':'오늘 장사는 글렀다…';
   document.getElementById('failStats').innerHTML=
-    (dawn?'해가 떴고, 농장이 깨어난다 — 너는 아직 닭 마당에 있다<br>':'')+
-    '깨뜨린 계란 '+stats.broken+'개 · 닭에게 잡힘 '+stats.caught+'번 · '+nightClock(stats.t)+' ('+stats.t.toFixed(0)+'초)'+
-    (stats.meat?'<br>그래도 닭고기 '+stats.meat+'개는 건졌다':'');
+    (dawn?'해가 떴고, 농장이 깨어난다 — 짐칸에 실은 것만 남았다<br>':'')+tallyHTML()+
+    (missed.length?'<br><span class="warn">막차를 놓쳤다 — '+missed.join(', ')+'</span>':'');
   document.querySelector('#failOv .r').textContent=
     (NET.on&&!NET.host)?'호스트가 다시 시작한다 — 대기 중':'R — 다시 시작';
   document.getElementById('failOv').style.display='flex';
@@ -2586,17 +2697,21 @@ function resetWorld(){
     p.mv.x=0; p.mv.z=0; p.mv.run=false; p.acts.length=0;
   }
   lastCarried=0;
+  bank.egg=bank.bigEgg=bank.meat=bank.dark=0; paintRack();
+  depT=-1; depBy=-1; depCd=0;
+  depUsed[0]=depUsed[1]=depUsed[2]=depUsed[3]=false;
+  startN=Math.max(1,activeCount());
+  headA.intensity=headB.intensity=1.25;
   gloveMesh.visible=true;
   charge=-1; caughtFocus=null;
   warned30=false; warned10=false;
   dawnWarned[0]=dawnWarned[1]=dawnWarned[2]=false; failWhy='';
-  truckGoT=-1; truckG.position.x=TRUCK_X;      // 떠났던 트럭을 제자리로
+  truckGoT=-1; missed=[]; truckG.position.x=TRUCK_X;      // 떠났던 트럭을 제자리로
   cart.owner=-1; cart.slots.length=0; cart.trail.length=0; cart.runAcc=0;
   cart.x=CART_HOME.x; cart.z=CART_HOME.z; cart.dir=0;
-  for(const m of meats){ m.active=false; m.g.visible=false; }
   endBlackout();
-  for(let i=0;i<NEST_POS.length;i++) spawnEggAt(i);
-  for(let i=NEST_POS.length;i<eggs.length;i++){ eggs[i].state='gone'; eggs[i].mesh.visible=false; }
+  for(let i=0;i<TRAY_DEF.length*PER_TRAY&&i<eggs.length;i++) spawnEggAt(i);
+  for(let i=TRAY_DEF.length*PER_TRAY;i<eggs.length;i++){ eggs[i].state='gone'; eggs[i].mesh.visible=false; }
   for(const c of chickens){
     c.x=c.hx; c.z=c.hz; c.state='wander'; c.t=0; c.loseT=0;
     c.heading=0; c.kbx=0; c.kbz=0; c.robEgg=null; c.peckEgg=null;
@@ -2610,7 +2725,7 @@ function resetWorld(){
   }
   for(const m of splats) m.visible=false;
   for(const m of deliveredMesh) m.visible=false;
-  stats={t:0,broken:0,delivered:0,caught:0,meat:0};
+  stats={t:0,broken:0,delivered:0,caught:0,meat:0,score:0};
   drawSign();
   shake=0; flash=0; tpCur=TP_DIST;
   waves.length=0;
@@ -2696,14 +2811,20 @@ function update(dt){
     pollInput();
     stats.t+=dt;
     if(charge>=0 && charge<THROW_CHARGE_T) charge=Math.min(THROW_CHARGE_T,charge+dt);
-    // 정전 타이머 — 확보 총량 트리거와 먼저 오는 쪽. 잔여 30/10초에 조명 딥 예고
+    // 정전 시계 — v0.13(D1): 분모가 darkAt()이라 반납할수록 당겨진다. 잔여 30/10초에 조명 딥 예고
     if(!blackout&&darkEnabled){
-      const left=DARK_TIMER-stats.t;
+      const left=darkAt()-stats.t;
       if(left<=0) startBlackout(null);
       else {
         if(left<=30&&!warned30){ warned30=true; flickT=WARN_DIP_T; rattleS(); clunkS(); }
         if(left<=10&&!warned10){ warned10=true; flickT=WARN_DIP_T; rattleS(); clunkS(); }
       }
+    }
+    // 출발 카운트다운 (D4) — 새벽은 언제나 이 카운트다운을 이긴다 (아래 새벽 판정이 뒤에 온다)
+    depCd=Math.max(0,depCd-dt);
+    if(depT>=0){
+      depT-=dt;
+      if(depT<=0){ depT=-1; departNow(); }
     }
   }
   shake=Math.max(0,shake-dt*1.8);
@@ -2724,10 +2845,15 @@ function update(dt){
   updEggs(dt);
   updChickens(dt);
   updWaves(dt);
-  // 새벽 마감 (v0.11) — 시계 06:00 도달 = 팀 실패. 프레임의 배달 처리 뒤에 판정하므로 같은 프레임의 3알째 반납이 이긴다
+  // 새벽 마감 — v0.13(D3): 06:00은 즉시 끝이 아니라 트럭이 굴러가기 시작하는 순간이다.
+  // 이 6초(TRUCK_GO_T) 동안 판은 살아 있고 패드에 닿으면 짐이 실린다 — 몰수를 슬픔이 아니라
+  // 전력질주 다이빙으로 바꾼다. 판정은 프레임의 반납 처리 뒤라 막차 반납이 항상 이긴다
   if(phase==='play'){
     const dl=NIGHT_LEN-stats.t;
-    if(dl<=0) startDawnFail();
+    if(dl<=0){
+      if(truckGoT<0){ dawnCeremony(); bigmsgCast('막차다!! — 트럭이 굴러간다'); }
+      else if(truckGoT>=TRUCK_GO_T) startDawnFail();
+    }
     else for(let i=0;i<DAWN_WARNS.length;i++)
       if(dl<=DAWN_WARNS[i]&&!dawnWarned[i]){ dawnWarned[i]=true; dawnWarn(i); }
   }
@@ -3032,15 +3158,14 @@ function render(){
   const hud=document.getElementById('hud');
   if(phase==='title'||phase==='intro'){ hud.innerHTML=''; }
   else {
-    const alive=aliveEggs();
-    const spare=alive+stats.delivered-NEED_EGGS;
+    // v0.13 HUD 예산 (D7): 2줄 10항목 → 1줄 3항목. 진짜 점수판은 트럭 짐칸이고,
+    // 3초 판독을 만드는 건 계기판이 아니라 월드다. 깨짐·잡힘·층·시점은 정산 화면·토스트로 이관
     let timerStr='';
-    if(!blackout&&darkEnabled&&phase==='play'){       // 타이머는 보여준다 (개발자 요청 문자 그대로) — 정전 후엔 제거
-      const left=Math.max(0,DARK_TIMER-stats.t);
+    if(!blackout&&darkEnabled&&phase==='play'){       // 분모는 이제 darkAt() — 반납할수록 당겨진다 (D1)
+      const left=Math.max(0,darkAt()-stats.t);
       const mm=Math.floor(left/60), ss=Math.floor(left%60);
       timerStr=' · '+(left<30?'<span class="warn">':'<span>')+'정전까지 '+mm+':'+(ss<10?'0':'')+ss+'</span>';
     }
-    // 동료 칩 (D28) — 틴트·층·알 개수. 팀 합산 "확보 n/3"는 정전 트리거의 인과 가시화
     let mates='';
     if(NET.on){
       for(const p of players){
@@ -3051,19 +3176,12 @@ function render(){
         mates+=' · <span style="color:#'+PLAYER_TINTS[p.idx].toString(16).padStart(6,'0')+'">●</span>'+
           PLAYER_NAMES[p.idx]+' '+fl+(egg?' 🥚'+egg:'')+(p.stun>0?' 넘어짐!':'');
       }
-      mates+=' · 확보 '+Math.min(NEED_EGGS,stats.delivered+carriedEggCount())+'/'+NEED_EGGS;
     }
-    const vz=zoneOfArea(P().x,P().z);
     hud.innerHTML=
-      '<span class="big">계란 '+stats.delivered+' / '+NEED_EGGS+'</span>'+
-      ' · 남은 계란 '+(spare<=0?'<span class="warn">'+alive+' — 하나도 못 깨진다!</span>':alive)+
-      (stats.meat?' · 닭고기 '+stats.meat:'')+
-      (blackout?' · <span class="warn">정전</span>':'')+timerStr+mates+'<br>'+
-      // v0.11: 측정("시간 X초") → 제한(밤 시계). 첫 수탉 예고부터 경고색
-      (NIGHT_LEN-stats.t<=DAWN_WARNS[0]?'<span class="warn">':'<span>')+nightClock(stats.t)+'</span>'+
-      ' · 깨짐 '+stats.broken+' · 잡힘 '+stats.caught+
-      ' · '+(vz===1?'지하':(vz===2?'계단':(inCoopPt(P().x,P().z)?'1층':'마당')))+
-      ' · 시점 '+(camMode?'3인칭':'1인칭');
+      '<span class="big">수확 '+stats.score+'</span>'+
+      ' · '+(NIGHT_LEN-stats.t<=DAWN_WARNS[0]?'<span class="warn">':'<span>')+nightClock(stats.t)+'</span>'+
+      (blackout?' · <span class="warn">정전</span>':'')+timerStr+mates+
+      (depT>=0?'<br><span class="warn">출발까지 '+Math.ceil(depT)+'초</span> — C 취소':'');
   }
   // 클라: 호스트발 일시정지 오버레이 (D13) — 로컬 락 상실 오버레이와 같은 판때기, 다른 문구
   if(NET.on&&!NET.host&&phase==='play'){
@@ -3081,10 +3199,8 @@ function render(){
   else if(blackout&&v.held){
     const below=zoneOfArea(v.x,v.z)!==0;   // 지하·계단이면 탈출 유도가 다르다
     pr.textContent=(v.shake>SHAKE_TELE)?'계란이 미끄러진다!! — 걸어!'
-      :(stats.delivered+carriedEggCount()>=NEED_EGGS
-        ?(below?'어둠이다 — 파란 계단 불빛으로 올라가라. 소리가 지형을 보여준다'
-               :'어둠이다 — 서쪽 문의 불빛으로. 소리가 지형을 보여준다')
-        :'정전이다 — 알은 어둠 속에서 빛난다. 소리가 지형을 보여준다');
+      :(below?'어둠이다 — 파란 계단 불빛으로 올라가라. 소리가 지형을 보여준다'
+             :'어둠이다 — 트럭으로. 정전 중 반납은 두 배다');
   }
   else if(v.held){
     const nearCart=Math.hypot(cart.x-v.x,cart.z-v.z)<CART_LOAD_R;
@@ -3102,14 +3218,15 @@ function render(){
     for(const e of eggs) if(e.state==='rest' && Math.hypot(e.x-v.x,e.z-v.z)<PICK_R){ near=true; break; }
     let robber=false;
     for(const c of chickens) if(c.state==='rob' && Math.hypot(c.x-v.x,c.z-v.z)<160){ robber=true; break; }
-    let meatNear=false;
-    for(const m of meats) if(m.active && Math.hypot(m.x-v.x,m.z-v.z)<PICK_R){ meatNear=true; break; }
+    let nearKind='egg';
+    for(const e of eggs) if(e.state==='rest' && Math.hypot(e.x-v.x,e.z-v.z)<PICK_R){ nearKind=e.kind||'egg'; break; }
     const gloveNear=!v.glove&&gloveMesh.visible&&Math.hypot(GLOVE_POS.x-v.x,GLOVE_POS.z-v.z)<PICK_R+40;
     const nearCart=Math.hypot(cart.x-v.x,cart.z-v.z)<CART_GRAB_R;
     pr.textContent = robber ? (v.glove?'저 닭이 계란을 훔쳐간다! 좌클릭 — 펀치로 떨구기':'저 닭이 계란을 훔쳐간다! 좌클릭 — 밀쳐서 떨구기')
                    : gloveNear ? 'E — 권투 글러브 줍기'
-                   : meatNear ? 'E — 닭고기 수확'
-                   : near ? 'E — 계란 줍기 (달리던 중이면 시끄럽다)'
+                   : near ? (nearKind==='meat'?'E — 닭고기 줍기 (트럭까지 날라야 한다)'
+                            :nearKind==='bigEgg'?'E — 큰 알 줍기 (값이 세 배다)'
+                            :'E — 계란 줍기 (달리던 중이면 시끄럽다)')
                    : nearCart ? (cart.owner===me?'F — 수레 놓기':(cart.owner>=0?'':(cart.slots.length?'F — 수레 끌기 · E — 꺼내기':'F — 수레 끌기')))
                    : '';
   }
@@ -3134,6 +3251,7 @@ function render(){
 // ============================================================
 const CK_STATES=['wander','alert','chase','invest','peck','flap','grab','rob','stunned','return'];
 const EGG_STATES=['gone','rest','held','fly','pocket','cart','robbed'];
+const LOOT_KINDS=['egg','bigEgg','meat'];   // 인덱스 고정 — eg 튜플 끝에 실린다 (D10)
 const PHASES=['title','intro','play','win','fail'];
 const q1=v=>Math.round(v*10)/10;
 
@@ -3158,7 +3276,9 @@ function buildSnap(){
   return {g:'s',
     ph:PHASES.indexOf(phase), bo:blackout?1:0,
     pz:simPaused()?1:0, pw:document.hidden?'호스트 자리 비움':'호스트 일시정지',
-    st:[q1(stats.t),stats.broken,stats.delivered,stats.caught,stats.meat],
+    st:[q1(stats.t),stats.broken,stats.delivered,stats.caught,stats.meat,
+        stats.score,q1(depT),depBy],                      // 5~7 신규 (append-only)
+    bk:[bank.egg,bank.bigEgg,bank.meat,bank.dark],        // 짐칸 구성 — 클라 랙 렌더용
     gl:gloveMesh.visible?0:1,
     pl:players.map(p=>[p.active?1:0,q1(p.x),q1(p.z),q1(p.jy),q1(p.yaw),q1(p.stun),p.glove?1:0,
         q1(p.stam),p.exhausted?1:0,p.held?eggs.indexOf(p.held):-1,p.pocket?eggs.indexOf(p.pocket):-1,
@@ -3166,8 +3286,7 @@ function buildSnap(){
     ck:chickens.map(c=>[q1(c.x),q1(c.z),q1(c.dir),CK_STATES.indexOf(c.state),c.ko?1:0,
         q1(c.det[0]),q1(c.det[1]),q1(c.det[2]),q1(c.det[3]),c.tgt]),
     eg:eggs.map(e=>[EGG_STATES.indexOf(e.state),q1(e.x),q1(e.y),q1(e.z),e.cracked?1:0,
-        e.carrier?chickens.indexOf(e.carrier):-1]),
-    mt:meats.map(m=>[m.active?1:0,q1(m.x),q1(m.z)]),
+        e.carrier?chickens.indexOf(e.carrier):-1,LOOT_KINDS.indexOf(e.kind||'egg')]),
     ct:[q1(cart.x),q1(cart.z),q1(cart.dir),cart.owner,cart.slots.map(e=>eggs.indexOf(e))],
     ev:NET.ev};
 }
@@ -3260,9 +3379,11 @@ function ckTransitionFx(c,os,ns){
   else if(ns==='flap') flapS(c.x,c.z);
 }
 function applySnap(s){
+  if(!s.st||s.st.length<8) return;        // 최소 길이 가드 (D10) — 구버전 스냅샷을 인덱스로 오독하지 않는다
   NET.lastSnapT=now;
   NET.pause=!!s.pz; NET.pauseWhy=s.pw||'';
-  const nst={t:s.st[0],broken:s.st[1],delivered:s.st[2],caught:s.st[3],meat:s.st[4]};
+  const nst={t:s.st[0],broken:s.st[1],delivered:s.st[2],caught:s.st[3],meat:s.st[4],score:s.st[5]};
+  depT=s.st[6]; depBy=s.st[7];            // 출발 카운트다운 — D22의 명시적 예외 (파생 불가, goal 문서 기록)
   // 파생 세리머니 (D20/D22): 스냅샷 델타가 곧 이벤트다
   const goneNew=[];
   for(let i=0;i<eggs.length;i++){
@@ -3279,10 +3400,9 @@ function applySnap(s){
     crackS(); shake=Math.max(shake,0.25);
   }
   if(nst.delivered>stats.delivered){ dingS(); burst(truckPad.x,20,truckPad.z,24,[1,0.9,0.55],26,1.0,6); }
-  if(nst.meat>stats.meat) dingS();
   stats=nst;
-  drawSign();
-  for(let i=0;i<deliveredMesh.length;i++) deliveredMesh[i].visible=(i<stats.delivered);
+  if(s.bk){ bank.egg=s.bk[0]; bank.bigEgg=s.bk[1]; bank.meat=s.bk[2]; bank.dark=s.bk[3]; }
+  drawSign(); paintRack();
   gloveMesh.visible=!s.gl;
   // 플레이어
   for(let i=0;i<MAX_PLAYERS;i++){
@@ -3329,17 +3449,11 @@ function applySnap(s){
     e.state=EGG_STATES[a[0]];
     if(!gotSnap){ e.x=a[1]; e.y=a[2]; e.z=a[3]; }
     e.nx=a[1]; e.ny=a[2]; e.nz=a[3];
+    const nk=LOOT_KINDS[a[6]]||'egg';
+    if(nk!==e.kind){ e.kind=nk; applyKindVisual(e); }
     if(!!a[4]!==e.cracked){ e.cracked=!!a[4]; if(e.cracked) crackVisual(e); else uncrackVisual(e); }
     e.carrier=a[5]>=0?chickens[a[5]]:null;
     e.mesh.visible=(e.state!=='gone'&&e.state!=='pocket');
-  }
-  // 닭고기
-  for(let i=0;i<meats.length&&i<s.mt.length;i++){
-    const a=s.mt[i], mm=meats[i];
-    if(a[0]&&!mm.active){
-      mm.active=true; mm.x=a[1]; mm.z=a[2];
-      mm.g.visible=true; mm.g.position.set(mm.x,groundY(mm.x,mm.z)+7,mm.z);
-    } else if(!a[0]&&mm.active){ mm.active=false; mm.g.visible=false; }
   }
   // 수레
   if(!gotSnap){ cart.x=s.ct[0]; cart.z=s.ct[1]; cart.dir=s.ct[2]; }
@@ -3352,7 +3466,7 @@ function applySnap(s){
   }
   // 팀 글린트 (D22)
   {
-    const cc=stats.delivered<NEED_EGGS?cart.slots.length+players.reduce((n,p)=>n+(p.active?((p.held?1:0)+(p.pocket?1:0)):0),0):0;
+    const cc=cart.slots.length+players.reduce((n,p)=>n+(p.active?((p.held?1:0)+(p.pocket?1:0)):0),0);
     if(cc>0&&lastCarried===0&&phase==='play'){
       for(const c of chickens) burst(c.x,46,c.z,3,[1,0.95,0.8],7,0.55,3.4);
       blip(1250,0.09,0.1,'triangle');
@@ -3368,7 +3482,7 @@ function applySnap(s){
 function clientPhase(op,np){
   phase=np;
   if(np==='win'){ endBlackout(); showWinOv(); }
-  else if(np==='fail'){ failT=FAIL_HOLD; failS(); if(stats.t>=NIGHT_LEN-1) dawnCeremony(); }   // 새벽 실패 세리머니 동기 (파생 — D22)
+  else if(np==='fail'){ failT=FAIL_HOLD; failS(); if(stats.t>=NIGHT_LEN-1&&truckGoT<0) dawnCeremony(); }   // 새벽 실패 세리머니 동기 (파생 — D22)
   else if(np==='play'&&(op==='win'||op==='fail'||op==='title')){
     document.getElementById('winOv').style.display='none';
     document.getElementById('failOv').style.display='none';
@@ -3432,6 +3546,7 @@ function clientTick(dt){
     }
     // 새벽 예고 파생 (D22) — 판정은 하지 않는다 (실패는 ph 전이로 온다)
     const dl=NIGHT_LEN-stats.t;
+    if(dl<=0&&truckGoT<0) dawnCeremony();        // 막차 유예 연출도 시계에서 파생 (호스트와 같은 그림)
     for(let i=0;i<DAWN_WARNS.length;i++)
       if(dl<=DAWN_WARNS[i]&&!dawnWarned[i]){ dawnWarned[i]=true; dawnWarn(i); }
   }
@@ -3722,6 +3837,7 @@ window.addEventListener('keydown',e=>{
   if(e.code==='KeyE'){ pushAct({a:'pick'}); return; }
   if(e.code==='KeyQ'){ pushAct({a:'pocket'}); return; }
   if(e.code==='KeyF'){ pushAct({a:'cart'}); return; }
+  if(e.code==='KeyC'){ pushAct({a:'cancelDepart'}); return; }
   if(e.code==='Space'){ if(!e.repeat) pushAct({a:'jump'}); return; }
   keys.add(e.code);
 });
@@ -3797,9 +3913,28 @@ window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
   if(NIGHT_LEN<=DARK_TIMER) bad.push('night shorter than blackout timer');
   if(DAWN_WARNS.length!==DAWN_MSGS.length||DAWN_WARNS.length!==dawnWarned.length) bad.push('dawn warn arrays mismatch');
   // 15) v0.12 하늘이 시간을 말한다 — 물들기 시작이 정전보다 뒤면 밝은 구간에 볼 시간이 안 남는다
-  if(DAWN_SKY_T*NIGHT_LEN>=DARK_TIMER-60) bad.push('sky warms too late vs blackout');
+  //     v0.13: 분모가 DARK_TIMER → DARK_MIN (정전이 가장 빨리 켜지는 시점 기준으로 봐야 안전하다)
+  if(DAWN_SKY_T*NIGHT_LEN>=DARK_MIN-60) bad.push('sky warms too late vs blackout');
+  // 16) v0.13 점수제 — 팀 실패 진입점은 startDawnFail 하나뿐이어야 한다 (쿼터 실패 잔재 금지)
+  if(/function\s+checkFail|function\s+checkWin/.test(update.toString()+deliverEgg.toString())) bad.push('quota judgment resurfaced');
+  if(typeof NEED_EGGS!=='undefined') bad.push('NEED_EGGS still defined');
+  // 17) v0.13 공급·풀 — 알 18(1F 6/B1 12) + 닭고기 슬롯 10
+  if(TRAY_DEF.length*PER_TRAY!==18) bad.push('supply != 18');
+  if(eggs.length!==TRAY_DEF.length*PER_TRAY+CHK_COUNT) bad.push('loot pool size');
+  if(LOOT_KINDS.length!==Object.keys(LOOT_VAL).length) bad.push('kind table mismatch');
+  // 18) v0.13 출발 — 스폰이 패드 밖이어야 한다 (안이면 t=0에 '전원 패드' 단축이 참이 되어 즉시 0점 종료)
+  for(const o of SPAWN_OFFS){
+    const d=Math.hypot(SPAWN.x+o[0]-truckPad.x,SPAWN.z+o[1]-truckPad.z);
+    if(d<truckPad.r+PLR_R) bad.push('spawn inside pad '+Math.round(d));
+  }
+  // 19) v0.13 레버는 반납대와 물리적으로 떨어져 있어야 한다 (E 폴스루가 반납과 섞이지 않게)
+  {
+    const L=leverPos();
+    if(Math.hypot(L.x-truckPad.x,L.z-truckPad.z)<LEVER_R+truckPad.r) bad.push('lever overlaps pad');
+  }
   if(bad.length){ console.error('[검증 실패]',bad); }
-  else console.log('[검증] 15/15 통과 — 셀 '+CELL_N+' (1F 48+B1 24), 닭 '+CHK_COUNT+' (1F 4/B1 6), 알 2+4, 이격 '+gap+', 타이머 '+DARK_TIMER+'s, 밤 '+NIGHT_LEN+'s (하늘 '+Math.round(DAWN_SKY_T*NIGHT_LEN)+'s부터), 슬롯 '+MAX_PLAYERS);
+  else console.log('[검증] 19/19 통과 — 셀 '+CELL_N+', 닭 '+CHK_COUNT+', 전리품 '+(TRAY_DEF.length*PER_TRAY)+'(+고기 '+CHK_COUNT+'), 이격 '+gap+
+    ', 정전 '+DARK_BASE+'→'+DARK_MIN+'s, 밤 '+NIGHT_LEN+'s (하늘 '+Math.round(DAWN_SKY_T*NIGHT_LEN)+'s부터), 출발 '+DEPART_T+'s, 슬롯 '+MAX_PLAYERS);
 })();
 
 // ============================================================
