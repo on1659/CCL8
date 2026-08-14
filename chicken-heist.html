@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.13</title>
+<title>양계장 습격 — 웹 프로토타입 v0.14</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -102,8 +102,8 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.13</div>
-  <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
+  <div class="sub">웹 프로토타입 v0.14</div>
+  <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.<br>마당에 거위가 잔다 — 뛰면 깬다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
   <div id="mpArea">
@@ -131,8 +131,15 @@
 <script>
 "use strict";
 /* ============================================================
-   양계장 습격 — 웹 프로토타입 v0.13
-   스펙: docs/goal/chicken-heist-score-run.md (v0.13 점수제 — 4관점 패널+교차심문 11결정)
+   양계장 습격 — 웹 프로토타입 v0.14
+   스펙: docs/goal/chicken-heist-guard-goose.md (v0.14 거위)
+        + docs/goal/chicken-heist-score-run.md (v0.13 점수제 — 4관점 패널+교차심문 11결정)
+   v0.14 회계: 신규 1 = 거위 2마리. 마당(트럭↔문 직선 복도)은 지금까지 공짜
+   통로였고, v0.13이 그 구간을 매 왕복 지나게 만들었으므로 거기에 값을 매긴다.
+   규칙 한 줄: 가운데를 걸으면 지나가고, 뛰면 깬다 (WAKE 150 / HEAR 420+달리기).
+   닭 AI 복제 아님 — 시야 게이지도 순찰도 강탈도 없다. 거위는 못 훔치고 쫓아낸다.
+   축사 문턱(BARN.x0-40)을 못 넘으므로 닭 시스템과 간섭 0, 문 안이 도피처가 된다.
+   밝은 구간 닭 상수 변경 0. 조사 버그 수리: PLAYER_NAMES 뒤 이/가 (nameSub).
         + docs/goal/chicken-heist-dawn-deadline.md (v0.11 새벽 마감 + v0.12 설정화)
    v0.13 회계: 신규 1.5 — 진짜 신규는 출발 레버+카운트다운/취소 상태기계 1개.
    나머지는 감산이거나 데이터다: 쿼터 판정 삭제(checkWin·checkFail 함수째),
@@ -329,6 +336,22 @@ const DEPART_NEAR_T=1.5;         // 전원이 패드 안이면 단축 (솔로는
 const DEPART_CD=8;               // 취소 후 재개시 쿨다운
 const LEVER_R=45;                // 운전석 레버 반경 — 반납대(x=380)와 188u 이격
 const GRADE=[1,10,25];           // 인원수 배수 — 빈 트럭 / 오늘 장사는 됐다 / 한탕 했다 / 대형사고
+// v0.14 신설 — 거위 (docs/goal/chicken-heist-guard-goose.md)
+// 왜 여기 있나: 농장은 실제로 거위를 경비로 친다. 설명이 필요 없는 종이어야 한다는
+// 금지 해제 조건(CLAUDE.md 2026-08-14)을 만족하는 최단 답이다. 몬스터가 아니다.
+// 역할 분담: 닭은 도둑(알을 물고 둥지로), 거위는 경비(못 훔치고, 대신 쫓아내고 떠든다).
+const GOOSE_N=2;                 // 마당 전담 — 축사 안엔 들어가지 않는다 (닭 시스템과 간섭 0)
+const GOOSE_R=15;                // 닭 12보다 크다 — 실루엣으로 구분
+const GOOSE_WAKE_R=150;          // 이 안에 들어오면 걸어도 깬다
+const GOOSE_HEAR_R=420;          // 이 안에서 "달리면" 깬다 — 걸으면 안 깬다 (조용히 지나갈 여지)
+const GOOSE_SPD=176;             // 플레이어 달리기보다 아주 조금 빠르다 — 직선 도주는 안 통한다
+const GOOSE_BACK_SPD=90;
+const GOOSE_LEASH=760;           // 자기 자리에서 이만큼 벌어지면 포기 (존 이격 700보다 크면 층 격리가 깨진다 — 자가검사 20)
+const GOOSE_HONK_T=0.55;         // 꽥! 하고 목을 빼는 예비동작 — 돌진 전 반응 시간 (즉발 금지)
+const GOOSE_SLEEP_T=4.0;         // 자리로 돌아온 뒤 다시 잠들기까지
+const GOOSE_ALERT_CD=2.5;        // 재-꽥 쿨 (소음 스팸 방지)
+const GOOSE_MAX_X=BARN.x0-40;    // 거위는 이 선을 못 넘는다 — 문 안은 닭의 영역이다.
+                                 // 플레이어에겐 읽히는 도피처가 된다: 문으로 들어가면 거위는 멈춘다
 const DARK_TIMER=300;            // (구) 정전 카운트다운 — v0.13에서 DARK_BASE 계열로 대체. 자가검사 하위호환 참조만 남김
 // v0.11 신설 — 밤 시계·새벽 마감 (docs/goal/chicken-heist-dawn-deadline.md)
 const NIGHT_LEN=480;             // 밤 전체 길이(초) — 시계 00:00→06:00 매핑, 만료 = 새벽 실패. DARK_TIMER보다 길어야 한다. 튜닝 상수
@@ -381,11 +404,16 @@ const SENS_DEF=1.0, VOL_DEF=0.5; // 설정 기본값 (localStorage ch_sens / ch_
 const MAX_PLAYERS=4;
 const PLAYER_TINTS=[0x8fb8ff,0x9fe08a,0xc9a0ff,0x7fd8d8]; // 파랑·초록·보라·청록 (경고적 0xff5040·게이지호박 0xffc040과 분리)
 const PLAYER_NAMES=['파랑','초록','보라','청록'];
+// 이름 뒤 주격 조사 — '보라'만 받침이 없어서 이/가가 갈린다. 코드 여러 곳에서 쓰므로 한 군데로 모은다
+function nameSub(i){
+  const n=PLAYER_NAMES[i], c=n.charCodeAt(n.length-1);
+  return n+((c-0xac00)%28?'이':'가');
+}
 const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사전 배치 (첫 프레임 분리 밀침 방지)
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=200;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.13'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.14'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -1236,6 +1264,40 @@ for(let i=0;i<CHK_COUNT;i++){
     det:new Float32Array(MAX_PLAYERS),detG:new Float32Array(MAX_PLAYERS),detTicked:false});
 }
 
+// ---------- v0.14 거위 ----------
+// 마당은 지금까지 공짜 통로였다. 거위는 그 구간에만 산다 — 축사엔 안 들어가므로
+// 닭의 층·순찰·강탈 시스템과 겹치는 지점이 하나도 없다 (검증 변수를 마당으로 격리).
+// 규칙 한 줄: 가운데를 "걸으면" 지나갈 수 있고, "뛰면" 깬다.
+const geese=[];
+const GOOSE_HOME=[{x:590,z:TRUCK_Z-170},{x:790,z:TRUCK_Z+180}];
+const GS_STATES=['sleep','honk','charge','back'];
+function makeGoose(){
+  const g=new THREE.Group();
+  const white=mat(0xf6f4ec,0x30302c), orange=mat(0xe8912c,0x2a1806);
+  const body=new THREE.Mesh(new THREE.SphereGeometry(16,14,12),white);
+  body.scale.set(1.35,1,0.95); body.position.y=19; g.add(body);
+  const tail=new THREE.Mesh(new THREE.ConeGeometry(7,14,6),white);
+  tail.position.set(-19,24,0); tail.rotation.z=Math.PI*0.62; g.add(tail);
+  const neck=new THREE.Group(); neck.position.set(12,26,0); g.add(neck);
+  const stalk=new THREE.Mesh(new THREE.CylinderGeometry(4.5,6,30,8),white);
+  stalk.position.y=15; neck.add(stalk);                    // 긴 목 — 닭과 실루엣이 다른 지점
+  const head=new THREE.Mesh(new THREE.SphereGeometry(7,12,10),white);
+  head.position.y=32; neck.add(head);
+  const beak=new THREE.Mesh(new THREE.ConeGeometry(3.4,11,7),orange);
+  beak.position.set(7,31,0); beak.rotation.z=-Math.PI/2; neck.add(beak);
+  for(const s of [-1,1]){
+    const leg=new THREE.Mesh(new THREE.CylinderGeometry(1.8,1.8,14,6),orange);
+    leg.position.set(0,7,s*6); g.add(leg);
+  }
+  scene.add(g);
+  return {g,neck};
+}
+for(let i=0;i<GOOSE_N;i++){
+  const m=makeGoose();
+  geese.push({m,x:GOOSE_HOME[i].x,z:GOOSE_HOME[i].z,hx:GOOSE_HOME[i].x,hz:GOOSE_HOME[i].z,
+    r:GOOSE_R,dir:Math.PI,state:'sleep',t:0,tgt:0,bob:Math.random()*TAU,alertCd:0});
+}
+
 // ---------- 플레이어 몸 ×4 (틴트 팩토리 — D29) + 1인칭 팔 ----------
 function makeAvatar(tint){
   const g=new THREE.Group();
@@ -1509,6 +1571,23 @@ function crowS(n){               // 수탉 "꼬끼오" — n: 0 멀리서 / 1 �
   g.gain.exponentialRampToValueAtTime(0.001,t+1.0);
   o.connect(g); g.connect(master); o.start(t); o.stop(t+1.05);
 }
+function honkS(x,z){             // 꽥! — 수탉 울음(부드러운 상승)과 정반대의 납작한 두 음 (v0.14)
+  if(!AC||muted) return;
+  const gain=volAt(x,z,0.3,900);
+  if(gain<=0.004) return;
+  const one=(t0,f0,f1,dur)=>{
+    const o=AC.createOscillator(), g=AC.createGain(), t=AC.currentTime+t0;
+    o.type='sawtooth';
+    o.frequency.setValueAtTime(f0,t);
+    o.frequency.linearRampToValueAtTime(f1,t+dur);
+    g.gain.setValueAtTime(gain,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+dur+0.02);
+  };
+  one(0,620,430,0.16);
+  one(0.2,560,380,0.22);
+  noiseHit(0.1,gain*0.5,700,2200);
+}
 function cluckS(x,z){ blip(280+Math.random()*90,0.06,x===undefined?0.07:volAt(x,z,0.09,520),'square'); }
 function alertS(x,z){ blip(760,0.09,volAt(x,z,0.14,600),'triangle'); }
 function peckS(x,z){ blip(1200,0.03,volAt(x,z,0.08,420),'square'); }
@@ -1571,7 +1650,7 @@ function startBlackout(p){
   blackout=true; flickT=FLICKER_T;
   clunkS();
   // 정전 귀속 (D28): 팀 합산 트리거는 3/4에게 인과가 안 보인다 — 마지막 알을 잡은 사람을 이름으로
-  bigmsgCast((p&&NET.on)?('정전!! — '+PLAYER_NAMES[p.idx]+'이 마지막 알을 잡았다'):'정전!!');
+  bigmsgCast((p&&NET.on)?('정전!! — '+nameSub(p.idx)+' 마지막 알을 잡았다'):'정전!!');
   applyDark(true);
 }
 function endBlackout(){
@@ -1694,7 +1773,7 @@ function tryDepart(p){
   depT=allAtTruck()?DEPART_NEAR_T:DEPART_T; depBy=p.idx;
   headA.intensity=headB.intensity=2.2;
   hornS(); setTimeout(()=>hornS(),260); setTimeout(()=>hornS(),520);
-  bigmsgCast((NET.on?PLAYER_NAMES[p.idx]+'가 ':'')+'시동을 걸었다 — '+Math.ceil(depT)+'초 후 출발');
+  bigmsgCast((NET.on?nameSub(p.idx)+' ':'')+'시동을 걸었다 — '+Math.ceil(depT)+'초 후 출발');
 }
 function tryCancelDepart(p){
   if(phase!=='play'||depT<0) return;
@@ -1703,7 +1782,7 @@ function tryCancelDepart(p){
   depT=-1; depBy=-1; depCd=DEPART_CD;
   headA.intensity=headB.intensity=1.25;
   clunkS();
-  bigmsgCast((NET.on?PLAYER_NAMES[p.idx]+'가 ':'')+'출발을 막았다');
+  bigmsgCast((NET.on?nameSub(p.idx)+' ':'')+'출발을 막았다');
 }
 function tryPickOrPlace(p){
   if(phase!=='play'||p.stun>0) return;
@@ -2090,7 +2169,7 @@ function onCaught(c){
     e.x=p.x; e.z=p.z; e.y=CARRY_H+groundY(p.x,p.z);
     e.vx=Math.cos(a+Math.PI)*140; e.vz=Math.sin(a+Math.PI)*140; e.vy=110;
   }
-  if(NET.host) NET.ev.push(['big',PLAYER_NAMES[p.idx]+'이 잡혔다!',-2,p.idx]);  // -2: 당사자 제외 동료 알림 (D28)
+  if(NET.host) NET.ev.push(['big',nameSub(p.idx)+' 잡혔다!',-2,p.idx]);  // -2: 당사자 제외 동료 알림 (D28)
   for(const o of chickens){
     if(o===c) continue;
     if(o.state==='peck'||o.state==='rob'||o.state==='grab'||o.state==='stunned') continue;
@@ -2175,6 +2254,83 @@ function steerMove(c,tx,tz,spd,dt){
     skidS(c.x,c.z);
   }
   return diff;
+}
+// ---------- v0.14 거위 상태기계 (호스트 판정 — 클라는 스냅샷 미러) ----------
+// sleep → honk(예비동작) → charge → back → sleep. 닭 AI를 복제하지 않는다:
+// 시야 게이지도, 순찰 루프도, 강탈도 없다. 거위는 훔치지 못하고 쫓아내기만 한다.
+function gooseWake(gs,p){
+  if(gs.state!=='sleep'&&gs.state!=='back') return;
+  gs.state='honk'; gs.t=GOOSE_HONK_T; gs.tgt=p.idx;
+  if(gs.alertCd<=0){
+    gs.alertCd=GOOSE_ALERT_CD;
+    honkS(gs.x,gs.z);
+    decoyPulse(gs.x,gs.z,null);        // 소음은 기존 채널로 — 닭이 "저쪽에서 뭔가 났다"로 받는다
+    burst(gs.x,34,gs.z,10,COL_FEATHER,16,0.7,4);
+  }
+}
+function updGeese(dt){
+  for(const gs of geese){
+    gs.alertCd=Math.max(0,gs.alertCd-dt);
+    const tp=players[gs.tgt]&&players[gs.tgt].active?players[gs.tgt]:P();
+    const hd=Math.hypot(gs.x-gs.hx,gs.z-gs.hz);
+    let moving=false, spd=0;
+    if(gs.state==='sleep'||gs.state==='back'){
+      // 깨우는 조건 두 갈래 — 가까우면 걸어도, 멀면 뛰어야. "가운데를 걸으면 지나간다"가 여기서 나온다
+      if(phase==='play') eachP(p=>{
+        if(p.stun>0) return;
+        if(inCoopPt(p.x,p.z)||zoneOfArea(p.x,p.z)!==0) return;   // 축사·지하 사람은 거위 소관이 아니다
+        const d=Math.hypot(gs.x-p.x,gs.z-p.z);
+        if(d<GOOSE_WAKE_R||(d<GOOSE_HEAR_R&&p.running)) gooseWake(gs,p);
+      });
+    }
+    if(gs.state==='honk'){
+      gs.t-=dt;
+      const dx=tp.x-gs.x, dz=tp.z-gs.z;
+      gs.dir=Math.atan2(dx,dz);                     // 목을 빼고 노려본다 — 돌진 방향 예고
+      if(gs.t<=0){ gs.state='charge'; gs.t=0; }
+    } else if(gs.state==='charge'){
+      if(hd>GOOSE_LEASH||gs.x>GOOSE_MAX_X||inCoopPt(tp.x,tp.z)||zoneOfArea(tp.x,tp.z)!==0||phase!=='play'||tp.stun>0){ gs.state='back'; }
+      else {
+        moveToward(gs,tp.x,tp.z,GOOSE_SPD*dt); moving=true; spd=GOOSE_SPD;
+        const td=Math.hypot(gs.x-tp.x,gs.z-tp.z);
+        if(td<GOOSE_R+PLR_R+3&&tp.invuln<=0&&tp.stun<=0&&phase==='play') gooseHit(gs,tp);
+      }
+    } else if(gs.state==='back'){
+      if(hd>6){ moveToward(gs,gs.hx,gs.hz,GOOSE_BACK_SPD*dt); moving=true; spd=GOOSE_BACK_SPD; }
+      else { gs.t+=dt; if(gs.t>=GOOSE_SLEEP_T){ gs.state='sleep'; gs.t=0; gs.dir=Math.PI; } }
+    }
+    if(gs.state==='charge'&&hd<=GOOSE_LEASH) gs.t=0;
+    if(moving){
+      const px=gs.x, pz=gs.z;
+      collideCircle(gs);
+      const mdx=gs.x-px, mdz=gs.z-pz;
+      if(Math.hypot(mdx,mdz)>0.5) gs.dir=Math.atan2(mdx,mdz);
+      gs.bob+=dt*(spd/22);
+    }
+  }
+}
+// 접촉 — 넘어뜨리고 들고 있던 것을 떨군다. 알을 물고 가지는 않는다(그건 닭 역할).
+// 즉사 금지: 이것도 코미디다 — 거위한테 받혀 자빠지는 그림
+function gooseHit(gs,p){
+  stats.caught++;
+  p.stun=STUMBLE_T; p.invuln=INVULN_T;
+  if(p.idx===me){ shake=1; flash=0.7; caughtFocus=null; }
+  caughtS(sxz(p),szz(p)); honkS(gs.x,gs.z);
+  burst(gs.x,30,gs.z,26,COL_FEATHER,24,1.3,6);
+  burst(p.x,20,p.z,14,COL_DUST,20,0.9,5);
+  if(cart.owner===p.idx) cart.owner=-1;
+  const a=Math.random()*TAU;
+  for(const slot of ['held','pocket']){
+    const e=p[slot];
+    if(!e) continue;
+    p[slot]=null;
+    e.state='fly'; e.forceSurvive=false; e.thrown=false;
+    e.x=p.x; e.z=p.z; e.y=CARRY_H+groundY(p.x,p.z);
+    e.vx=Math.cos(a)*120; e.vz=Math.sin(a)*120; e.vy=110;
+  }
+  p.shake=0;
+  bigmsgCast((NET.on?nameSub(p.idx)+' ':'')+'거위한테 받혔다!!');
+  gs.state='back'; gs.t=0;
 }
 function updChickens(dt){
   for(const c of chickens){
@@ -2723,6 +2879,10 @@ function resetWorld(){
     if(c.meatGiven){ c.meatGiven=false; c.m.tail.visible=true; c.m.g.scale.set(1,1,1); }
     c.m.alert.visible=false; pickWander(c);
   }
+  for(const gs of geese){
+    gs.x=gs.hx; gs.z=gs.hz; gs.state='sleep'; gs.t=0; gs.tgt=0; gs.dir=Math.PI; gs.alertCd=0;
+    gs.nx=undefined;
+  }
   for(const m of splats) m.visible=false;
   for(const m of deliveredMesh) m.visible=false;
   stats={t:0,broken:0,delivered:0,caught:0,meat:0,score:0};
@@ -2844,6 +3004,7 @@ function update(dt){
   updCart(dt);
   updEggs(dt);
   updChickens(dt);
+  updGeese(dt);
   updWaves(dt);
   // 새벽 마감 — v0.13(D3): 06:00은 즉시 끝이 아니라 트럭이 굴러가기 시작하는 순간이다.
   // 이 6초(TRUCK_GO_T) 동안 판은 살아 있고 패드에 닿으면 짐이 실린다 — 몰수를 슬픔이 아니라
@@ -3040,6 +3201,18 @@ function render(){
     } else L.intensity=0;
   }
 
+  // 거위 렌더 — 자는 놈은 납작 엎드리고, 노려보는 놈은 목을 뽑는다 (상태가 실루엣으로 읽혀야 한다)
+  for(const gs of geese){
+    const g=gs.m.g, gy=groundY(gs.x,gs.z);
+    const sleeping=gs.state==='sleep';
+    const bobY=sleeping?0:Math.abs(Math.sin(gs.bob))*3;
+    g.position.set(gs.x,gy+bobY-(sleeping?6:0),gs.z);
+    g.rotation.y=gs.dir-Math.PI/2;
+    g.scale.y=sleeping?0.72:1;                       // 웅크림
+    gs.m.neck.rotation.z=sleeping?1.25                       // 목을 접어 등에 묻는다
+      :(gs.state==='honk'?-0.55+Math.sin(now*26)*0.2         // 꽥 — 목을 젖히고 떤다
+      :(gs.state==='charge'?0.95:0.15));                     // 돌진 — 목을 수평으로 뻗는다
+  }
   for(const c of chickens){
     const m=c.m;
     const cgy=groundY(c.x,c.z);
@@ -3279,6 +3452,7 @@ function buildSnap(){
     st:[q1(stats.t),stats.broken,stats.delivered,stats.caught,stats.meat,
         stats.score,q1(depT),depBy],                      // 5~7 신규 (append-only)
     bk:[bank.egg,bank.bigEgg,bank.meat,bank.dark],        // 짐칸 구성 — 클라 랙 렌더용
+    gs:geese.map(g=>[q1(g.x),q1(g.z),q1(g.dir),GS_STATES.indexOf(g.state),g.tgt]),   // v0.14 거위
     gl:gloveMesh.visible?0:1,
     pl:players.map(p=>[p.active?1:0,q1(p.x),q1(p.z),q1(p.jy),q1(p.yaw),q1(p.stun),p.glove?1:0,
         q1(p.stam),p.exhausted?1:0,p.held?eggs.indexOf(p.held):-1,p.pocket?eggs.indexOf(p.pocket):-1,
@@ -3443,6 +3617,19 @@ function applySnap(s){
     c.det[0]=a[5]; c.det[1]=a[6]; c.det[2]=a[7]; c.det[3]=a[8]; c.tgt=a[9];
     if(c.ko&&!c.meatGiven){ c.meatGiven=true; c.m.tail.visible=false; c.m.g.scale.set(1,0.88,1); }
   }
+  // 거위 (v0.14) — 상태 전이 시 소리만 파생, 판정은 없다 (D15)
+  if(s.gs) for(let i=0;i<geese.length&&i<s.gs.length;i++){
+    const a=s.gs[i], gs=geese[i];
+    if(!gotSnap){ gs.x=a[0]; gs.z=a[1]; gs.dir=a[2]; }
+    gs.nx=a[0]; gs.nz=a[1]; gs.ndir=a[2];
+    const ns2=GS_STATES[a[3]]||'sleep';
+    if(ns2!==gs.state){
+      if(ns2==='honk'){ honkS(a[0],a[1]); burst(a[0],34,a[1],10,COL_FEATHER,16,0.7,4); }
+      gs.state=ns2;
+    }
+    gs.tgt=a[4];
+    if(Math.hypot(gs.x-a[0],gs.z-a[1])>2) gs.bob+=0.12;
+  }
   // 계란
   for(let i=0;i<eggs.length;i++){
     const a=s.eg[i], e=eggs[i];
@@ -3558,6 +3745,12 @@ function clientTick(dt){
     else { p.x+=(p.nx-p.x)*k; p.z+=(p.nz-p.z)*k; }
     p.jy+=(p.njy-p.jy)*k;
     p.yaw=lerpAngle(p.yaw,p.nyaw,k);
+  }
+  for(const gs of geese){
+    if(gs.nx===undefined) continue;
+    if(Math.hypot(gs.x-gs.nx,gs.z-gs.nz)>NET_SNAP_R){ gs.x=gs.nx; gs.z=gs.nz; }
+    else { gs.x+=(gs.nx-gs.x)*k; gs.z+=(gs.nz-gs.z)*k; }
+    gs.dir=lerpAngle(gs.dir,gs.ndir,k);
   }
   for(const c of chickens){
     if(c.nx===undefined) continue;
@@ -3927,13 +4120,25 @@ window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
     const d=Math.hypot(SPAWN.x+o[0]-truckPad.x,SPAWN.z+o[1]-truckPad.z);
     if(d<truckPad.r+PLR_R) bad.push('spawn inside pad '+Math.round(d));
   }
+  // 20) v0.14 거위는 마당 전담 — 축사 안이면 닭 시스템과 간섭한다
+  for(const [i,h] of GOOSE_HOME.entries()){
+    if(inCoopPt(h.x,h.z)) bad.push('goose'+i+' inside barn');
+    if(zoneOfArea(h.x,h.z)!==0) bad.push('goose'+i+' off yard zone');
+    if(Math.hypot(h.x-truckPad.x,h.z-truckPad.z)<truckPad.r+GOOSE_WAKE_R) bad.push('goose'+i+' camps the pad');
+  }
+  // 21) 거위는 축사 문턱을 못 넘는다 — 넘으면 "마당 전담" 격리가 깨져 닭 시스템과 섞인다
+  if(GOOSE_MAX_X>=BARN.x0) bad.push('goose can enter barn');
+  for(const [i,h] of GOOSE_HOME.entries()) if(h.x>GOOSE_MAX_X) bad.push('goose'+i+' home past boundary');
+  // 22) 걸어서 지나갈 길이 실제로 남아 있어야 한다 (직선 복도 z=TRUCK_Z에서 두 거위의 깨움 반경 사이)
+  for(const h of GOOSE_HOME) if(Math.abs(h.z-TRUCK_Z)<=GOOSE_WAKE_R) bad.push('no quiet lane on the yard line');
+  if(geese.length!==GOOSE_N) bad.push('goose count');
   // 19) v0.13 레버는 반납대와 물리적으로 떨어져 있어야 한다 (E 폴스루가 반납과 섞이지 않게)
   {
     const L=leverPos();
     if(Math.hypot(L.x-truckPad.x,L.z-truckPad.z)<LEVER_R+truckPad.r) bad.push('lever overlaps pad');
   }
   if(bad.length){ console.error('[검증 실패]',bad); }
-  else console.log('[검증] 19/19 통과 — 셀 '+CELL_N+', 닭 '+CHK_COUNT+', 전리품 '+(TRAY_DEF.length*PER_TRAY)+'(+고기 '+CHK_COUNT+'), 이격 '+gap+
+  else console.log('[검증] 22/22 통과 — 셀 '+CELL_N+', 닭 '+CHK_COUNT+', 거위 '+GOOSE_N+', 전리품 '+(TRAY_DEF.length*PER_TRAY)+'(+고기 '+CHK_COUNT+'), 이격 '+gap+
     ', 정전 '+DARK_BASE+'→'+DARK_MIN+'s, 밤 '+NIGHT_LEN+'s (하늘 '+Math.round(DAWN_SKY_T*NIGHT_LEN)+'s부터), 출발 '+DEPART_T+'s, 슬롯 '+MAX_PLAYERS);
 })();
 
