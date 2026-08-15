@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.14</title>
+<title>양계장 습격 — 웹 프로토타입 v0.15</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -97,13 +97,13 @@
   </div>
   <div id="stamRow">스태미나<div id="stamBox"><div id="stamFill"></div></div></div>
 </div>
-<div id="help">마우스 시점 · WASD 이동 · Shift 달리기(스태미나) · Space 점프 · E 줍기/내려놓기 · Q 품 · F 수레<br>좌클릭 미끼 던지기(빈손 밀치기 · 글러브 있으면 펀치) · V 시점전환 · R 재시작 · M 소리 · Esc 일시정지·설정</div>
+<div id="help">마우스 시점 · WASD 이동 · Shift 달리기(스태미나) · Space 점프 · E 줍기/내려놓기 · Q 품 · F 수레<br>좌클릭 미끼 던지기(빈손 밀치기 · 글러브 있으면 펀치) · V 시점전환 · Tab 미니맵 · R 재시작 · M 소리 · Esc 일시정지·설정</div>
 <div id="cross"></div>
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.14</div>
-  <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>세 개만 훔쳐서 트럭까지. 마지막 알을 집는 순간, 무슨 일이 생겨도 놀라지 마라.<br>참고로 이 농장 전기는 오래 못 버틴다.<br>마당에 거위가 잔다 — 뛰면 깬다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
+  <div class="sub">웹 프로토타입 v0.15</div>
+  <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>마당에 거위가 잔다 — 뛰면 깬다. 축사 구조는 밤마다 다르다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
   <div id="mpArea">
@@ -131,8 +131,28 @@
 <script>
 "use strict";
 /* ============================================================
-   양계장 습격 — 웹 프로토타입 v0.14
-   스펙: docs/goal/chicken-heist-guard-goose.md (v0.14 거위)
+   양계장 습격 — 웹 프로토타입 v0.15
+   스펙: docs/goal/chicken-heist-procgen-kitchen.md (v0.15 — 4관점 패널+교차심문)
+   v0.15 회계: 4종 일괄 (신규 시스템 1개 원칙의 v0.6식 예외 선언 — v0.16부터 복원):
+   ① 요리 — 열 상태변화(생→익음→탄것). 설계 문서가 애초에 신규 예산을 배정해 둔 그 시스템.
+     주방 = 1F 축사 내부 랜덤 셀의 병아리 보온등 (동물 소유 농장에서 텍스트 없이 읽히는 유일한 열원).
+     동사 불변: 놓고-기다리고-집기. 열은 kind가 아니라 필드 — meat 게이트가 자동 승계.
+     가산 보너스(알+1/큰알+1/고기+2)+정전 ×2 하나. 숯덩이=1점 납품 가능. 탄 엣지에 decoyPulse 1회
+     (거위 honk와 같은 조항의 두 번째이자 마지막 커플링). GRADE [1,10,25]→[1,14,35] (상한 62→100).
+   ② 절차 생성 — 실내 위상·배치만 시드 리롤 (마당·격자 치수·계단 고정 = 리썰의 함선 고정).
+     mulberry32, 척추 선개방 Kruskal+브레이드(개방 밀도 57/28 = v0.14 실측), 유계 재시도 16 +
+     구운 리터럴 폴백. ?seed= URL이 유일한 전달 채널, hi={v,seed,hash} 계층 게이트,
+     시드 불일치만 1회 자동 리로드(해시 불일치는 리로드 금지 — 결정론적 발산). 검사는
+     layoutChecks 단일 소스. R = 같은 맵, 새 맵 = 리로드(N)·새 방.
+   ③ 확 어둡게 — HEMI 0.58→0.20, MOON 0.22→0.12, 하늘 0x060a14 (v0.6 기각의 개발자 권한 번복).
+     램프는 무변경 — 웅덩이가 체감 광량 ~80%가 되어 정전 소등이 더 극적. 플리커 공식을 상수
+     파생으로 (리터럴이면 예고가 새 베이스보다 밝아지는 역연출). ?bright=1 dev A/B.
+     링 자격 확장: det>0.15면 빈손도 시야 원 (렌더 게이트만 — "어두우니 안 보이겠지"는 틀렸다).
+   ④ 미니맵 — Tab 토글, 테스트 단계 기본 ON. 내비 전용 계약: 닭·거위·알·파동은 절대 안 그린다.
+   수리: 클라 정전 경고가 legacy DARK_TIMER(300)로 오발 (v0.13 마이그레이션 누락) — darkAt() 통일,
+   상수 삭제. eggGlow 단일 이미시브 일괄 기록 → applyEggVisual 단일 소유자 (열 틴트 보존).
+   밝은 구간 LOGIC 상수 변경 0 유지 (어둠·링·주방 전부 렌더/신규 계열).
+        + docs/goal/chicken-heist-guard-goose.md (v0.14 거위)
         + docs/goal/chicken-heist-score-run.md (v0.13 점수제 — 4관점 패널+교차심문 11결정)
    v0.14 회계: 신규 1 = 거위 2마리. 마당(트럭↔문 직선 복도)은 지금까지 공짜
    통로였고, v0.13이 그 구간을 매 왕복 지나게 만들었으므로 거기에 값을 매긴다.
@@ -199,12 +219,260 @@ const BARN_H=210;
 const FLOOR_H=260;                                    // 층 렌더 y 오프셋 (B1 = -260)
 const TAU=Math.PI*2;
 
-// ---------- 1F 미로 위상 (시드 873 산출물 — v0.5부터 무손실 승계) ----------
-// 격자: 통로 8(z) × 열 6(x) = 48셀. 척추 = 통로 4 (정문 정렬, 마개 금지).
-const A_N=8, C_N=6, SPINE=4;
-const MAZE_H=[[0,1,1,1,1],[1,0,0,1,0],[0,0,0,1,1],[1,1,1,0,1],[1,1,1,1,1],[0,0,1,1,1],[0,1,0,0,1],[1,1,0,1,1]];
-const MAZE_V=[[1,1,1,1,0,1],[1,1,1,0,1,1],[0,1,1,0,1,1],[1,1,1,1,0,1],[1,1,0,0,0,1],[1,1,0,1,0,1],[1,0,1,1,1,1]];
-const EAST_HOLE_AISLE=0;
+// ---------- 미로 위상 — v0.15부터 시드 절차 생성 (docs/goal/chicken-heist-procgen-kitchen.md) ----------
+// 격자 치수·척추·마당·계단은 시드 무관 고정 — 흔들면 zoneOfArea·마당 검사 전부가 시드 종속이 된다 (D-GEN1)
+const A_N=8, C_N=6, SPINE=4;          // 1F: 통로 8(z) × 열 6(x) = 48셀. 척추 = 통로 4 (정문 정렬, 마개 금지)
+const B1_A_N=6, B1_C_N=4, B1_SPINE=2; // B1: 6×4 = 24셀. 척추 = 통로 2 (계단 정렬, 마개 금지)
+
+// 시드 부트스트랩 — ?seed= (uint32 십진, 0→873 센티널). 맵이 모듈 스코프에서 지어지므로
+// 접속 전에 읽을 수 있는 채널은 URL뿐이다 (?ws= 선례). 초대 링크가 &seed=를 실어 나른다 (D-GEN7)
+const MAP_SEED=(()=>{
+  const m=location.search.match(/[?&]seed=(\d{1,10})/);
+  const s=m?(+m[1]>>>0):((Math.random()*0x100000000)>>>0);  // 유일하게 정당한 Math.random — 시드 자체를 만든다 (생성이 소비하기 전)
+  return s||873;
+})();
+const USE_BAKED=/[?&]baked=1/.test(location.search);        // dev 전용 — 구운 v0.14 맵 강제 (?dark=0 지위, 신구 A/B. 친구 링크 금지)
+// 솔로 재현성: ?room 없으면 주소창에 시드를 박는다 — 새로고침·주소 복사가 같은 농장을 재현 (기존 파라미터 보존)
+if(!/[?&]room=/.test(location.search)&&!/[?&]seed=/.test(location.search)){
+  try{ history.replaceState(null,'',(location.search?location.search+'&':'?')+'seed='+MAP_SEED); }catch(e){}
+}
+
+// mulberry32 — 32비트 상태, Math.imul 기반: 전 브라우저 비트 동일. 인스턴스는 생성 함수 안에만 산다 —
+// 게임플레이 코드가 생성 스트림을 건드리는 실수가 구조적으로 불가능 (결정론 금지선의 생성판)
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+
+// 미로 생성 — 척추 선개방 + 랜덤 Kruskal 신장트리(전 셀 도달성 구성적 보장) + 밀도 브레이드.
+// targetOpen = v0.14 리터럴 실측(1F 26+31=57/82, B1 15+13=28/38) — 복도 밀도를 구판과 연속시킨다 (D-GEN2).
+// 생성 경로 규칙: 정수 연산·floor만. 초월함수 금지 (엔진별 비결정)
+function genMaze(rng,an,cn,spine,targetOpen){
+  const MH=[],MV=[];
+  for(let a=0;a<an;a++)MH.push(new Array(cn-1).fill(0));
+  for(let g=0;g<an-1;g++)MV.push(new Array(cn).fill(0));
+  const par=new Array(an*cn); for(let i=0;i<par.length;i++)par[i]=i;
+  const find=i=>{while(par[i]!==i){par[i]=par[par[i]];i=par[i];}return i;};
+  const id=(a,c)=>a*cn+c;
+  let open=0;
+  for(let b=0;b<cn-1;b++){ MH[spine][b]=1; open++; par[find(id(spine,b+1))]=find(id(spine,b)); }
+  const edges=[];
+  for(let a=0;a<an;a++)for(let b=0;b<cn-1;b++)if(!MH[a][b])edges.push([0,a,b]);
+  for(let g=0;g<an-1;g++)for(let c=0;c<cn;c++)edges.push([1,g,c]);
+  for(let i=edges.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=edges[i]; edges[i]=edges[j]; edges[j]=t; }
+  const ends=e=>e[0]===0?[id(e[1],e[2]),id(e[1],e[2]+1)]:[id(e[1],e[2]),id(e[1]+1,e[2])];
+  for(const e of edges){
+    const [u,v]=ends(e), ru=find(u), rv=find(v);
+    if(ru===rv) continue;
+    par[ru]=rv;
+    if(e[0]===0)MH[e[1]][e[2]]=1; else MV[e[1]][e[2]]=1;
+    open++;
+  }
+  for(const e of edges){            // 브레이드 — 같은 셔플 순서로 폐간선 개방 (결정론 유지)
+    if(open>=targetOpen) break;
+    if(e[0]===0){ if(!MH[e[1]][e[2]]){ MH[e[1]][e[2]]=1; open++; } }
+    else if(!MV[e[1]][e[2]]){ MV[e[1]][e[2]]=1; open++; }
+  }
+  return {MH,MV};
+}
+// 격자 BFS — 생성·검증 공용 (CELLS/NEXT는 채택된 레이아웃에서만 짓는다)
+function bfsGrid(m,an,cn,sa,sc){
+  const dist=[]; for(let a=0;a<an;a++)dist.push(new Array(cn).fill(-1));
+  dist[sa][sc]=0; const q=[[sa,sc]];
+  while(q.length){
+    const [a,c]=q.shift(), d=dist[a][c];
+    if(c>0&&m.MH[a][c-1]&&dist[a][c-1]<0){ dist[a][c-1]=d+1; q.push([a,c-1]); }
+    if(c<cn-1&&m.MH[a][c]&&dist[a][c+1]<0){ dist[a][c+1]=d+1; q.push([a,c+1]); }
+    if(a>0&&m.MV[a-1][c]&&dist[a-1][c]<0){ dist[a-1][c]=d+1; q.push([a-1,c]); }
+    if(a<an-1&&m.MV[a][c]&&dist[a+1][c]<0){ dist[a+1][c]=d+1; q.push([a+1,c]); }
+  }
+  return dist;
+}
+function mazeNbrs(m,an,cn,a,c){
+  const L=[];
+  if(c>0&&m.MH[a][c-1])L.push([a,c-1]);
+  if(c<cn-1&&m.MH[a][c])L.push([a,c+1]);
+  if(a>0&&m.MV[a-1][c])L.push([a-1,c]);
+  if(a<an-1&&m.MV[a][c])L.push([a+1,c]);
+  return L;
+}
+
+// v0.14 리터럴 — 유계 재시도 소진 시 폴백 겸 ?baked=1 (1F 시드 873 / B1 시드 13 오프라인 산출물.
+// 주방만 신설 고정셀 [3,0] — 정문 옆 비척추, 구운 배치와 무충돌). 폴백도 결정론적이라
+// 호스트·클라가 같은 시드에서 독립적으로 같은 결론(폴백 포함)에 도달한다
+function BAKED_LAYOUT(){ return {
+  MH0:[[0,1,1,1,1],[1,0,0,1,0],[0,0,0,1,1],[1,1,1,0,1],[1,1,1,1,1],[0,0,1,1,1],[0,1,0,0,1],[1,1,0,1,1]],
+  MV0:[[1,1,1,1,0,1],[1,1,1,0,1,1],[0,1,1,0,1,1],[1,1,1,1,0,1],[1,1,0,0,0,1],[1,1,0,1,0,1],[1,0,1,1,1,1]],
+  MH1:[[1,1,1],[1,1,1],[1,1,1],[1,1,1],[0,0,0],[1,1,1]],
+  MV1:[[1,0,0,1],[0,1,0,1],[1,0,1,1],[1,1,1,1],[0,1,0,1]],
+  eastHole:0,
+  trays:[{f:0,cell:[4,2]},{f:0,cell:[3,2]},
+         {f:1,cell:[3,1]},{f:1,cell:[1,2]},{f:1,cell:[4,2]},{f:1,cell:[0,1]}],
+  chks:[{f:0,home:[4,1],guard:-1,loop:null},
+        {f:0,home:[3,3],guard:1,loop:[[3,3],[3,2]]},
+        {f:0,home:[0,2],guard:-1,loop:[[0,2],[0,1],[0,3]]},
+        {f:0,home:[5,4],guard:-1,loop:[[5,4],[5,3],[5,5]]},
+        {f:1,home:[3,2],guard:2,loop:[[3,2],[3,1]]},
+        {f:1,home:[1,2],guard:3,loop:[[1,2],[1,1]]},
+        {f:1,home:[4,2],guard:4,loop:[[4,2],[3,2]]},
+        {f:1,home:[0,0],guard:5,loop:[[0,0],[0,1]]},
+        {f:1,home:[0,3],guard:-1,loop:[[0,3],[0,2],[1,3]]},
+        {f:1,home:[1,1],guard:-1,loop:[[1,1],[1,0],[1,2]]}],
+  kitchen:[3,0], baked:true,
+};}
+
+// 단일 술어 소스 — 생성 루프와 로드타임 validate()가 이 함수 하나를 공유한다 (검사 드리프트 원천 차단, D-GEN6).
+// 위협 배치 3원칙의 술어형: ①추출 축 캠핑 금지=척추 무마개·루프 척추 금지 ②우회=지킴 유한 체류(상수 불변)
+// ③선전조=FSM 상수 불변 — 배치 제약 불요
+function layoutChecks(L){
+  const bad=[];
+  const m0={MH:L.MH0,MV:L.MV0}, m1={MH:L.MH1,MV:L.MV1};
+  const d0=bfsGrid(m0,A_N,C_N,SPINE,0), d1=bfsGrid(m1,B1_A_N,B1_C_N,B1_SPINE,0);
+  for(let a=0;a<A_N;a++)for(let c=0;c<C_N;c++)if(d0[a][c]<0)bad.push('1F 미도달 '+a+','+c);
+  for(let a=0;a<B1_A_N;a++)for(let c=0;c<B1_C_N;c++)if(d1[a][c]<0)bad.push('B1 미도달 '+a+','+c);
+  for(let b=0;b<C_N-1;b++)if(!L.MH0[SPINE][b])bad.push('1F 척추 마개');
+  for(let b=0;b<B1_C_N-1;b++)if(!L.MH1[B1_SPINE][b])bad.push('B1 척추 마개');
+  if(L.trays.length!==6)bad.push('트레이 수');
+  if(L.chks.length!==10)bad.push('닭 수');
+  if(L.trays.filter(t=>t.f===0).length!==2)bad.push('트레이 층분할');
+  if(L.chks.filter(k=>k.f===0).length!==4)bad.push('닭 층분할');
+  const t0=L.trays[0];
+  if(t0.f!==0||t0.cell[0]!==SPINE||t0.cell[1]<1||t0.cell[1]>3)bad.push('tray0 척추 이탈');
+  const dOf=t=>t.f===0?d0[t.cell[0]][t.cell[1]]:d1[t.cell[0]][t.cell[1]];
+  const t1=L.trays[1];
+  if(t1.f!==0||dOf(t1)<2||dOf(t1)>4)bad.push('tray1 깊이');
+  const bT=L.trays.filter(t=>t.f===1);
+  if(bT.some(t=>dOf(t)<2))bad.push('B1 트레이 얕음');
+  if(!bT.some(t=>dOf(t)>=4))bad.push('B1 최심 부재');
+  if(new Set(L.trays.map(t=>t.f+':'+t.cell[0]+','+t.cell[1])).size!==6)bad.push('트레이 중복');
+  for(let t=1;t<6;t++)if(L.chks.filter(k=>k.guard===t).length!==1)bad.push('지킴 배정 '+t);
+  if(L.chks[0].guard!==-1||L.chks[0].loop)bad.push('tray0 지킴 활성');
+  for(const k of L.chks){
+    if(k.guard>=0&&L.trays[k.guard].f!==k.f)bad.push('지킴 층 불일치');
+    if(k.loop&&k.loop.some(([a])=>a===(k.f===0?SPINE:B1_SPINE)))bad.push('척추 순찰');
+    if(k.guard>=0){
+      const tr=L.trays[k.guard];
+      const dd=bfsGrid(k.f===0?m0:m1,k.f===0?A_N:B1_A_N,k.f===0?C_N:B1_C_N,tr.cell[0],tr.cell[1]);
+      if(dd[k.home[0]][k.home[1]]>1||dd[k.home[0]][k.home[1]]<0)bad.push('지킴 원거리');
+    }
+  }
+  const [ka,kc]=L.kitchen;
+  if(ka===SPINE)bad.push('주방 척추');
+  if(d0[ka][kc]<1||d0[ka][kc]>3)bad.push('주방 깊이');
+  const used=new Set();
+  for(const t of L.trays)if(t.f===0)used.add(t.cell[0]+','+t.cell[1]);
+  for(const k of L.chks)if(k.f===0){ used.add(k.home[0]+','+k.home[1]); if(k.loop)for(const [a,c] of k.loop)used.add(a+','+c); }
+  if(used.has(ka+','+kc))bad.push('주방 셀 점유');
+  if(L.eastHole===SPINE)bad.push('개구멍 척추');
+  return bad;
+}
+
+// 1회 시도 — 추첨 순서 계약: 미로 → 트레이 → 닭 → 주방 (최소 제약 객체를 맨 뒤에 — 재시도 원인화 최소)
+function genAttempt(sub){
+  const rng=mulberry32(sub);
+  const pick=arr=>arr[Math.floor(rng()*arr.length)];
+  const shuf=arr=>{ const a=arr.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t; } return a; };
+  const m0=genMaze(rng,A_N,C_N,SPINE,57);
+  const m1=genMaze(rng,B1_A_N,B1_C_N,B1_SPINE,28);
+  const d0=bfsGrid(m0,A_N,C_N,SPINE,0);           // 정문 셀 (SPINE,0)
+  const d1=bfsGrid(m1,B1_A_N,B1_C_N,B1_SPINE,0);  // 계단 입구 셀 (B1_SPINE,0)
+  const eastHole=pick([...Array(A_N).keys()].filter(a=>a!==SPINE));
+  // 트레이 — tray0 척추 c1..3 / tray1 깊이 2..4 / B1 4곳 전원≥2·최심≥4 ("깊을수록 달다" 정성 보존)
+  const t0=[SPINE,1+Math.floor(rng()*3)];
+  const t1c=[]; for(let a=0;a<A_N;a++)if(a!==SPINE)for(let c=0;c<C_N;c++)if(d0[a][c]>=2&&d0[a][c]<=4)t1c.push([a,c]);
+  if(!t1c.length)return null;
+  const t1=pick(t1c);
+  const bC=[]; for(let a=0;a<B1_A_N;a++)if(a!==B1_SPINE)for(let c=0;c<B1_C_N;c++)if(d1[a][c]>=2)bC.push([a,c]);
+  const deep=bC.filter(([a,c])=>d1[a][c]>=4);
+  if(bC.length<4||!deep.length)return null;
+  const bFirst=pick(deep);
+  const bRest=shuf(bC.filter(x=>!(x[0]===bFirst[0]&&x[1]===bFirst[1]))).slice(0,3);
+  if(bRest.length<3)return null;
+  const trays=[{f:0,cell:t0},{f:0,cell:t1},...shuf([bFirst,...bRest]).map(cell=>({f:1,cell}))];
+  // 닭 — 지킴 홈 BFS≤1·루프 척추 금지·홈 중복 금지 (위협 원칙 ①의 술어형)
+  const key=([a,c])=>a+','+c;
+  const usedHomes=new Set();
+  const near2=(m,an,cn,from,sp)=>{ // BFS≤2 비척추 이웃 (자기 제외)
+    const dd=bfsGrid(m,an,cn,from[0],from[1]), out=[];
+    for(let a=0;a<an;a++)for(let c=0;c<cn;c++)if(dd[a][c]>0&&dd[a][c]<=2&&a!==sp)out.push([a,c]);
+    return out;
+  };
+  const mkLoop=(m,an,cn,home,sp,len)=>{
+    const cands=shuf(near2(m,an,cn,home,sp).filter(x=>key(x)!==key(home)));
+    if(!cands.length)return null;
+    return [home,...cands.slice(0,len)];
+  };
+  // chks[0]: tray0 지킴 불활성 (튜토리얼 계약 승계) — 홈은 tray0 이웃
+  const c0home=pick(mazeNbrs(m0,A_N,C_N,t0[0],t0[1]));
+  if(!c0home)return null;
+  usedHomes.add('0:'+key(c0home));
+  const chks=[{f:0,home:c0home,guard:-1,loop:null}];
+  // 1F 지킴 (tray1)
+  const g1homeC=[t1,...mazeNbrs(m0,A_N,C_N,t1[0],t1[1]).filter(([a])=>a!==SPINE)].filter(h=>!usedHomes.has('0:'+key(h)));
+  if(!g1homeC.length)return null;
+  const g1home=pick(g1homeC);
+  const g1loop=mkLoop(m0,A_N,C_N,g1home,SPINE,1);
+  if(!g1loop)return null;
+  usedHomes.add('0:'+key(g1home));
+  chks.push({f:0,home:g1home,guard:1,loop:g1loop});
+  // 1F 자유 2
+  const f0cells=[]; for(let a=0;a<A_N;a++)if(a!==SPINE)for(let c=0;c<C_N;c++)f0cells.push([a,c]);
+  for(let n=0;n<2;n++){
+    const hc=shuf(f0cells).find(h=>!usedHomes.has('0:'+key(h))&&key(h)!==key(t1));
+    if(!hc)return null;
+    const lp=mkLoop(m0,A_N,C_N,hc,SPINE,2);
+    if(!lp)return null;
+    usedHomes.add('0:'+key(hc));
+    chks.push({f:0,home:hc,guard:-1,loop:lp});
+  }
+  // B1 지킴 4 (트레이 2..5) — 홈 = 트레이 셀 (전 트레이 비척추이므로 루프 조건과 정합)
+  for(let t=2;t<6;t++){
+    const tc=trays[t].cell;
+    const lp=mkLoop(m1,B1_A_N,B1_C_N,tc,B1_SPINE,1);
+    if(!lp)return null;
+    usedHomes.add('1:'+key(tc));
+    chks.push({f:1,home:tc,guard:t,loop:lp});
+  }
+  // B1 자유 2
+  const f1cells=[]; for(let a=0;a<B1_A_N;a++)if(a!==B1_SPINE)for(let c=0;c<B1_C_N;c++)f1cells.push([a,c]);
+  for(let n=0;n<2;n++){
+    const hc=shuf(f1cells).find(h=>!usedHomes.has('1:'+key(h)));
+    if(!hc)return null;
+    const lp=mkLoop(m1,B1_A_N,B1_C_N,hc,B1_SPINE,2);
+    if(!lp)return null;
+    usedHomes.add('1:'+key(hc));
+    chks.push({f:1,home:hc,guard:-1,loop:lp});
+  }
+  // 주방 — 마지막 추첨: 1F 비척추·정문 BFS 1..3·트레이∪홈∪루프 제외 (D-KIT2)
+  const occ=new Set();
+  for(const t of trays)if(t.f===0)occ.add(key(t.cell));
+  for(const k of chks)if(k.f===0){ occ.add(key(k.home)); if(k.loop)for(const c of k.loop)occ.add(key(c)); }
+  const kC=[]; for(let a=0;a<A_N;a++)if(a!==SPINE)for(let c=0;c<C_N;c++)
+    if(d0[a][c]>=1&&d0[a][c]<=3&&!occ.has(a+','+c))kC.push([a,c]);
+  if(!kC.length)return null;
+  const kitchen=pick(kC);
+  return {MH0:m0.MH,MV0:m0.MV,MH1:m1.MH,MV1:m1.MV,eastHole,trays,chks,kitchen};
+}
+
+// 레이아웃 = 시드의 순수 함수. (유계 재시도 × 결정론적 폴백 × 단일 술어 소스) — 셋이 곱해져야
+// "나쁜 시드가 게임을 벽돌로 못 만든다"가 성립한다 (D-GEN6)
+function genLayout(seed){
+  for(let i=0;i<16;i++){
+    const sub=(seed+Math.imul(i,0x9E3779B9))>>>0;   // 황금비 스트라이드 — 시도 간 탈상관
+    const L=genAttempt(sub);
+    if(L&&layoutChecks(L).length===0){ L.attempt=i; return L; }
+  }
+  console.error('[생성] 시드 '+seed+' 16회 소진 — 구운 리터럴 폴백');
+  const B=BAKED_LAYOUT(); B.attempt=-1;
+  return B;
+}
+const LAYOUT=USE_BAKED?BAKED_LAYOUT():genLayout(MAP_SEED);
+// FNV-1a 32 — 레이아웃 전산출물 해시. 같은 시드·다른 빌드(코드 차·비결정 유출)의 발산을
+// 접속 시점에 검출한다 — 시드 동등성만으론 못 잡는 계급 (D-NET3)
+function fnv1a(s){ let h=0x811c9dc5; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,0x01000193); } return h>>>0; }
+const layoutKey=L=>JSON.stringify([L.MH0,L.MV0,L.MH1,L.MV1,L.eastHole,L.trays,L.chks,L.kitchen]);
+const LAYOUT_HASH=fnv1a(layoutKey(LAYOUT));
+
+const MAZE_H=LAYOUT.MH0, MAZE_V=LAYOUT.MV0;
+const EAST_HOLE_AISLE=LAYOUT.eastHole;
+const B1_MAZE_H=LAYOUT.MH1, B1_MAZE_V=LAYOUT.MV1;
 
 // 셀 기하 — 두 층 공통 (위상×배율 → 월드 좌표)
 const CW=COOP_W/C_N;                         // 열 폭 555
@@ -212,13 +480,6 @@ const RH=120;                                // 케이지 열 깊이 (v0.9: 150�
 const AH=(COOP_D-(A_N-1)*RH)/A_N;            // 통로 폭 255
 const OPEN_W=320;                            // 케이지 열 관통 개구 폭
 const PLUG_W=150;                            // 통로 마개(이동식 케이지) 폭
-
-// ---------- B1 미로 위상 (시드 13 산출물 — 오프라인 생성 커밋) ----------
-// 6통로 × 4열 = 24셀. 척추 = 통로 2 (계단 정렬, 마개 금지). 막다른 길 3: (4,0)(4,2)(5,0).
-// 트레이 깊이(계단 입구 (2,0) 기준): 2/3/4/5 — "깊을수록 달다"
-const B1_A_N=6, B1_C_N=4, B1_SPINE=2;
-const B1_MAZE_H=[[1,1,1],[1,1,1],[1,1,1],[1,1,1],[0,0,0],[1,1,1]];
-const B1_MAZE_V=[[1,0,0,1],[0,1,0,1],[1,0,1,1],[1,1,1,1],[0,1,0,1]];
 
 // ---------- 계단 (1F 동벽 척추끝 → B1 서벽 척추 — U자 스위치백, 첫 꺾임 ≤200) ----------
 // 존 이격 700 근거: 닭 층별 봉쇄 채택 후 유일한 벽 무시 채널 = alarmFlock PACK_R 500 + 여유 200.
@@ -330,12 +591,22 @@ const VIS_WALK=180, VIS_RUN=310, VIS_LAND=300, VIS_BREAK=380, VIS_SHOVE=200,
 const DARK_BASE=360, DARK_ACC=8, DARK_MIN=240;
 // v0.13 전리품 — 신규 품목 클래스 0종, 기존 eggs[] 파이프라인에 kind만 얹는다 (D5)
 const LOOT_VAL={egg:1,bigEgg:3,meat:2};
+// v0.15 요리 — 열은 kind가 아니라 필드(e.heat 0생/1익음/2탄것)다: kind==='meat' 게이트(불파괴·주머니 금지)가
+// 조리 후에도 자동 승계된다 (kind 증식안은 교차심문 기각). 보너스는 가산 + 정전 ×2 하나만 —
+// 곱셈이면 정전 스택 ×4로 요리가 의무가 된다. 값 표 raw/cooked/burnt: 알 1/2/1 · 큰알 3/4/1 · 고기 2/4/1.
+// KO 파밍 열세 유지: 고기 전조리 라인 40 < 생계란 라인 42 < 조리 계란 라인 60 (D-KIT4·5)
+const COOK_BONUS={egg:1,bigEgg:1,meat:2};
+const BURNT_VAL=1;               // 숯덩이도 납품된다 — 트럭까지 들고 가는 것 자체가 개그 (0이면 개그가 죽는다)
+const COOK_T=12;                 // 익기까지(초) — 지킴 체류 6의 2박. 기다림이 곧 프리미엄의 가격. 튜닝 상수
+const BURN_T=24;                 // 익은 뒤 타기까지 — 넉넉하게: 타는 건 반사 실패가 아니라 쫓겨난 대가다. 튜닝 상수
+const BURN_WARN=6;               // 타기 전 연기 기둥 예고(초) — 위협 3원칙 ③(선전조)의 요리판. 렌더 전용
 const PER_TRAY=3;                // 트레이당 개수 — 총 18 (1F 6 / B1 12). 트레이 개수는 6 그대로
 const DEPART_T=20;               // 출발 카운트다운(초) — 1F·마당 다리 기준 (지하 보호는 취소키가 한다, D4)
 const DEPART_NEAR_T=1.5;         // 전원이 패드 안이면 단축 (솔로는 사실상 즉시)
 const DEPART_CD=8;               // 취소 후 재개시 쿨다운
 const LEVER_R=45;                // 운전석 레버 반경 — 반납대(x=380)와 188u 이격
-const GRADE=[1,10,25];           // 인원수 배수 — 빈 트럭 / 오늘 장사는 됐다 / 한탕 했다 / 대형사고
+const GRADE=[1,14,35];           // 인원수 배수 — 빈 트럭 / 오늘 장사는 됐다 / 한탕 했다 / 대형사고
+                                 // v0.15: [1,10,25]→[1,14,35] — 요리 보너스로 이론상한 62→100. 방치하면 '대형사고'가 헐값 (튜닝 상수)
 // v0.14 신설 — 거위 (docs/goal/chicken-heist-guard-goose.md)
 // 왜 여기 있나: 농장은 실제로 거위를 경비로 친다. 설명이 필요 없는 종이어야 한다는
 // 금지 해제 조건(CLAUDE.md 2026-08-14)을 만족하는 최단 답이다. 몬스터가 아니다.
@@ -352,17 +623,23 @@ const GOOSE_SLEEP_T=4.0;         // 자리로 돌아온 뒤 다시 잠들기까�
 const GOOSE_ALERT_CD=2.5;        // 재-꽥 쿨 (소음 스팸 방지)
 const GOOSE_MAX_X=BARN.x0-40;    // 거위는 이 선을 못 넘는다 — 문 안은 닭의 영역이다.
                                  // 플레이어에겐 읽히는 도피처가 된다: 문으로 들어가면 거위는 멈춘다
-const DARK_TIMER=300;            // (구) 정전 카운트다운 — v0.13에서 DARK_BASE 계열로 대체. 자가검사 하위호환 참조만 남김
+// (DARK_TIMER는 v0.15에서 삭제 — v0.13 대체 후 남은 잔재가 클라 정전 경고를 300s 고정으로 오발시켰다.
+//  상수를 지웠으므로 재발은 grep 불가능. 클라도 darkAt()을 쓴다 — D-NET6)
 // v0.11 신설 — 밤 시계·새벽 마감 (docs/goal/chicken-heist-dawn-deadline.md)
-const NIGHT_LEN=480;             // 밤 전체 길이(초) — 시계 00:00→06:00 매핑, 만료 = 새벽 실패. DARK_TIMER보다 길어야 한다. 튜닝 상수
+const NIGHT_LEN=480;             // 밤 전체 길이(초) — 시계 00:00→06:00 매핑, 만료 = 새벽 실패. DARK_BASE보다 길어야 한다. 튜닝 상수
 const DAWN_WARNS=[60,30,10];     // 예고 시점 (잔여 실초) — 수탉은 세계의 신호, 경적은 기사의 신호
 const DAWN_MSGS=['멀리서 수탉이 뒤척인다…','수탉이 울었다 — 기사가 시동을 건다','경적!! 트럭이 떠난다!!'];
 // 밤의 이 지점부터 하늘이 물들기 시작 (렌더 전용 — "그냥 타이머"가 아니게 하는 축).
-// 정전(DARK_TIMER=300s=62%)보다 확실히 앞이어야 한다 — 뒤면 밝은 구간에 하늘을 볼 시간이 안 남는다
+// 정전 최속 시점(DARK_MIN=240s=50%)보다 확실히 앞이어야 한다 — 뒤면 밝은 구간에 하늘을 볼 시간이 안 남는다
 const DAWN_SKY_T=0.35;
 const DAWN_SKY_DARK_K=0.45;      // 정전 중 하늘 진행 비율 — 올려다보면 시간은 읽히되 발밑은 여전히 캄캄하게
 const TRUCK_GO_T=6.0, TRUCK_GO_D=900;   // v0.13(D3): 막차 유예 — 이 6초 안에 패드에 닿으면 짐이 실린다  // 새벽에 트럭이 떠나는 연출 (시간/거리) — 충돌 세그는 그대로 둔다
-const HEMI_LIT=0.58, HEMI_DARK=0.06, MOON_LIT=0.22, MOON_DARK=0.04;   // 광량 기준값 (정전·새벽이 공유)
+// v0.15 "확 어둡게" (D-DARK1) — v0.6 기각('정전 대비 붕괴')의 개발자 권한 번복 (2026-08-15).
+// 원칙: 앰비언트만 낮추고 램프는 절대 건드리지 않는다 — 0.20 베이스에선 램프 웅덩이가 체감 광량의
+// ~80%가 되어 정전의 램프 일괄 소등이 오히려 더 극적으로 읽힌다. ?bright=1 = dev A/B (v0.14 값 복원)
+const BRIGHT_AB=/[?&]bright=1/.test(location.search);
+const HEMI_LIT=BRIGHT_AB?0.58:0.20, HEMI_DARK=0.06, MOON_LIT=BRIGHT_AB?0.22:0.12, MOON_DARK=0.04;   // 광량 기준값 (정전·새벽이 공유)
+const SKY_NIGHT_HEX=BRIGHT_AB?0x0c1424:0x060a14;   // 밤하늘·안개 기저색 — 거리(fog near/far)는 불변 (트럭 가시성)
 const WARN_DIP_T=0.12;           // 잔여 30/10초 조명 딥 (flickT 기구 재사용)
 const PATROL_SPD=65;             // 순찰 전용 속도 — 배회 42와 invest 110 사이 (신설 상태의 신설 상수)
 const PACK_R=500;                // 무리 경보 반경 (소리 기반 — 앵커 리쉬 600이 자연 상한)
@@ -377,7 +654,7 @@ const SWAP_T=1.2;                // Q 품 동작 시간 (중 밀치기·던지�
 const CART_SLOTS=2, CART_GRAB_R=70, CART_LOAD_R=60;
 const CART_MULT=0.75, CART_LAG=0.55, CART_EJECT_T=4;  // 달리기 견인 누적 4s → 알 1개 결정적 이탈
 const JUMP_V=260, JUMP_G=650;    // 점프 정점 52 — 물통(26)·상자(40)만 넘는다. 벽은 원천 불가
-const JUMP_SKIP={trough:1,crate:1};  // 공중 통과 + 2D 판정(시야·파동·카메라) 제외 목록
+const JUMP_SKIP={trough:1,crate:1,brooder:1};  // 공중 통과 + 2D 판정(시야·파동·카메라) 제외 목록 (v0.15: 보온 상자 40 추가)
 const VIS_PUNCH=380, VIS_ALARM=500;  // 신설 동사 파동 (펀치 LOGIC=PICKUP_LOUD 310 재사용, 경보 LOGIC=0)
 // (순찰·지킴 리터럴은 v0.9부터 CHK_DEF로 통합 — 트레이 정의 아래 참조)
 
@@ -413,7 +690,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=200;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.14'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.15'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -422,7 +699,7 @@ const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시
 // baseY: 세그의 물리 기준면 (B1 -260, 계단 측벽은 상층 기준 0 — 계란 유출 봉쇄)
 function seg(x1,z1,x2,z2,kind,baseY){return {x1,z1,x2,z2,kind:kind||'wall',baseY:baseY||0};}
 // cage·plug 210: 계란 비행 물리도 여기 물려 있다 — 벽 너머 투척 전술 삭제는 v0.6 의도된 변경
-const SEG_H={wall:96, barn:BARN_H, cage:210, plug:210, truck:92, hay:56, trough:26, crate:40, flapIn:BARN_H, stair:210};
+const SEG_H={wall:96, barn:BARN_H, cage:210, plug:210, truck:92, hay:56, trough:26, crate:40, flapIn:BARN_H, stair:210, brooder:40};
 
 const TRUCK_X=250, TRUCK_Z=aisleZC(SPINE);
 const truckPad={x:TRUCK_X+130,z:TRUCK_Z,r:45};
@@ -527,6 +804,18 @@ for(const b of TROUGHS){
   walls.push(seg(b.x0,b.z0,b.x1,b.z0,'trough'), seg(b.x1,b.z0,b.x1,b.z1,'trough'),
              seg(b.x1,b.z1,b.x0,b.z1,'trough'), seg(b.x0,b.z1,b.x0,b.z0,'trough'));
 }
+// v0.15 주방 — 병아리 보온등 (docs/goal/chicken-heist-procgen-kitchen.md D-KIT1·2)
+// 동물 소유 농장에서 텍스트 없이 읽히는 유일한 열원 = 동물 자신의 설비. 전기라서 정전 인과도 공짜.
+// 1F 축사 내부 랜덤 셀 — 마당은 강탈 종이 없어 "기다림=위험" 가격표가 지워진다 (교차심문 확정)
+const KITCHEN_CELL=LAYOUT.kitchen;
+const KITCH_D=90;                    // 보온 상자 한 변 — 통로 255에서 잔폭 165 ≥ 160 (물통 잔폭 검사의 동형)
+const KITCHEN_POS={x:fCellXC(0,KITCHEN_CELL[1]), z:fAisleZ0(0,KITCHEN_CELL[0])+AH-4-KITCH_D/2};
+const KITCHEN_R=70;                  // 조리 반경 — 상자 가장자리(45)+계란(7)이 안에 들어온다. 튜닝 상수
+{ // 상자 충돌 세그 — kind 'brooder': 높이 40 (점프 통과·시야/파동/카메라 비차단), SEGS 버킷 분리 전에 push
+  const h=KITCH_D/2, kx=KITCHEN_POS.x, kz=KITCHEN_POS.z;
+  walls.push(seg(kx-h,kz-h,kx+h,kz-h,'brooder'), seg(kx+h,kz-h,kx+h,kz+h,'brooder'),
+             seg(kx+h,kz+h,kx-h,kz+h,'brooder'), seg(kx-h,kz+h,kx-h,kz-h,'brooder'));
+}
 function inCoopPt(x,z){ return x>BARN.x0&&x<BARN.x1&&z>BARN.z0&&z<BARN.z1; }   // 1F 전용 (flapIn 일방향)
 function inFloorRect(x,z){
   return (x>BARN.x0&&x<BARN.x1&&z>BARN.z0&&z<BARN.z1)||(x>B1.x0&&x<B1.x1&&z>B1.z0&&z<B1.z1);
@@ -545,32 +834,111 @@ function segsFor(x,z){
   return zn===1?SEGS1:(zn===2?walls:SEGS0);
 }
 
-// 트레이 6: 1F 2 (튜토리얼 척추 + 중거리) / B1 4 (깊이 2/3/4/5) — NEED 3 > 1F 2 → 지하 하강 강제
-const TRAY_DEF=[
-  {f:0,cell:[4,2]},{f:0,cell:[3,2]},
-  {f:1,cell:[3,1]},{f:1,cell:[1,2]},{f:1,cell:[4,2]},{f:1,cell:[0,1]},
-];
-const TRAY_CELLS=[[4,2],[3,2]];              // 1F 하위호환 (검증·램프 참조)
+// ============================================================
+//  v0.15 미니맵 (D-MAP1) — 내비게이션 전용, 테스트 단계 기본 ON (Tab 토글).
+//  계약: 닭·거위·알·파동·거위 초소·배달값은 어떤 버전에서도 그리지 않는다 —
+//  지도가 위협 채널이 되는 순간 월드 읽기(게이지·응시·연기·빛 웅덩이) 투자가 죽는다.
+//  정적 레이어는 생성 산출물(SEGS0/SEGS1)에서만 그린다 — 좌표 리터럴 수동 중복 금지 (첫 비폴백 시드에서 즉사)
+// ============================================================
+const MAP_W=240, MAP_H=170, MAP_SS=2;          // CSS 크기 / 슈퍼샘플 배율
+let mapOn=true;
+try{ mapOn=localStorage.getItem('ch_map')!=='0'; }catch(e){}
+const mapCv=document.createElement('canvas');
+mapCv.id='map'; mapCv.width=MAP_W*MAP_SS; mapCv.height=MAP_H*MAP_SS;
+mapCv.style.cssText='position:fixed;top:14px;right:16px;width:'+MAP_W+'px;height:'+MAP_H+'px;'+
+  'background:rgba(6,10,20,0.72);border:1px solid rgba(255,207,146,0.4);border-radius:4px;z-index:6;pointer-events:none;display:none;';
+document.body.appendChild(mapCv);
+const mapCtx=mapCv.getContext('2d');
+function mapView(f){                            // 층 버킷 실측 바운딩 → 균일 스케일 (레터박스)
+  const segs=f===0?SEGS0:SEGS1;
+  let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+  for(const s of segs){
+    x0=Math.min(x0,s.x1,s.x2); x1=Math.max(x1,s.x1,s.x2);
+    z0=Math.min(z0,s.z1,s.z2); z1=Math.max(z1,s.z1,s.z2);
+  }
+  x0-=40; x1+=40; z0-=40; z1+=40;
+  const sc=Math.min(MAP_W*MAP_SS/(x1-x0), MAP_H*MAP_SS/(z1-z0));
+  return {x0,z0,sc,ox:(MAP_W*MAP_SS-(x1-x0)*sc)/2, oz:(MAP_H*MAP_SS-(z1-z0)*sc)/2};
+}
+const MAP_VIEWS=[mapView(0),mapView(1)];
+const mapPt=(v,x,z)=>[v.ox+(x-v.x0)*v.sc, v.oz+(z-v.z0)*v.sc];
+const MAP_KIND_COL={wall:'#3f4a38',barn:'#8a7458',cage:'#6a6d74',plug:'#7a6a50',truck:'#b0483e',
+  hay:'#8a7440',crate:'#6e5638',trough:'#4c565e',flapIn:'#8a7458',stair:'#5a6470',brooder:'#c07a3a'};
+function mapFloorOf(x,z){
+  const zn=zoneOfArea(x,z);
+  return zn===1?1:(zn===2?(groundY(x,z)<-FLOOR_H/2?1:0):0);
+}
+function buildMapLayer(f){
+  const cv=document.createElement('canvas');
+  cv.width=MAP_W*MAP_SS; cv.height=MAP_H*MAP_SS;
+  const cx=cv.getContext('2d'), v=MAP_VIEWS[f];
+  cx.lineWidth=1.6;
+  for(const s of (f===0?SEGS0:SEGS1)){
+    cx.strokeStyle=MAP_KIND_COL[s.kind]||'#556';
+    cx.beginPath();
+    const a=mapPt(v,s.x1,s.z1), b=mapPt(v,s.x2,s.z2);
+    cx.moveTo(a[0],a[1]); cx.lineTo(b[0],b[1]);
+    cx.stroke();
+  }
+  // 고정 앵커 아이콘 — 허용 목록: 트럭 패드 · 정문 노치 · 계단 · 주방 불꽃 (전부 부동산, 움직이는 건 사람뿐)
+  if(f===0){
+    const p1=mapPt(v,truckPad.x,truckPad.z);
+    cx.fillStyle='#ffe08a'; cx.beginPath(); cx.arc(p1[0],p1[1],4,0,TAU); cx.fill();
+    const d1=mapPt(v,BARN.x0,DOOR_Z);
+    cx.fillStyle='#ffcf92'; cx.fillRect(d1[0]-2,d1[1]-5,4,10);
+    const s1=mapPt(v,STAIR.A.x0+40,ZA);
+    cx.fillStyle='#7fb8d8'; cx.fillRect(s1[0]-3,s1[1]-3,6,6);
+    const k1=mapPt(v,KITCHEN_POS.x,KITCHEN_POS.z);
+    cx.fillStyle='#ff9a40';
+    cx.beginPath(); cx.moveTo(k1[0],k1[1]-5); cx.lineTo(k1[0]+3.5,k1[1]+3); cx.lineTo(k1[0]-3.5,k1[1]+3); cx.closePath(); cx.fill();
+  } else {
+    const s1=mapPt(v,STAIR.R.x1-40,ZB);
+    cx.fillStyle='#7fb8d8'; cx.fillRect(s1[0]-3,s1[1]-3,6,6);
+  }
+  return cv;
+}
+const MAP_LAYERS=[buildMapLayer(0),buildMapLayer(1)];   // 로드당 1회 — 맵은 페이지 로드당 1개다 (D-NET5)
+let mapAcc=0.2;
+function drawMinimap(dt){
+  const show=mapOn&&phase!=='title'&&phase!=='intro';
+  mapCv.style.display=show?'block':'none';
+  if(!show) return;
+  mapAcc+=dt;
+  if(mapAcc<0.1) return;                       // 10Hz — 매 프레임 다시 그릴 이유가 없다
+  mapAcc=0;
+  const pv=P(), f=mapFloorOf(pv.x,pv.z), v=MAP_VIEWS[f];
+  mapCtx.clearRect(0,0,mapCv.width,mapCv.height);
+  mapCtx.drawImage(MAP_LAYERS[f],0,0);
+  if(mapFloorOf(cart.x,cart.z)===f){
+    const c1=mapPt(v,cart.x,cart.z);
+    mapCtx.fillStyle='#a8895a'; mapCtx.fillRect(c1[0]-2.5,c1[1]-2.5,5,5);
+  }
+  for(const q of players){                     // 동료 — 틴트 점 (같은 층만)
+    if(!q.active||q.idx===me||mapFloorOf(q.x,q.z)!==f) continue;
+    const q1p=mapPt(v,q.x,q.z);
+    mapCtx.fillStyle='#'+PLAYER_TINTS[q.idx].toString(16).padStart(6,'0');
+    mapCtx.beginPath(); mapCtx.arc(q1p[0],q1p[1],3.2,0,TAU); mapCtx.fill();
+  }
+  const m1=mapPt(v,pv.x,pv.z);                 // 나 — 시선 화살표
+  mapCtx.save();
+  mapCtx.translate(m1[0],m1[1]); mapCtx.rotate(-pv.yaw);
+  mapCtx.fillStyle='#ffffff';
+  mapCtx.beginPath(); mapCtx.moveTo(0,-5.5); mapCtx.lineTo(3.6,4.5); mapCtx.lineTo(-3.6,4.5); mapCtx.closePath(); mapCtx.fill();
+  mapCtx.restore();
+}
+
+// 트레이 6: 1F 2 (튜토리얼 척추 + 중거리 2..4) / B1 4 (전원 깊이≥2·최심≥4) — 배치는 시드 산출물 (D-GEN4)
+const TRAY_DEF=LAYOUT.trays;
+const TRAY_CELLS=TRAY_DEF.filter(t=>t.f===0).map(t=>t.cell);   // 1F 파생 (검증·램프 참조 — 불웅덩이 램프가 tray0를 따라간다)
 const NEST_POS=TRAY_DEF.map(({f,cell:[a,c]},i)=>{
   const side=(i%2===0)?1:-1;                 // 남/북 케이지 면 교대
   let z=(side>0)?(fAisleZ0(f,a)+AH-26):(fAisleZ0(f,a)+26);
   if(a===FLOORS[f].an-1&&side>0) z=fAisleZ0(f,a)+AH-26;
   return {x:fCellXC(f,c)+((i*97)%120)-60, z, cell:[a,c], f, gy:FLOORS[f].base};
 });
-// 닭 10: 1F 4 (트레이0 지킴 불활성 + 지킴 1 + 자유 2) / B1 6 (지킴 4 + 자유 2)
-// guard = 담당 트레이 전역 인덱스. 루프는 오프라인 산출 리터럴 — 척추 셀 0개 (결정론 조우)
-const CHK_DEF=[
-  {f:0,home:[4,1],guard:-1,loop:null},       // 트레이0 지킴이 — 튜토리얼 보호로 불활성 (v0.6 계약)
-  {f:0,home:[3,3],guard:1,loop:[[3,3],[3,2]]},
-  {f:0,home:[0,2],guard:-1,loop:[[0,2],[0,1],[0,3]]},
-  {f:0,home:[5,4],guard:-1,loop:[[5,4],[5,3],[5,5]]},
-  {f:1,home:[3,2],guard:2,loop:[[3,2],[3,1]]},
-  {f:1,home:[1,2],guard:3,loop:[[1,2],[1,1]]},
-  {f:1,home:[4,2],guard:4,loop:[[4,2],[3,2]]},
-  {f:1,home:[0,0],guard:5,loop:[[0,0],[0,1]]},
-  {f:1,home:[0,3],guard:-1,loop:[[0,3],[0,2],[1,3]]},
-  {f:1,home:[1,1],guard:-1,loop:[[1,1],[1,0],[1,2]]},
-];
+// 닭 10: 1F 4 (트레이0 지킴 불활성 + 지킴 1 + 자유 2) / B1 6 (지킴 4 + 자유 2) — 배치는 시드 산출물.
+// guard = 담당 트레이 전역 인덱스. 제약 = 위협 3원칙의 술어형: 척추 순찰 금지·지킴 홈 BFS≤1·홈 중복 금지 (D-GEN5)
+const CHK_DEF=LAYOUT.chks;
 const CHK_HOME=CHK_DEF.map(d=>({x:fCellXC(d.f,d.home[1]),z:fAisleZC(d.f,d.home[0]),aisle:d.home[0],cell:d.home,f:d.f}));
 const CHK_COUNT=CHK_HOME.length;
 
@@ -800,8 +1168,8 @@ const waves=[];
 const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('gl'),antialias:true});
 renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
 const scene=new THREE.Scene();
-scene.background=new THREE.Color(0x0c1424);
-scene.fog=new THREE.Fog(0x0c1424,2200,BARN.x1+1300);
+scene.background=new THREE.Color(SKY_NIGHT_HEX);
+scene.fog=new THREE.Fog(SKY_NIGHT_HEX,2200,BARN.x1+1300);   // v0.15: 색만 어둡게 — 거리 당기면 축사 문에서 트럭이 안 보인다
 const camera=new THREE.PerspectiveCamera(72,1,1,14000);
 camera.rotation.order='YXZ';
 scene.add(camera);
@@ -817,7 +1185,7 @@ scene.add(hemi);
 const moon=new THREE.DirectionalLight(0x9fb4d8,0.22);
 moon.position.set(300,700,-400); scene.add(moon);
 // v0.11 새벽 팔레트 — 밤 → 여명 → 해 뜸. 렌더 전용이며 어그로·시야 상수는 어디도 참조하지 않는다
-const C_SKY_NIGHT=new THREE.Color(0x0c1424), C_SKY_DAWN=new THREE.Color(0x243056), C_SKY_SUN=new THREE.Color(0x7a5348);
+const C_SKY_NIGHT=new THREE.Color(SKY_NIGHT_HEX), C_SKY_DAWN=new THREE.Color(0x243056), C_SKY_SUN=new THREE.Color(0x7a5348);
 const C_HEMI_NIGHT=new THREE.Color(0x33506c), C_HEMI_SUN=new THREE.Color(0xd09a6e);
 const _sky=new THREE.Color();
 const lampLights=[];
@@ -996,8 +1364,15 @@ const truckG=new THREE.Group();
 const deliveredMesh=[];
 const RACK_N=24;                       // 짐칸 랙 칸수 (3열×4행×2단). 넘치면 더 안 쌓이고 숫자만 오른다
 // 짐칸 구성 — 품목별 개수 + 정전 반납분. 스냅샷 bk 필드로 클라에도 그대로 간다 (D7: 점수판은 트럭이다)
-const bank={egg:0,bigEgg:0,meat:0,dark:0};
-function bankItem(kind,dark){ bank[kind]=(bank[kind]||0)+1; if(dark) bank.dark++; paintRack(); }
+const bank={egg:0,bigEgg:0,meat:0,dark:0,cEgg:0,cBig:0,cMeat:0,burnt:0};   // v0.15: 조리 4종 추가 — bk[0..3] 동결, [4..7] append (D-NET1)
+function bankItem(e,dark){                     // v0.15: kind 문자열 → 아이템 자체 (열 상태를 같이 본다). 유일 호출처 = deliverEgg
+  const k=e.kind||'egg';
+  if(e.heat===2) bank.burnt++;
+  else if(e.heat===1) bank[k==='bigEgg'?'cBig':(k==='meat'?'cMeat':'cEgg')]++;
+  else bank[k]=(bank[k]||0)+1;
+  if(dark) bank.dark++;
+  paintRack();
+}
 function paintRack(){
   let i=0;
   const put=(n,col,sx,sy)=>{
@@ -1007,6 +1382,10 @@ function paintRack(){
       m.material.color.setHex(i<bank.dark?0xffcf6a:col);   // 정전 반납분은 금빛 (D6 — 새 숫자 대신 색으로)
     }
   };
+  put(bank.cBig, 0xe8b76e,1.55,1.25);    // v0.15 큰 알 구이 — 조리분이 랙 앞줄 (프리미엄이 먼저 보인다)
+  put(bank.cMeat,0xd98a3f,1.3,0.65);     // 통닭
+  put(bank.cEgg, 0xf5d089,1.12,0.9);     // 계란 프라이
+  put(bank.burnt,0x3a332c,0.85,0.75);    // 숯덩이
   put(bank.bigEgg,0xffe3a8,1.4,1.75);    // 지하 큰 알 — 실루엣으로 깊이가 읽힌다
   put(bank.meat,  0xc9705a,1.15,0.9);    // 닭고기
   put(bank.egg,   0xfff6e4,1.0,1.25);    // 1층 알
@@ -1104,21 +1483,36 @@ for(let i=0;i<LOOT_N;i++){
   crack.visible=false; m.add(crack);
   eggs.push({mesh:m,crackM:crack,state:'gone',kind:'egg',x:0,y:EGG_R,z:0,vx:0,vy:0,vz:0,
     spin:0,cracked:false,thrown:false,forceBreak:false,forceSurvive:false,carrier:null,
-    claimed:false,restT:0,touched:false});
+    claimed:false,restT:0,touched:false,heat:0,cookT:0});   // v0.15: 열 상태 — 필드지 kind가 아니다 (D-KIT4)
 }
-function applyKindVisual(e){
-  if(e.kind==='bigEgg'){ e.mesh.scale.set(1.4,1.75,1.4); e.mesh.material.color.setHex(0xffe3a8); }
-  else if(e.kind==='meat'){ e.mesh.scale.set(1.15,0.9,1.15); e.mesh.material.color.setHex(0xc9705a); }
-  else { e.mesh.scale.set(1,1.25,1); e.mesh.material.color.setHex(0xfff6e4); }
-  e.crackM.visible=false;
+// v0.15 열 비주얼 — 단일 소유자 (D-KIT6). 합성 순서: kind(스케일·기본색) → cracked → heat(틴트·이미시브) → 정전(이미시브).
+// 규칙: 모든 열 상태는 {실루엣, 이미시브, 파티클} 중 2개 이상이 달라야 한다 — 0.20 앰비언트에서 색만으론 불가독.
+// (v0.14의 eggGlow는 전 알에 단일 이미시브를 일괄 기록해 정전 토글마다 열 틴트를 지웠다 — 교차심문 수리)
+function applyEggVisual(e,dark){
+  if(dark===undefined) dark=blackout;
+  let sx=1,sy=1.25,col=0xfff6e4;
+  if(e.kind==='bigEgg'){ sx=1.4; sy=1.75; col=0xffe3a8; }
+  else if(e.kind==='meat'){ sx=1.15; sy=0.9; col=0xc9705a; }
+  let emi=dark?EGG_EMISSIVE_DARK:EGG_EMISSIVE_LIT;
+  if(e.cracked&&!e.heat) col=0xefdcc0;
+  if(e.heat===1){        // 익음 — 납작해지고 온색으로 스스로 빛난다 (실루엣+이미시브)
+    sx*=1.12; sy*=0.72;
+    col=e.kind==='meat'?0xd98a3f:(e.kind==='bigEgg'?0xe8b76e:0xf5d089);
+    emi=dark?0xffdda0:0x552e0a;
+  } else if(e.heat===2){ // 탄 것 — 무광 흑 뭉치. 정전에도 검다 (실루엣+연기 파티클은 updCookFx 몫)
+    sx*=0.85; sy*=0.6;
+    col=0x1a1512; emi=0x000000;
+  }
+  e.mesh.scale.set(sx,sy,sx);
+  e.mesh.material.color.setHex(col);
+  e.mesh.material.emissive.setHex(emi);
+  e.crackM.visible=!!e.cracked&&e.heat!==2;
 }
-function crackVisual(e){
-  e.crackM.visible=true;
-  e.mesh.material.color.setHex(0xefdcc0);
-}
-function uncrackVisual(e){ applyKindVisual(e); }
+function applyKindVisual(e){ applyEggVisual(e); }   // 구명 별칭 — 호출부 의미 불변
+function crackVisual(e){ applyEggVisual(e); }
+function uncrackVisual(e){ applyEggVisual(e); }
 function eggGlow(on){
-  for(const e of eggs) e.mesh.material.emissive.setHex(on?EGG_EMISSIVE_DARK:EGG_EMISSIVE_LIT);
+  for(const e of eggs) applyEggVisual(e,on);
   for(const m of deliveredMesh) m.material.emissive.setHex(on?EGG_EMISSIVE_DARK:EGG_EMISSIVE_LIT);
 }
 
@@ -1181,10 +1575,87 @@ function dropMeat(x,z){
     e.vx=e.vy=e.vz=0; e.spin=Math.random()*TAU;
     e.cracked=false; e.thrown=false; e.forceBreak=false; e.forceSurvive=false;
     e.carrier=null; e.claimed=false; e.restT=0; e.touched=false;
+    e.heat=0; e.cookT=0;
     applyKindVisual(e);
     e.mesh.visible=true;
     return;
   }
+}
+
+// ---------- v0.15 주방: 병아리 보온등 (D-KIT1) ----------
+// 동물 소유 농장에서 설명 없이 읽히는 유일한 열원 — 병아리 상자 위 보온등 밑 급이 팬에서 전리품을 굽는다.
+// 전기 설비라 정전=조리 정지 인과가 공짜. 조명은 lampLights와 분리 운용 (플리커 딥과 간섭 없이 applyDark만 탄다)
+const KITCHEN_LIGHT_I=0.95;
+let kitchenBulbM=null, kitchenLight=null;
+{
+  const g=new THREE.Group();
+  const straw=new THREE.Mesh(new THREE.BoxGeometry(KITCH_D,26,KITCH_D),mat(0xa8894e,0x241c08));
+  straw.position.y=13; g.add(straw);
+  const rim=new THREE.Mesh(new THREE.BoxGeometry(KITCH_D+6,12,KITCH_D+6),mat(0x6e5638,0x140e06));
+  rim.position.y=32; g.add(rim);
+  const pan=new THREE.Mesh(new THREE.CylinderGeometry(24,29,6,16),mat(0x3a3f46,0x14161a));
+  pan.position.y=41; g.add(pan);
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(2.5,3,150,8),mat(0x4a4038,0x120e0a));
+  pole.position.set(-KITCH_D/2-8,75,0); g.add(pole);
+  const arm=new THREE.Mesh(new THREE.BoxGeometry(KITCH_D/2+14,4,4),mat(0x4a4038,0x120e0a));
+  arm.position.set(-KITCH_D/4-1,148,0); g.add(arm);
+  const shade=new THREE.Mesh(new THREE.ConeGeometry(20,16,12,1,true),mat(0x8a4a30,0x2a0f06));
+  shade.position.y=140; g.add(shade);
+  kitchenBulbM=new THREE.MeshBasicMaterial({color:0xffa24e});   // 발광 전구 — 앰비언트 무시, 어두운 밝은 구간의 온색 랜드마크
+  const bulb=new THREE.Mesh(new THREE.SphereGeometry(6,10,8),kitchenBulbM);
+  bulb.position.y=131; g.add(bulb);
+  kitchenLight=new THREE.PointLight(0xff9a40,KITCHEN_LIGHT_I,500);
+  kitchenLight.position.y=118; g.add(kitchenLight);
+  for(const [cx,cz] of [[-16,12],[14,-10]]){                    // 병아리 2 — 이게 걔네 보온등이라는 왜-질문 봉인
+    const ch=new THREE.Mesh(new THREE.SphereGeometry(6,8,6),mat(0xffe28a,0x40300a));
+    ch.position.set(cx,41,cz); ch.scale.set(1.1,0.9,1); g.add(ch);
+  }
+  g.position.set(KITCHEN_POS.x,0,KITCHEN_POS.z);
+  scene.add(g);
+}
+// 요리 판정 — 존 효과: KITCHEN_R 안 'rest' 아이템만 익는다. 신규 동사·신규 EGG_STATE 0 (D-KIT3).
+// 판정 규율: heat를 뒤집는 COOK_T/BURN_T 비교는 이 함수 밖에 존재 금지 (렌더의 진행 러프는 판정이 아니다)
+function updKitchen(dt){
+  if(blackout||truckGoT>=0) return;            // 보온등은 농장 전력 — 정전이면 멈춘다 (일시정지, 리셋 아님. 재개는 공짜)
+  for(const e of eggs){
+    if(e.state!=='rest'||e.heat===2) continue;
+    if(Math.hypot(e.x-KITCHEN_POS.x,e.z-KITCHEN_POS.z)>KITCHEN_R) continue;
+    e.cookT+=dt;                               // 진행은 음식의 속성 — 집어 들면 얼고 다시 놓으면 이어진다 (리셋 스캠 봉쇄)
+    if(e.heat===0&&e.cookT>=COOK_T){
+      e.heat=1; applyEggVisual(e);
+      cookDoneS(e.x,e.z);
+    } else if(e.heat===1&&e.cookT>=COOK_T+BURN_T){
+      e.heat=2; applyEggVisual(e);
+      burntS(e.x,e.z);
+      // 연기가 닭을 부른다 — 방치의 대가. 거위 honk와 같은 조항의 두 번째이자 마지막 decoyPulse 커플링 (D-KIT3)
+      decoyPulse(KITCHEN_POS.x,KITCHEN_POS.z,null);
+    }
+  }
+}
+// 요리 코스메틱 — 스냅샷 상태(heat·cookT)에서만 파생, render()에서 호스트·클라 공용 호출 (같은 그림 — D-NET4)
+let cookFxAcc=0;
+function updCookFx(dt){
+  if(phase!=='play'||simPaused()) return;
+  cookFxAcc+=dt;
+  if(cookFxAcc<0.4){ if(kitchenLight) kitchenLight.intensity=blackout?0:KITCHEN_LIGHT_I*(1+0.06*Math.sin(now*5)); return; }
+  cookFxAcc=0;
+  const powered=!blackout&&truckGoT<0;
+  let cooking=false;
+  for(const e of eggs){
+    if(e.state==='gone'||e.state==='pocket') continue;
+    if(e.heat===2){                            // 숯덩이 — 어디 있든 연기 실오라기 (파티클이 실루엣의 두 번째 신호)
+      if(Math.random()<0.5) burst(e.x,16,e.z,2,[0.5,0.53,0.56],7,1.7,4);
+      continue;
+    }
+    if(!powered||e.state!=='rest') continue;
+    if(Math.hypot(e.x-KITCHEN_POS.x,e.z-KITCHEN_POS.z)>KITCHEN_R) continue;
+    cooking=true;
+    burst(e.x,10,e.z,e.cookT>COOK_T?3:2,[1,0.75,0.35],8,0.5,3);
+    if(Math.random()<0.6) sizzleS(e.x,e.z);
+    if(e.heat===1&&e.cookT>=COOK_T+BURN_T-BURN_WARN)     // 타기 전 연기 기둥 — 위협 3원칙 ③의 요리판 (600u 가독)
+      for(let k=0;k<3;k++) burst(e.x,34+k*30,e.z,3,[0.6,0.62,0.66],11,1.9,6);
+  }
+  if(kitchenLight) kitchenLight.intensity=blackout?0:KITCHEN_LIGHT_I*(cooking?1.35:1);
 }
 
 // ---------- 닭 ----------
@@ -1539,6 +2010,10 @@ function crackS(){
   setTimeout(()=>noiseHit(0.14,0.16,200,900),40);
 }
 function dingS(){ blip(880,0.12,0.2,'triangle'); setTimeout(()=>blip(1320,0.18,0.16,'triangle'),90); }
+// v0.15 요리 사운드 — 전부 위치 감쇠 (주방은 세계의 물건이지 HUD가 아니다)
+function cookDoneS(x,z){ blip(880,0.1,volAt(x,z,0.2,700),'triangle'); setTimeout(()=>blip(1320,0.16,volAt(x,z,0.16,700),'triangle'),90); }
+function burntS(x,z){ noiseHit(0.3,volAt(x,z,0.22,700),200,900); blip(140,0.25,volAt(x,z,0.12,700),'sawtooth'); }
+function sizzleS(x,z){ noiseHit(0.08,volAt(x,z,0.05,420),2500,7000); }
 function hornS(){ blip(220,0.3,0.3,'sawtooth'); blip(277,0.42,0.26,'sawtooth'); }
 function clunkS(){ blip(60,0.4,0.35,'sine'); noiseHit(0.2,0.25,80,400); }
 function squawkS(x,z){
@@ -1663,6 +2138,8 @@ function applyDark(on){
   hemi.intensity=on?HEMI_DARK:HEMI_LIT;
   moon.intensity=on?MOON_DARK:MOON_LIT;
   for(const L of lampLights) L.intensity=on?0:L.userData.lit;
+  kitchenLight.intensity=on?0:KITCHEN_LIGHT_I;              // v0.15 보온등도 같은 전력망 — 정전=조리 정지의 시각 절반
+  kitchenBulbM.color.setHex(on?0x2a201a:0xffa24e);
   bulbMat.color.setHex(on?0x241d14:0xffd9a0);
   headA.distance=headB.distance=on?HEADLIGHT_DARK:1400;
   doorSpill.visible=on;
@@ -1723,12 +2200,14 @@ function spawnEggAt(i){
   e.vx=e.vy=e.vz=0; e.spin=Math.random()*TAU;
   e.cracked=false; e.thrown=false; e.forceBreak=false; e.forceSurvive=false;
   e.carrier=null; e.claimed=false; e.restT=0; e.touched=false;
+  e.heat=0; e.cookT=0;
   applyKindVisual(e);
   e.mesh.visible=true;
 }
 function inPad(x,z){ return Math.hypot(x-truckPad.x,z-truckPad.z)<truckPad.r; }
 function breakEgg(e){
   if(e.kind==='meat'){ e.vx=e.vy=e.vz=0; return; }   // 닭고기는 안 깨진다 (D5)
+  if(e.heat===2){ e.vx=e.vy=e.vz=0; return; }        // v0.15: 숯은 깨질 게 없다 (익음(1)은 여전히 깨진다 — 귀환 긴장 유지)
   e.state='gone'; e.mesh.visible=false; e.carrier=null; e.claimed=false;
   stats.broken++;
   lastLoss.x=e.x; lastLoss.z=e.z;
@@ -1743,10 +2222,12 @@ function breakEgg(e){
 // v0.13: 쿼터 폐지 — 반납은 승리 판정이 아니라 적립이다 (D2. checkWin·checkFail은 함수째 삭제됨).
 // 정전 중 반납은 ×2 (D6) — 어둠에 남을 유일한 이유. 화면에 새 숫자를 만들지 않고 금빛으로만 말한다
 function deliverEgg(e){
-  const val=LOOT_VAL[e.kind||'egg']*(blackout?2:1);
+  // v0.15(D-KIT5): 유일한 가치 계산처 — 여기 말고 어디에도 값 공식을 두지 않는다
+  const base=e.heat===2?BURNT_VAL:LOOT_VAL[e.kind||'egg']+(e.heat===1?COOK_BONUS[e.kind||'egg']:0);
+  const val=base*(blackout?2:1);
   e.state='gone'; e.mesh.visible=false; e.carrier=null; e.claimed=false;
   stats.delivered++; stats.score+=val;
-  bankItem(e.kind||'egg',blackout);
+  bankItem(e,blackout);
   drawSign();
   burst(truckPad.x,20,truckPad.z,24,blackout?[1,0.82,0.3]:[1,0.9,0.55],26,1.0,6);
   dingS();
@@ -2776,12 +3257,16 @@ function gradeOf(sc,n){
   const g=GRADE.map(v=>v*Math.max(1,n));
   return sc>=g[2]?'대형사고':sc>=g[1]?'한탕 했다':sc>=g[0]?'오늘 장사는 됐다':'빈 트럭';
 }
-function bestKey(){ return 'ccl8.best.'+Math.max(1,startN); }
+function bestKey(){ return 'ccl8.best.'+PROTO_V+'.'+Math.max(1,startN); }   // v0.15: 프로토콜 네임스페이스 — 상한 62→100이라 구빌드 기록과 비교 불가
 function tallyHTML(){
   let best=0;
   try{ best=parseInt(localStorage.getItem(bestKey())||'0',10)||0; }catch(e){}
   if(stats.score>best){ best=stats.score; try{ localStorage.setItem(bestKey(),String(best)); }catch(e){} }
   const parts=[];
+  if(bank.cEgg) parts.push('계란 프라이 '+bank.cEgg);
+  if(bank.cBig) parts.push('큰 알 구이 '+bank.cBig);
+  if(bank.cMeat) parts.push('통닭 '+bank.cMeat);
+  if(bank.burnt) parts.push('숯덩이 '+bank.burnt);
   if(bank.egg) parts.push('계란 '+bank.egg);
   if(bank.bigEgg) parts.push('큰 알 '+bank.bigEgg);
   if(bank.meat) parts.push('닭고기 '+bank.meat);
@@ -2795,7 +3280,8 @@ function showWinOv(){
   document.querySelector('#winOv .t').textContent=stats.score>0?'털었다':'그냥 나왔다';
   document.getElementById('winStats').innerHTML=tallyHTML();
   document.querySelector('#winOv .r').textContent=
-    (NET.on&&!NET.host)?'호스트가 다시 시작한다 — 대기 중':'R — 다시 시작';   // 죽은 입력을 안내하지 않는다 (D12)
+    (NET.on&&!NET.host)?'호스트가 다시 시작한다 — 대기 중'
+    :(NET.on?'R — 같은 맵 처음부터 (새 맵 = 새 방)':'R — 같은 맵 처음부터 · N — 새 농장');   // 죽은 입력을 안내하지 않는다 (D12) / v0.15 D-NET5
   document.getElementById('winOv').style.display='flex';
   document.getElementById('cross').style.display='none';
   document.getElementById('pw').style.display='none';
@@ -2835,7 +3321,8 @@ function showFailOv(){
     (dawn?'해가 떴고, 농장이 깨어난다 — 짐칸에 실은 것만 남았다<br>':'')+tallyHTML()+
     (missed.length?'<br><span class="warn">막차를 놓쳤다 — '+missed.join(', ')+'</span>':'');
   document.querySelector('#failOv .r').textContent=
-    (NET.on&&!NET.host)?'호스트가 다시 시작한다 — 대기 중':'R — 다시 시작';
+    (NET.on&&!NET.host)?'호스트가 다시 시작한다 — 대기 중'
+    :(NET.on?'R — 같은 맵 처음부터 (새 맵 = 새 방)':'R — 같은 맵 처음부터 · N — 새 농장');
   document.getElementById('failOv').style.display='flex';
   document.getElementById('cross').style.display='none';
   document.getElementById('pw').style.display='none';
@@ -2853,7 +3340,7 @@ function resetWorld(){
     p.mv.x=0; p.mv.z=0; p.mv.run=false; p.acts.length=0;
   }
   lastCarried=0;
-  bank.egg=bank.bigEgg=bank.meat=bank.dark=0; paintRack();
+  bank.egg=bank.bigEgg=bank.meat=bank.dark=bank.cEgg=bank.cBig=bank.cMeat=bank.burnt=0; paintRack();
   depT=-1; depBy=-1; depCd=0;
   depUsed[0]=depUsed[1]=depUsed[2]=depUsed[3]=false;
   startN=Math.max(1,activeCount());
@@ -2867,7 +3354,9 @@ function resetWorld(){
   cart.x=CART_HOME.x; cart.z=CART_HOME.z; cart.dir=0;
   endBlackout();
   for(let i=0;i<TRAY_DEF.length*PER_TRAY&&i<eggs.length;i++) spawnEggAt(i);
-  for(let i=TRAY_DEF.length*PER_TRAY;i<eggs.length;i++){ eggs[i].state='gone'; eggs[i].mesh.visible=false; }
+  for(let i=TRAY_DEF.length*PER_TRAY;i<eggs.length;i++){
+    eggs[i].state='gone'; eggs[i].mesh.visible=false; eggs[i].heat=0; eggs[i].cookT=0;
+  }
   for(const c of chickens){
     c.x=c.hx; c.z=c.hz; c.state='wander'; c.t=0; c.loseT=0;
     c.heading=0; c.kbx=0; c.kbz=0; c.robEgg=null; c.peckEgg=null;
@@ -3003,6 +3492,7 @@ function update(dt){
   sepPlayers();
   updCart(dt);
   updEggs(dt);
+  updKitchen(dt);   // v0.15 — 알 위치·상태가 확정된 뒤, AI가 읽기 전에. 클라 bail(위) 아래라 판정은 호스트 전용 (D-NET4)
   updChickens(dt);
   updGeese(dt);
   updWaves(dt);
@@ -3060,7 +3550,9 @@ function render(){
   // 소등 플리커 (연출 전용 — 로직은 t=0에 이미 어둡다)
   if(flickT>0){
     const j=Math.random();
-    hemi.intensity=0.06+j*0.35;
+    // v0.15: 리터럴 0.06+j*0.35는 피크 0.41로 새 베이스 0.20보다 밝다 — 정전 예고가 "번쩍"이 되는 역연출.
+    // 어둠 상수와 반드시 같은 커밋 (D-DARK1)
+    hemi.intensity=HEMI_DARK+j*(HEMI_LIT-HEMI_DARK);
     for(const L of lampLights) L.intensity=j>0.5?L.userData.lit*0.7:0;
     bulbMat.color.setHex(j>0.5?0xffd9a0:0x241d14);
   }
@@ -3274,8 +3766,10 @@ function render(){
     m.questM.color.setHex((c.state==='grab'||c.state==='rob')?0xff8830:0xffc040);
     m.quest.visible=!showG&&(c.state==='invest'||(c.state==='peck'&&!c.arrived)||c.state==='grab'||c.state==='rob');
     if(m.quest.visible) m.quest.position.y=54+Math.sin(now*6)*4;
-    // 시야 원 — 뷰어 자신 기준 (내가 소지 중·밝은 구간·LOS·거리 400 이내 — 벽 뒤 링 없음, 갑툭튀 보존)
-    const ringOk=carriesEgg(P())&&!blackout&&phase==='play'&&(eligible||c.state==='alert')&&
+    // 시야 원 — 뷰어 자신 기준 (내가 소지 중·밝은 구간·LOS·거리 400 이내 — 벽 뒤 링 없음, 갑툭튀 보존).
+    // v0.15(D-DARK3): 어두워진 밝은 구간의 유일한 신규 불공정 = "어두우니 안 보이겠지"(SIGHT는 동결이라 틀림).
+    // 게이지가 나를 채우기 시작한 닭(det>0.15)은 빈손이어도 링을 보여준다 — 렌더 게이트만, 로직 상수 무접촉
+    const ringOk=(carriesEgg(P())||c.det[me]>0.15)&&!blackout&&phase==='play'&&(eligible||c.state==='alert')&&
       Math.hypot(c.x-P().x,c.z-P().z)<=RING_MAX_D&&!lineBlocked(P().x,P().z,c.x,c.z);
     m.ring.visible=ringOk;
     if(ringOk){
@@ -3371,33 +3865,43 @@ function render(){
   else if(v.stun>0){ pr.textContent='넘어졌다…'; }
   else if(blackout&&v.held){
     const below=zoneOfArea(v.x,v.z)!==0;   // 지하·계단이면 탈출 유도가 다르다
+    const nearKitch=Math.hypot(KITCHEN_POS.x-v.x,KITCHEN_POS.z-v.z)<KITCHEN_R+24;
     pr.textContent=(v.shake>SHAKE_TELE)?'계란이 미끄러진다!! — 걸어!'
+      :(nearKitch?'정전 — 보온등이 꺼졌다. 익던 것은 식지 않고 기다린다'
       :(below?'어둠이다 — 파란 계단 불빛으로 올라가라. 소리가 지형을 보여준다'
-             :'어둠이다 — 트럭으로. 정전 중 반납은 두 배다');
+             :'어둠이다 — 트럭으로. 정전 중 반납은 두 배다'));
   }
   else if(v.held){
     const nearCart=Math.hypot(cart.x-v.x,cart.z-v.z)<CART_LOAD_R;
+    const nearKitch=Math.hypot(KITCHEN_POS.x-v.x,KITCHEN_POS.z-v.z)<KITCHEN_R+24;   // v0.15 — 놓기는 기존 E 그대로, 문구만 문맥화
     pr.textContent=(v.shake>SHAKE_TELE)
       ? '계란이 미끄러진다!! — 걸어!'
-      : (nearCart&&cart.slots.length<CART_SLOTS
-        ? 'E — 수레에 싣기 · Q — 품에 넣기 · 좌클릭 꾹 미끼 던지기'
-        : '좌클릭 꾹 — 미끼 던지기 (닭들이 몰려간다) · E — 살살 내려놓기 · Q — 품에 넣기');
+      : (nearKitch&&v.held.heat===0
+        ? 'E — 보온등 아래 내려놓기 (기다리면 익는다 — 값이 오른다)'
+        : nearKitch&&v.held.heat===1
+        ? '익은 건 트럭으로 — 도로 올리면 마저 타 간다'
+        : (nearCart&&cart.slots.length<CART_SLOTS
+          ? 'E — 수레에 싣기 · Q — 품에 넣기 · 좌클릭 꾹 미끼 던지기'
+          : '좌클릭 꾹 — 미끼 던지기 (닭들이 몰려간다) · E — 살살 내려놓기 · Q — 품에 넣기'));
   }
   else if(blackout&&v.pocket){
     pr.textContent='품속 알은 빛나지 않는다 — 하지만 닭 눈에는 팔린다. Q — 꺼내면 랜턴';
   }
   else {
-    let near=false;
-    for(const e of eggs) if(e.state==='rest' && Math.hypot(e.x-v.x,e.z-v.z)<PICK_R){ near=true; break; }
+    let nearEgg=null;
+    for(const e of eggs) if(e.state==='rest' && Math.hypot(e.x-v.x,e.z-v.z)<PICK_R){ nearEgg=e; break; }
     let robber=false;
     for(const c of chickens) if(c.state==='rob' && Math.hypot(c.x-v.x,c.z-v.z)<160){ robber=true; break; }
-    let nearKind='egg';
-    for(const e of eggs) if(e.state==='rest' && Math.hypot(e.x-v.x,e.z-v.z)<PICK_R){ nearKind=e.kind||'egg'; break; }
+    const nearKind=nearEgg?(nearEgg.kind||'egg'):'egg';
+    const cookName=nearKind==='meat'?'통닭':(nearKind==='bigEgg'?'큰 알 구이':'계란 프라이');
+    const onPan=nearEgg&&!blackout&&Math.hypot(nearEgg.x-KITCHEN_POS.x,nearEgg.z-KITCHEN_POS.z)<KITCHEN_R;
     const gloveNear=!v.glove&&gloveMesh.visible&&Math.hypot(GLOVE_POS.x-v.x,GLOVE_POS.z-v.z)<PICK_R+40;
     const nearCart=Math.hypot(cart.x-v.x,cart.z-v.z)<CART_GRAB_R;
     pr.textContent = robber ? (v.glove?'저 닭이 계란을 훔쳐간다! 좌클릭 — 펀치로 떨구기':'저 닭이 계란을 훔쳐간다! 좌클릭 — 밀쳐서 떨구기')
                    : gloveNear ? 'E — 권투 글러브 줍기'
-                   : near ? (nearKind==='meat'?'E — 닭고기 줍기 (트럭까지 날라야 한다)'
+                   : nearEgg ? (nearEgg.heat===2?'E — 숯덩이 줍기 (그래도 1점은 준다)'
+                            :nearEgg.heat===1?('다 익었다! E — '+cookName+' 줍기'+(onPan?' (더 두면 탄다!)':''))
+                            :nearKind==='meat'?'E — 닭고기 줍기 (트럭까지 날라야 한다)'
                             :nearKind==='bigEgg'?'E — 큰 알 줍기 (값이 세 배다)'
                             :'E — 계란 줍기 (달리던 중이면 시끄럽다)')
                    : nearCart ? (cart.owner===me?'F — 수레 놓기':(cart.owner>=0?'':(cart.slots.length?'F — 수레 끌기 · E — 꺼내기':'F — 수레 끌기')))
@@ -3451,7 +3955,8 @@ function buildSnap(){
     pz:simPaused()?1:0, pw:document.hidden?'호스트 자리 비움':'호스트 일시정지',
     st:[q1(stats.t),stats.broken,stats.delivered,stats.caught,stats.meat,
         stats.score,q1(depT),depBy],                      // 5~7 신규 (append-only)
-    bk:[bank.egg,bank.bigEgg,bank.meat,bank.dark],        // 짐칸 구성 — 클라 랙 렌더용
+    bk:[bank.egg,bank.bigEgg,bank.meat,bank.dark,          // 짐칸 구성 — 클라 랙 렌더용. [0..3] 영구 동결,
+        bank.cEgg,bank.cBig,bank.cMeat,bank.burnt],        // [4..7] v0.15 append (구 클라는 앞 4칸만 읽어도 정상 — D-NET1)
     gs:geese.map(g=>[q1(g.x),q1(g.z),q1(g.dir),GS_STATES.indexOf(g.state),g.tgt]),   // v0.14 거위
     gl:gloveMesh.visible?0:1,
     pl:players.map(p=>[p.active?1:0,q1(p.x),q1(p.z),q1(p.jy),q1(p.yaw),q1(p.stun),p.glove?1:0,
@@ -3460,7 +3965,8 @@ function buildSnap(){
     ck:chickens.map(c=>[q1(c.x),q1(c.z),q1(c.dir),CK_STATES.indexOf(c.state),c.ko?1:0,
         q1(c.det[0]),q1(c.det[1]),q1(c.det[2]),q1(c.det[3]),c.tgt]),
     eg:eggs.map(e=>[EGG_STATES.indexOf(e.state),q1(e.x),q1(e.y),q1(e.z),e.cracked?1:0,
-        e.carrier?chickens.indexOf(e.carrier):-1,LOOT_KINDS.indexOf(e.kind||'egg')]),
+        e.carrier?chickens.indexOf(e.carrier):-1,LOOT_KINDS.indexOf(e.kind||'egg'),
+        e.heat||0,q1(e.cookT||0)]),                       // [7][8] v0.15 append — 열 상태·진행 (D-NET1)
     ct:[q1(cart.x),q1(cart.z),q1(cart.dir),cart.owner,cart.slots.map(e=>eggs.indexOf(e))],
     ev:NET.ev};
 }
@@ -3485,9 +3991,13 @@ function hostOnFrom(slot,d){
   const p=players[slot];
   if(d.g==='hi'){
     if(d.v!==PROTO_V){ netSend({t:'to',slot,d:{g:'bad',why:'ver'}}); return; }   // D25
+    // v0.15(D-NET3) 계층 게이트 — 버전 → 시드 → 해시. 전부 활성화 전이라 로비가 안 흔들린다.
+    // 시드 불일치는 리로드로 고쳐진다(링크 훼손). 시드 동일·해시 불일치는 결정론적 발산 — 리로드로 못 고친다
+    if(((d.seed>>>0)||0)!==MAP_SEED){ netSend({t:'to',slot,d:{g:'bad',why:'seed',seed:MAP_SEED}}); return; }
+    if(((d.hash>>>0)||0)!==LAYOUT_HASH){ netSend({t:'to',slot,d:{g:'bad',why:'hash'}}); return; }
     p.active=true;
     p.x=SPAWN.x+SPAWN_OFFS[slot][0]; p.z=SPAWN.z+SPAWN_OFFS[slot][1];
-    netSend({t:'to',slot,d:{g:'hello',v:PROTO_V,slot,dark:darkEnabled,started:NET.started}});
+    netSend({t:'to',slot,d:{g:'hello',v:PROTO_V,slot,dark:darkEnabled,started:NET.started,seed:MAP_SEED}});
     lobbyCast();
     return;
   }
@@ -3575,7 +4085,10 @@ function applySnap(s){
   }
   if(nst.delivered>stats.delivered){ dingS(); burst(truckPad.x,20,truckPad.z,24,[1,0.9,0.55],26,1.0,6); }
   stats=nst;
-  if(s.bk){ bank.egg=s.bk[0]; bank.bigEgg=s.bk[1]; bank.meat=s.bk[2]; bank.dark=s.bk[3]; }
+  if(s.bk){
+    bank.egg=s.bk[0]; bank.bigEgg=s.bk[1]; bank.meat=s.bk[2]; bank.dark=s.bk[3];
+    bank.cEgg=s.bk[4]||0; bank.cBig=s.bk[5]||0; bank.cMeat=s.bk[6]||0; bank.burnt=s.bk[7]||0;   // v0.15 append
+  }
   drawSign(); paintRack();
   gloveMesh.visible=!s.gl;
   // 플레이어
@@ -3639,6 +4152,14 @@ function applySnap(s){
     const nk=LOOT_KINDS[a[6]]||'egg';
     if(nk!==e.kind){ e.kind=nk; applyKindVisual(e); }
     if(!!a[4]!==e.cracked){ e.cracked=!!a[4]; if(e.cracked) crackVisual(e); else uncrackVisual(e); }
+    // v0.15 열 델타 — 판정은 안 하고 전이 세리머니만 파생 (거위 honk 패턴, D-NET4)
+    const nh=a[7]||0;
+    if(nh!==e.heat){
+      e.heat=nh; applyEggVisual(e);
+      if(nh===1) cookDoneS(e.x,e.z);
+      else if(nh===2){ burntS(e.x,e.z); burst(e.x,20,e.z,8,[0.6,0.62,0.66],10,1.6,5); }
+    }
+    e.cookT=a[8]||0;
     e.carrier=a[5]>=0?chickens[a[5]]:null;
     e.mesh.visible=(e.state!=='gone'&&e.state!=='pocket');
   }
@@ -3727,7 +4248,7 @@ function clientTick(dt){
     clientPredict(dt);
     // 정전 예고 딥 (30/10초) — 파생 연출 (D22)
     if(!blackout&&darkEnabled){
-      const left=DARK_TIMER-stats.t;
+      const left=darkAt()-stats.t;   // v0.15(D-NET6): 호스트 L2976과 자구 동일 — st[2](delivered)가 동기라 클라도 파생 가능
       if(left<=30&&!warned30){ warned30=true; flickT=WARN_DIP_T; rattleS(); clunkS(); }
       if(left<=10&&!warned10){ warned10=true; flickT=WARN_DIP_T; rattleS(); clunkS(); }
     }
@@ -3802,7 +4323,7 @@ function netConnect(url,onOpen){
       else if(m.t==='err') setNetMsg('방을 만들 수 없다 ('+m.why+')');
     } else {
       if(m.t==='d') clientOnD(m.d);
-      else if(m.t==='joined'){ me=m.slot; players[m.slot].active=true; netToHost({g:'hi',v:PROTO_V}); }
+      else if(m.t==='joined'){ me=m.slot; players[m.slot].active=true; netToHost({g:'hi',v:PROTO_V,seed:MAP_SEED,hash:LAYOUT_HASH}); }   // v0.15: 시드·해시 동봉 (D-NET3)
       else if(m.t==='err') clientJoinErr(m.why);
       else if(m.t==='closed') hostLost();
     }
@@ -3815,12 +4336,29 @@ function clientOnD(d){
   else if(d.g==='hello'){
     NET.on=true; NET.host=false;
     darkEnabled=!!d.dark;                       // 호스트 값이 로컬 ?dark=0을 덮는다 (D25)
+    try{ sessionStorage.removeItem('ch_seedfix'); }catch(e){}   // v0.15: 자가치유 원샷 가드 해제 — 정상 접속이 증거다
     setAvatarTints(true);
     mpWaiting(d.started);
   }
   else if(d.g==='lobby') mpWaitCount(d.n);
   else if(d.g==='start'||d.g==='restart') clientGate();
-  else if(d.g==='bad'){ setNetMsg('버전이 다르다 — 새로고침하세요'); try{ NET.ws.close(); }catch(e){} }
+  else if(d.g==='bad'){
+    // v0.15(D-NET3) 계층별 안내 — 시드 불일치만 리로드가 고친다 (링크 훼손). 해시 불일치는 결정론적
+    // 발산이라 리로드해도 같은 어긋난 맵을 다시 짓는다 — 절대 자동 리로드 금지 (유일한 스핀 가능 루프 차단)
+    if(d.why==='seed'&&d.seed!==undefined){
+      let tried=false;
+      try{ tried=!!sessionStorage.getItem('ch_seedfix'); }catch(e){}
+      if(!tried){
+        try{ sessionStorage.setItem('ch_seedfix','1'); }catch(e){}
+        location.replace(location.pathname+'?room='+ROOM_PARAM+'&ws='+encodeURIComponent(NET.url)+'&seed='+(d.seed>>>0));
+        return;
+      }
+      setNetMsg('맵이 어긋난다 — 호스트에게 새 링크를 받아라');
+    }
+    else if(d.why==='hash') setNetMsg('빌드가 다르다 — 호스트와 나 둘 다 새로고침해야 한다');
+    else setNetMsg('버전이 다르다 — 새로고침하세요');
+    try{ NET.ws.close(); }catch(e){}
+  }
 }
 function hostLost(){
   if(NET.dead) return;
@@ -3851,7 +4389,7 @@ if(('ontouchstart' in window) && !matchMedia('(pointer:fine)').matches)
 const ROOM_PARAM=((location.search.match(/[?&]room=([A-Za-z0-9]+)/)||[])[1]||'').toUpperCase();
 if(ROOM_PARAM){
   document.querySelector('#title .desc').innerHTML=
-    '친구의 습격에 초대받았다 — 방 '+ROOM_PARAM+'.<br>같이 세 개만 훔쳐서 트럭까지.';
+    '친구의 습격에 초대받았다 — 방 '+ROOM_PARAM+'.<br>같이 털 수 있는 만큼 털어서 트럭까지.';
   document.querySelector('#title .go').textContent='클릭해서 참가';
   document.getElementById('mpBtn').style.display='none';
 }
@@ -3925,7 +4463,7 @@ function mpShowRoom(){
   setNetMsg('');
   document.getElementById('mpStatus').textContent='방 '+NET.room+' — 이 링크를 친구에게 보내라:';
   const base=location.href.split('?')[0];
-  document.getElementById('mpLink').value=base+'?room='+NET.room+'&ws='+encodeURIComponent(NET.url);
+  document.getElementById('mpLink').value=base+'?room='+NET.room+'&ws='+encodeURIComponent(NET.url)+'&seed='+MAP_SEED;   // v0.15: 클라가 접속 전에 같은 맵을 짓는다 (D-NET2)
   document.getElementById('mpLinkRow').style.display='flex';
   document.getElementById('mpStart').style.display='inline-block';
   updMpCount();
@@ -4014,6 +4552,12 @@ window.addEventListener('mouseup',e=>{
 let rHold=0;   // 멀티 호스트 R 홀드 (D14) — keydown repeat로 적산
 window.addEventListener('keydown',e=>{
   if(e.code==='Space') e.preventDefault();
+  if(e.code==='Tab'){                          // v0.15 미니맵 토글 — M은 음소거라 Tab (포커스 이동 차단 필수)
+    e.preventDefault();
+    mapOn=!mapOn;
+    try{ localStorage.setItem('ch_map',mapOn?'1':'0'); }catch(err){}
+    return;
+  }
   if(phase==='title') return;
   if(phase==='intro'){ endIntro(); return; }
   if(e.code==='KeyR'){
@@ -4026,6 +4570,10 @@ window.addEventListener('keydown',e=>{
     restart(); return;
   }
   if(e.code==='KeyM'){ toggleMute(); return; }
+  if(e.code==='KeyN'&&(phase==='win'||phase==='fail')&&!NET.on){   // v0.15(D-NET5): 새 농장 = 새 시드 리로드 (솔로 전용)
+    location.href=location.pathname+'?seed='+((MAP_SEED+1)>>>0);
+    return;
+  }
   if(e.code==='KeyV'){ camMode=camMode?0:1; tpCur=TP_DIST; return; }
   if(e.code==='KeyE'){ pushAct({a:'pick'}); return; }
   if(e.code==='KeyQ'){ pushAct({a:'pocket'}); return; }
@@ -4038,40 +4586,31 @@ window.addEventListener('keyup',e=>{ if(e.code==='KeyR') rHold=0; keys.delete(e.
 window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
 
 // ============================================================
-//  검증 스위트 — 로드 시 1회. 위상이 리터럴이라 한 번 통과 = 영구 통과.
+//  검증 스위트 — 로드 시 1회. v0.15부터 위상이 시드 산출물이므로 "이 로드의 시드"를 검증한다.
+//  격자 술어는 생성 루프와 같은 layoutChecks 하나를 공유 (단일 소스 — 검사 드리프트 차단)
 // ============================================================
 (function validate(){
   const bad=[];
   const doorCell=gcid(0,SPINE,0), b1Entry=gcid(1,B1_SPINE,0);
-  // 1) 층별 전 셀 도달성 — 1F는 정문 셀, B1은 계단 입구 셀 기준
+  // 1~6) 격자 수준 술어 — 생성 루프와 같은 단일 소스(layoutChecks)를 로드타임에 재실행 (검사 드리프트 차단, D-GEN6)
+  bad.push(...layoutChecks(LAYOUT).map(s=>'레이아웃: '+s));
+  // 1b) 채택 레이아웃 ↔ 셀 그래프 정합 — NEXT 기준 도달성 재확인 (그래프 전개 버그 방어 벨트)
   for(const cell of CELLS){
     const src=cell.f===0?doorCell:b1Entry;
     if(NEXT[src].dist[gcid(cell.f,cell.a,cell.c)]<0) bad.push('unreachable f'+cell.f+' '+cell.a+','+cell.c);
   }
-  // 2) 트레이 게이트 — BFS 경로장 기준 (유클리드 1700은 스케일 9·오프셋 존에서 무의미 — 패널 교체 판정)
+  // 2b) 트레이 실좌표 도달성 (NEST_POS 파생 검증 — 격자 술어의 월드 좌표판)
   for(const [i,p] of NEST_POS.entries()){
     const d=NEXT[p.f===0?doorCell:b1Entry].dist[gcid(p.f,p.cell[0],p.cell[1])];
     if(d<0) bad.push('tray'+i+' unreachable');
-    if(i>=2&&d<2) bad.push('tray'+i+' too shallow '+d);
   }
-  if(TRAY_DEF[0].cell[0]!==SPINE||TRAY_DEF[0].f!==0) bad.push('tray0 not 1F spine');
-  // 3) 배분: 알 1F2/B14 · 닭 1F4/B16 · 지킴이-트레이 동층
-  if(TRAY_DEF.filter(t=>t.f===0).length!==2||TRAY_DEF.filter(t=>t.f===1).length!==4) bad.push('tray split');
-  if(CHK_DEF.filter(d=>d.f===0).length!==4||CHK_DEF.filter(d=>d.f===1).length!==6) bad.push('chk split');
-  for(const d of CHK_DEF) if(d.guard>=0&&TRAY_DEF[d.guard].f!==d.f) bad.push('guard cross-floor');
-  // 4) 지킴 배정: 트레이0 제외 전 트레이 담당 1 + 트레이0 지킴이 불활성 (튜토리얼 계약)
-  for(let t=1;t<TRAY_DEF.length;t++) if(!CHK_DEF.some(d=>d.guard===t)) bad.push('tray'+t+' unguarded');
   if(chickens[0].guard!==-1||chickens[0].loop) bad.push('tray0 guardian not inert');
-  // 5) 순찰 리터럴 — 자기 층 척추 셀 금지 (척추 = 회복 축. 계단 셀은 그래프에 아예 없음 — 봉쇄 구조 보장)
-  for(const d of CHK_DEF){
-    if(!d.loop) continue;
-    for(const [a] of d.loop) if(a===FLOORS[d.f].spine) bad.push('patrol on spine f'+d.f);
-  }
-  // 6) 층 척추 마개 금지
-  for(let f=0;f<2;f++){
-    const FL=FLOORS[f];
-    for(let b=0;b<FL.cn-1;b++) if(!FL.MH[FL.spine][b]) bad.push('spine plug f'+f);
-  }
+  // 생성 결정론 — 같은 시드로 재생성해 비교. 다르면 생성 경로에 Math.random·비결정 순회가 샌 것 (D-GEN3)
+  if(!USE_BAKED&&layoutKey(genLayout(MAP_SEED))!==layoutKey(LAYOUT)) bad.push('generation nondeterministic');
+  // 주방 정적 — 잔폭·존·불웅덩이 정렬 (전부 파생값이지만 미래 수정이 결합을 끊으면 즉발 검출)
+  if(AH-KITCH_D<160) bad.push('kitchen walkway');
+  if(zoneOfArea(KITCHEN_POS.x,KITCHEN_POS.z)!==0||!inCoopPt(KITCHEN_POS.x,KITCHEN_POS.z)) bad.push('kitchen off 1F barn');
+  if(LAMP_POS[5].x!==cellXC(TRAY_CELLS[0][1])) bad.push('lamp6 off tray0');
   // 7) 계단 입구가 1F 척추에서 읽히는가 (정문 → 계단 입구 LOS)
   if(lineBlocked(DOOR_IN.x,DOOR_IN.z,BARN.x1-20,ZA)) bad.push('stair entrance not readable from door');
   // 8) 계단참 물통 잔폭 ≥230
@@ -4103,7 +4642,7 @@ window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
   for(const o of SPAWN_OFFS) if(zoneOfArea(SPAWN.x+o[0],SPAWN.z+o[1])!==0) bad.push('spawn off zone');
   for(const c of chickens) if(c.det.length!==MAX_PLAYERS) bad.push('det array size');
   // 14) v0.11 새벽 마감 — 밤이 정전 타이머보다 짧으면 정전 경로가 도달 불가
-  if(NIGHT_LEN<=DARK_TIMER) bad.push('night shorter than blackout timer');
+  if(NIGHT_LEN<=DARK_BASE) bad.push('night shorter than blackout timer');
   if(DAWN_WARNS.length!==DAWN_MSGS.length||DAWN_WARNS.length!==dawnWarned.length) bad.push('dawn warn arrays mismatch');
   // 15) v0.12 하늘이 시간을 말한다 — 물들기 시작이 정전보다 뒤면 밝은 구간에 볼 시간이 안 남는다
   //     v0.13: 분모가 DARK_TIMER → DARK_MIN (정전이 가장 빨리 켜지는 시점 기준으로 봐야 안전하다)
@@ -4115,6 +4654,10 @@ window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
   if(TRAY_DEF.length*PER_TRAY!==18) bad.push('supply != 18');
   if(eggs.length!==TRAY_DEF.length*PER_TRAY+CHK_COUNT) bad.push('loot pool size');
   if(LOOT_KINDS.length!==Object.keys(LOOT_VAL).length) bad.push('kind table mismatch');
+  // 17b) v0.15 요리 테이블 — 보너스 키 정합 + "타는 게 어떤 생것보다 이득이 되면 안 된다" 부등식
+  if(Object.keys(COOK_BONUS).length!==LOOT_KINDS.length) bad.push('cook bonus table mismatch');
+  if(BURNT_VAL>Math.min(...Object.values(LOOT_VAL))) bad.push('burnt beats raw');
+  if(!(COOK_T>0&&BURN_T>0&&BURN_WARN>0&&BURN_WARN<BURN_T)) bad.push('cook timing constants');
   // 18) v0.13 출발 — 스폰이 패드 밖이어야 한다 (안이면 t=0에 '전원 패드' 단축이 참이 되어 즉시 0점 종료)
   for(const o of SPAWN_OFFS){
     const d=Math.hypot(SPAWN.x+o[0]-truckPad.x,SPAWN.z+o[1]-truckPad.z);
@@ -4138,7 +4681,9 @@ window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
     if(Math.hypot(L.x-truckPad.x,L.z-truckPad.z)<LEVER_R+truckPad.r) bad.push('lever overlaps pad');
   }
   if(bad.length){ console.error('[검증 실패]',bad); }
-  else console.log('[검증] 22/22 통과 — 셀 '+CELL_N+', 닭 '+CHK_COUNT+', 거위 '+GOOSE_N+', 전리품 '+(TRAY_DEF.length*PER_TRAY)+'(+고기 '+CHK_COUNT+'), 이격 '+gap+
+  else console.log('[검증] 통과 — 시드 '+MAP_SEED+(USE_BAKED?' (구운맵)':(LAYOUT.baked?' (폴백!)':' ·재시도 '+LAYOUT.attempt))+
+    ' · 해시 '+LAYOUT_HASH.toString(16)+' · 주방 ['+KITCHEN_CELL+'] — 셀 '+CELL_N+', 닭 '+CHK_COUNT+', 거위 '+GOOSE_N+
+    ', 전리품 '+(TRAY_DEF.length*PER_TRAY)+'(+고기 '+CHK_COUNT+'), 이격 '+gap+
     ', 정전 '+DARK_BASE+'→'+DARK_MIN+'s, 밤 '+NIGHT_LEN+'s (하늘 '+Math.round(DAWN_SKY_T*NIGHT_LEN)+'s부터), 출발 '+DEPART_T+'s, 슬롯 '+MAX_PLAYERS);
 })();
 
@@ -4151,7 +4696,9 @@ function frame(ts){
   const dt=Math.min(0.05,(ts-last)/1000);
   last=ts;
   update(dt);
+  updCookFx(dt);   // v0.15 — 클라 bail 밖: 요리 코스메틱은 호스트·클라가 같은 상태에서 같은 그림을 그린다
   render();
+  drawMinimap(dt); // v0.15 — 10Hz 스로틀 내장
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
