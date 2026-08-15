@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.15</title>
+<title>양계장 습격 — 웹 프로토타입 v0.15.1</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -102,7 +102,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.15</div>
+  <div class="sub">웹 프로토타입 v0.15.1</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>마당에 거위가 잔다 — 뛰면 깬다. 축사 구조는 밤마다 다르다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -638,8 +638,10 @@ const TRUCK_GO_T=6.0, TRUCK_GO_D=900;   // v0.13(D3): 막차 유예 — 이 6초
 // 원칙: 앰비언트만 낮추고 램프는 절대 건드리지 않는다 — 0.20 베이스에선 램프 웅덩이가 체감 광량의
 // ~80%가 되어 정전의 램프 일괄 소등이 오히려 더 극적으로 읽힌다. ?bright=1 = dev A/B (v0.14 값 복원)
 const BRIGHT_AB=/[?&]bright=1/.test(location.search);
-const HEMI_LIT=BRIGHT_AB?0.58:0.20, HEMI_DARK=0.06, MOON_LIT=BRIGHT_AB?0.22:0.12, MOON_DARK=0.04;   // 광량 기준값 (정전·새벽이 공유)
-const SKY_NIGHT_HEX=BRIGHT_AB?0x0c1424:0x060a14;   // 밤하늘·안개 기저색 — 거리(fog near/far)는 불변 (트럭 가시성)
+// v0.15.1: 개발자 검수 "아직 너무 밝아" → 2단 감광 (0.20/0.12 → 0.12/0.06). 정전과의 앰비언트 낙차는
+// 줄지만(0.12 vs 0.06) 정전 정체성은 램프 일괄 소등 + 범주 신호(플리커·소리·발광 반전)가 진다 (D-DARK2)
+const HEMI_LIT=BRIGHT_AB?0.58:0.12, HEMI_DARK=0.06, MOON_LIT=BRIGHT_AB?0.22:0.06, MOON_DARK=0.04;   // 광량 기준값 (정전·새벽이 공유)
+const SKY_NIGHT_HEX=BRIGHT_AB?0x0c1424:0x03060c;   // 밤하늘·안개 기저색 — 거리(fog near/far)는 불변 (트럭 가시성)
 const WARN_DIP_T=0.12;           // 잔여 30/10초 조명 딥 (flickT 기구 재사용)
 const PATROL_SPD=65;             // 순찰 전용 속도 — 배회 42와 invest 110 사이 (신설 상태의 신설 상수)
 const PACK_R=500;                // 무리 경보 반경 (소리 기반 — 앵커 리쉬 600이 자연 상한)
@@ -690,7 +692,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=200;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.15'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.15.1'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
