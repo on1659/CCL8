@@ -143,6 +143,43 @@ every constant against measured references rather than taste.
 | D:\Work\vibe\CCL8\docs\goal\chicken-heist-procgen-kitchen.md | v0.15 spec + the chokepoint predicate this round inherits |
 | D:\Work\vibe\CCL8\CLAUDE.md | Scope ledger |
 
+## v0.17 — Chickens can be killed (post-ship, developer instruction)
+
+"닭이 죽게 해줘. 모든 몬스터는 공략할수있어야돼" (2026-08-17). This reverses the
+v0.6 rule "닭은 죽지 않는다(KO만)". It does **not** violate 즉사 금지 — that rule
+governs the *player's* failure staying comedic, which is unchanged.
+
+- **D13. Two-punch kill.** Punching a standing chicken KOs it (unchanged: 6s, meat
+  once per bird, flock alarm, revenge). Punching a chicken that is already downed
+  finishes it permanently: `state='dead'`, removed from AI, sight, noise, decoy,
+  revenge and punch targeting; body lies stiff with legs up. `resetWorld` revives.
+  Two costs were already in the code and are the reason this is a choice rather
+  than a freebie: **punching requires empty hands** (you must put your loot down)
+  and `PUSH_CD=2.5s` forces you to stand there between the two blows.
+- **D14. A killed robber releases its egg.** `releaseRobbed()` (shared by KO and
+  kill) returns a carried egg to `rest` at the corpse. Without it, killing a
+  chicken mid-robbery would delete that egg from the run permanently.
+- **D15. The dominance problem, measured.** Pure time math said clearing just the
+  four B1 guardians costs 49s (20% of the night) and one round trip — **break-even
+  at a 14% stealth loss rate**, which any player exceeds. Left alone, "clear first,
+  loot after" would be strictly optimal and would delete the darkness and tight
+  corridors this version just built.
+- **D16. The counterweight is noise, not time.** A kill fires a dedicated alarm at
+  `KILL_ALARM_R=700` — wide enough to cover most of a floor (measured: 3.0 chickens
+  on average, 4 of 5 in the seed-873 B1) — and the responders get
+  `revengeT=KILL_RAGE_T=9s`, so they *hunt the killer* rather than investigate a
+  noise. Measured: after one kill, four chickens close 150–270u within 3 seconds
+  and two are still chasing. Serial killing therefore means working an
+  increasingly hot floor. Floor isolation is explicit (`zoneOfArea` equality inside
+  `killChicken`), so 1F stays uncontaminated — verified 0.
+  **`KILL_ALARM_R` is deliberately exempt from self-check 10** (radius < zone gap):
+  that check exists for radii that ignore walls and zones, and this one does not.
+- **D17. Meat is unchanged** — still one per bird on the first KO, so the kill adds
+  no loot. Killing buys safety, not score.
+
+Snapshot: `CK_STATES` appends `'dead'` at index 10 (append-only); the client
+derives the death ceremony from the state delta (D22), never judging it.
+
 ## Open Questions
 - Night 245s vs the alternatives (raise `PER_TRAY` to 5, or keep 480 and rescale
   `GRADE`). Shipping the shortened night; the other two are one-line swaps.
