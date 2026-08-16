@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.15.3</title>
+<title>양계장 습격 — 웹 프로토타입 v0.16</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -102,8 +102,8 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.15.3</div>
-  <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>마당에 거위가 잔다 — 뛰면 깬다. 축사 구조는 밤마다 다르다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
+  <div class="sub">웹 프로토타입 v0.16</div>
+  <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다. 구조는 밤마다 바뀐다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
   <div id="mpArea">
@@ -210,19 +210,26 @@
 // ============================================================
 //  튜닝 상수
 // ============================================================
-// 닭장 배율 — 기하만 좌우한다. 미로 위상은 아래 비트 리터럴이 진실.
-// v0.9: 12→9, RH 150→120 — "촘촘함"의 실체는 셀 피치 (위상은 시드 873 무손실 유지)
-const COOP_SCALE=9;
-const COOP_W=370*COOP_SCALE, COOP_D=320*COOP_SCALE;   // 3330 × 2880
-const BARN={x0:900, x1:900+COOP_W, z0:300, z1:300+COOP_D};
-const BARN_H=210;
-const FLOOR_H=260;                                    // 층 렌더 y 오프셋 (B1 = -260)
-const TAU=Math.PI*2;
-
 // ---------- 미로 위상 — v0.15부터 시드 절차 생성 (docs/goal/chicken-heist-procgen-kitchen.md) ----------
 // 격자 치수·척추·마당·계단은 시드 무관 고정 — 흔들면 zoneOfArea·마당 검사 전부가 시드 종속이 된다 (D-GEN1)
 const A_N=8, C_N=6, SPINE=4;          // 1F: 통로 8(z) × 열 6(x) = 48셀. 척추 = 통로 4 (정문 정렬, 마개 금지)
 const B1_A_N=6, B1_C_N=4, B1_SPINE=2; // B1: 6×4 = 24셀. 척추 = 통로 2 (계단 정렬, 마개 금지)
+
+// ---------- 셀 기하 — v0.16에서 파생 방향을 뒤집었다 (개발자 지시 "길을 좁게, 맵을 작게") ----------
+// v0.15까지: COOP_SCALE=9 → COOP_W/COOP_D → AH는 "나머지" = 255 (플레이어 지름 26의 9.8배 폭 복도).
+// v0.16부터: 이 게임의 1차 제약은 건물 크기가 아니라 통로 폭이다. AH·CW·RH가 1차, 건물이 파생.
+// 자유 횡폭 = AH-2*(PLR_R+2) = 55 = 사람 2.1명 (리썰 레퍼런스: 하나가 겨우 지나가는 길).
+// 하한 3개 전부 통과: 수레 존재 56 / 추격 몸빼기 57 / 문 개구 2*CHOKE_IN
+const AH=85;                                 // 통로 폭 (1차 상수)
+const CW=300;                                // 열 폭 — 셀 종횡비 3.5:1 리썰식 긴 터널 (1차 상수)
+const RH=40;                                 // 케이지 열 깊이 = 통로 사이 순수 벽 두께 (게임플레이 0, 크기만 먹는다)
+const OPEN_W=120;                            // 케이지 열 관통 개구 폭 — 셀 대비 40%(구 58%): 벽이 반쯤 뚫린 게 아니라 문간
+const PLUG_W=60;                             // 통로 마개(이동식 케이지) 폭
+const COOP_W=C_N*CW, COOP_D=A_N*AH+(A_N-1)*RH;   // 1800 × 960 (구 3330 × 2880 — 면적 18%)
+const BARN={x0:640, x1:640+COOP_W, z0:300, z1:300+COOP_D};
+const BARN_H=210;
+const FLOOR_H=150;                                    // 층 렌더 y 오프셋 (B1). 260→150: 램프 길이가 존 이격의 족쇄였다
+const TAU=Math.PI*2;
 
 // 시드 부트스트랩 — ?seed= (uint32 십진, 0→873 센티널). 맵이 모듈 스코프에서 지어지므로
 // 접속 전에 읽을 수 있는 채널은 URL뿐이다 (?ws= 선례). 초대 링크가 &seed=를 실어 나른다 (D-GEN7)
@@ -361,7 +368,7 @@ function layoutChecks(L){
   for(const k of L.chks)if(k.f===0){ used.add(k.home[0]+','+k.home[1]); if(k.loop)for(const [a,c] of k.loop)used.add(a+','+c); }
   if(used.has(ka+','+kc))bad.push('주방 셀 점유');
   if(L.eastHole===SPINE)bad.push('개구멍 척추');
-  bad.push(...gateChecks(L));       // 관문(정문·계단) — 상주 + 통과 (v0.15.3)
+  bad.push(...gateChecks(L));       // 관문(정문·계단) — 상주 + 통과 (v0.16)
   return bad;
 }
 // v가 s→t 최단경로 "중 하나"에 놓이는가 — 타이브레이크와 무관하게 참인 보수적 판정.
@@ -371,7 +378,7 @@ function onAnyShortest(m,an,cn,s,t,v){
   return ds[t[0]][t[1]]>=0 && ds[v[0]][v[1]]>=0 && dt[v[0]][v[1]]>=0
       && ds[v[0]][v[1]]+dt[v[0]][v[1]]===ds[t[0]][t[1]];
 }
-// 실내 관문 — 마당 요충지 술어와 같은 모양을 셀 좌표계로. v0.15.3는 정문 셀 "사는 곳"만 막았는데
+// 실내 관문 — 마당 요충지 술어와 같은 모양을 셀 좌표계로. v0.16는 정문 셀 "사는 곳"만 막았는데
 // 진짜 결함은 "지나는 길"이었다 (실측: 상주 위반 0% / 경로 통과 위반 15.65%)
 function gateChecks(L){
   const bad=[];
@@ -428,7 +435,7 @@ function genAttempt(sub){
     return [home,...cands.slice(0,len)];
   };
   // chks[0]: tray0 지킴 불활성 (튜토리얼 계약 승계) — 홈은 tray0 이웃.
-  // v0.15.3: 정문 셀 (SPINE,0) 제외 — tray0가 (SPINE,1)일 때 이웃에 문간이 들어와서
+  // v0.16: 정문 셀 (SPINE,0) 제외 — tray0가 (SPINE,1)일 때 이웃에 문간이 들어와서
   // 시드 10.6%가 "들어서자마자 문 앞에 닭"이 됐다. 문간은 추출 경로의 목이라 원칙 ① 위반 (실측 수리)
   const c0home=pick(mazeNbrs(m0,A_N,C_N,t0[0],t0[1]).filter(([a,c])=>!(a===SPINE&&c===0)));
   if(!c0home)return null;
@@ -504,26 +511,21 @@ const MAZE_H=LAYOUT.MH0, MAZE_V=LAYOUT.MV0;
 const EAST_HOLE_AISLE=LAYOUT.eastHole;
 const B1_MAZE_H=LAYOUT.MH1, B1_MAZE_V=LAYOUT.MV1;
 
-// 셀 기하 — 두 층 공통 (위상×배율 → 월드 좌표)
-const CW=COOP_W/C_N;                         // 열 폭 555
-const RH=120;                                // 케이지 열 깊이 (v0.9: 150→120)
-const AH=(COOP_D-(A_N-1)*RH)/A_N;            // 통로 폭 255
-const OPEN_W=320;                            // 케이지 열 관통 개구 폭
-const PLUG_W=150;                            // 통로 마개(이동식 케이지) 폭
+// (셀 기하 AH·CW·RH·OPEN_W·PLUG_W는 파일 상단으로 승격 — v0.16 파생 방향 반전)
 
-// ---------- 계단 (1F 동벽 척추끝 → B1 서벽 척추 — U자 스위치백, 첫 꺾임 ≤200) ----------
-// 존 이격 700 근거: 닭 층별 봉쇄 채택 후 유일한 벽 무시 채널 = alarmFlock PACK_R 500 + 여유 200.
-// (하한 910은 층간 추격 전제였고, 봉쇄로 그 전제가 소멸 — 패널 교차심문 판정)
-const ZA=BARN.z0+SPINE*(AH+RH)+AH/2;                  // 1927.5 — 1F 척추 z
-const ZB=ZA+560;                                      // 2487.5 — B1 척추 z
+// ---------- 계단 (1F 동벽 척추끝 → B1 서벽 척추 — U자 스위치백) ----------
+// 존 이격 350 근거(v0.16): 벽 무시 채널의 최대 반경 max(PACK_R,CHK_LEASH,RING_MAX_D)=280 + 여유 70.
+// 구 700은 축사 폭 1800의 39% — 죽은 계단 복도가 축사만큼 커진다
+const ZA=BARN.z0+SPINE*(AH+RH)+AH/2;                  // 1F 척추 z
+const ZB=ZA+240;                                      // B1 척추 z (구 +560 — 스위치백 접힘)
 const STAIR={
-  A :{x0:BARN.x1,     x1:BARN.x1+120, z0:ZA-90,  z1:ZA+90 },   // 입구 스텁 (120 — 첫 꺾임 ≤200)
-  L1:{x0:BARN.x1+120, x1:BARN.x1+380, z0:ZA-130, z1:ZA+130},   // 계단참 1 (260각)
-  B :{x0:BARN.x1+120, x1:BARN.x1+300, z0:ZA+130, z1:ZB-130},   // 세로 다리 (폭 180)
-  L2:{x0:BARN.x1+120, x1:BARN.x1+380, z0:ZB-130, z1:ZB+130},   // 계단참 2
-  R :{x0:BARN.x1+380, x1:BARN.x1+700, z0:ZB-90,  z1:ZB+90 },   // 램프 — 여기서만 y 0→-260
+  A :{x0:BARN.x1,     x1:BARN.x1+40,  z0:ZA-45, z1:ZA+45 },   // 입구 스텁
+  L1:{x0:BARN.x1+40,  x1:BARN.x1+170, z0:ZA-65, z1:ZA+65 },   // 계단참 1 (130각)
+  B :{x0:BARN.x1+40,  x1:BARN.x1+130, z0:ZA+65, z1:ZB-65 },   // 세로 다리 (폭 90 — 수레 52 통과)
+  L2:{x0:BARN.x1+40,  x1:BARN.x1+170, z0:ZB-65, z1:ZB+65 },   // 계단참 2
+  R :{x0:BARN.x1+170, x1:BARN.x1+350, z0:ZB-45, z1:ZB+45 },   // 램프 — 여기서만 y 0→-FLOOR_H (경사 0.83)
 };
-const B1={x0:BARN.x1+700, x1:BARN.x1+700+B1_C_N*CW, z0:ZB-AH/2-B1_SPINE*(AH+RH), z1:0};
+const B1={x0:BARN.x1+350, x1:BARN.x1+350+B1_C_N*CW, z0:ZB-AH/2-B1_SPINE*(AH+RH), z1:0};
 B1.z1=B1.z0+B1_A_N*AH+(B1_A_N-1)*RH;
 const W=B1.x1+300, H=Math.max(BARN.z1,B1.z1)+300;
 
@@ -564,7 +566,7 @@ const SPD_WALK=132, SPD_RUN=218;
 const CARRY_MULT=0.70;
 const STUMBLE_T=1.15, INVULN_T=1.4;
 const PICK_R=40, RECENT_RUN=1.0;
-const TP_DIST=155, TP_UP=34, TP_SIDE=26;
+const TP_DIST=110, TP_UP=34, TP_SIDE=26;
 
 // 계란
 const EGG_R=7, EGG_G=650, CARRY_H=40;
@@ -579,14 +581,14 @@ const SHAKE_TELE=1-0.8/SHAKE_FULL_T;
 const CHK_R=12;
 const CHK_WANDER=42, CHK_CHASE=124;
 const OUT_CHASE_MULT=0.75, OUT_LOSE_T=1.5;
-const CHK_LEASH=600;
+const CHK_LEASH=280;
 const CHK_REACT=0.35;
 const CHASE_TURN=150*Math.PI/180;
-const AGGRO_RUN=310;
-const PICKUP_QUIET=120, PICKUP_LOUD=310;
-const SIGHT_IN=240, SIGHT_OUT=160;
-const DECOY_R=240, PECK_T=4.0;
-const PUSH_R=60, PUSH_CD=2.5, PUSH_STUN=0.8, PUSH_KB=520, PUSH_STAGGER=0.35, PUSH_NOISE=200;
+const AGGRO_RUN=130;
+const PICKUP_QUIET=50, PICKUP_LOUD=130;
+const SIGHT_IN=110, SIGHT_OUT=73;
+const DECOY_R=110, PECK_T=4.0;
+const PUSH_R=60, PUSH_CD=2.5, PUSH_STUN=0.8, PUSH_KB=520, PUSH_STAGGER=0.35, PUSH_NOISE=85;
 const ELBOW_T=0.3;
 const ROB_SPD=55, FLAP_T=2.0;
 const FAIL_HOLD=2.5;
@@ -597,28 +599,28 @@ const CHASE_LOSE_T=1.5;          // 실내외 공통: 시야·신선 파동이 �
 const CONFIRM_FRESH_T=1.2;       // 파동·목격 확정의 신선도 — 이 이내에만 라이브 추적
 const INVEST_SPD=110, INVEST_DWELL=2.0, INVEST_CD=2.0, INVEST_CHAIN=2;
 const CHK_SEP_R=24;              // 닭-닭 소프트 분리 (흐름 수렴 "슈퍼닭" 방지)
-const SIGHT_DARK=80;             // 정전: 닭도 밤눈이 어둡다
-const CARRIER_SEEN=200;          // 정전: 발광 알 소지자는 여기서 팔린다 (랜턴 140 < 피탐 200)
+const SIGHT_DARK=37;             // 정전: 닭도 밤눈이 어둡다
+const CARRIER_SEEN=92;          // 정전: 발광 알 소지자는 여기서 팔린다 (랜턴 140 < 피탐 200)
 
 // 정전 (결정 로그 2026-08-11 — 시작: 마지막 필요분 픽업 / 끝: 승리·실패뿐)
-const LANTERN_DIST=140, LANTERN_INT=0.85;    // "계란이 밝힌다" — 발밑 웅덩이만, 분기점은 파동 몫
+const LANTERN_DIST=64, LANTERN_INT=0.85;    // "계란이 밝힌다" — 발밑 웅덩이만, 분기점은 파동 몫
 const EGG_EMISSIVE_LIT=0x6b5f45, EGG_EMISSIVE_DARK=0xffe8c4;  // "계란이 보인다" — 독립 손잡이
 const FLICKER_T=0.25;            // 소등 연출 (캐스케이드는 폴리시 이연). 로직은 t=0 즉시 전환
-const HEADLIGHT_DARK=700;        // 정전 중 헤드라이트 클램프 — 실내 바닥 침투(거짓 등대) 차단
-const ABANDON_R=200, ABANDON_T=3;// 방치된 발광 알 → 강탈 표적 (내려놓기 탈출기의 유예)
-const CLUCK_DARK_MIN=2.5, CLUCK_DARK_MAX=4.5, CLUCK_WAVE_MAX=600;
+const HEADLIGHT_DARK=350;        // 정전 중 헤드라이트 클램프 — 실내 바닥 침투(거짓 등대) 차단
+const ABANDON_R=92, ABANDON_T=3;// 방치된 발광 알 → 강탈 표적 (내려놓기 탈출기의 유예)
+const CLUCK_DARK_MIN=2.5, CLUCK_DARK_MAX=4.5, CLUCK_WAVE_MAX=280;
 const ROB_CLUCK_T=1.5;
 
 // 파동 (시각 전용 열. LOGIC은 기존 상수를 그대로 쓴다)
-const WAVE_SPEED=400, WAVE_RAYS=540, STEP_RAYS=180;
+const WAVE_SPEED=170, WAVE_RAYS=540, STEP_RAYS=180;
 const WAVE_POOL=40000, FX_POOL=7000, SPLAT_POOL=32;
-const VIS_WALK=180, VIS_RUN=310, VIS_LAND=300, VIS_BREAK=380, VIS_SHOVE=200,
-      VIS_PICK_Q=120, VIS_PICK_L=310, VIS_CLUCK=260, VIS_STRUT=180;
+const VIS_WALK=76, VIS_RUN=130, VIS_LAND=126, VIS_BREAK=160, VIS_SHOVE=84,
+      VIS_PICK_Q=50, VIS_PICK_L=130, VIS_CLUCK=109, VIS_STRUT=76;
 
 // v0.6 신설 — 갑툭튀 배치 (docs/goal/chicken-heist-dark-surprise.md, 패널 확정)
 // v0.13 정전 트리거 — 쿼터가 사라졌으므로 "반납이 시계를 앞당긴다"로 인과 복원 (D1).
 // 가속 인자는 stats.delivered(단조 증가)만 쓴다 — 손·품·수레를 넣으면 파손·강탈 때 시계가 거꾸로 간다
-const DARK_BASE=360, DARK_ACC=8, DARK_MIN=240;
+const DARK_BASE=185, DARK_ACC=4, DARK_MIN=125;
 // v0.13 전리품 — 신규 품목 클래스 0종, 기존 eggs[] 파이프라인에 kind만 얹는다 (D5)
 const LOOT_VAL={egg:1,bigEgg:3,meat:2};
 // v0.15 요리 — 열은 kind가 아니라 필드(e.heat 0생/1익음/2탄것)다: kind==='meat' 게이트(불파괴·주머니 금지)가
@@ -641,7 +643,7 @@ const GRADE=[1,14,35];           // 인원수 배수 — 빈 트럭 / 오늘 장
 // 왜 여기 있나: 농장은 실제로 거위를 경비로 친다. 설명이 필요 없는 종이어야 한다는
 // 금지 해제 조건(CLAUDE.md 2026-08-14)을 만족하는 최단 답이다. 몬스터가 아니다.
 // 역할 분담: 닭은 도둑(알을 물고 둥지로), 거위는 경비(못 훔치고, 대신 쫓아내고 떠든다).
-const GOOSE_N=2;                 // 마당 전담 — 축사 안엔 들어가지 않는다 (닭 시스템과 간섭 0)
+const GOOSE_N=0;                 // v0.16: 개발자 회수 — 거위 삭제 (배열이 비면 updGeese·스냅샷·리셋 루프가 전부 무동작)
 const GOOSE_R=15;                // 닭 12보다 크다 — 실루엣으로 구분
 const GOOSE_WAKE_R=150;          // 이 안에 들어오면 걸어도 깬다
 const GOOSE_HEAR_R=420;          // 이 안에서 "달리면" 깬다 — 걸으면 안 깬다 (조용히 지나갈 여지)
@@ -656,7 +658,7 @@ const GOOSE_MAX_X=BARN.x0-40;    // 거위는 이 선을 못 넘는다 — 문 �
 // (DARK_TIMER는 v0.15에서 삭제 — v0.13 대체 후 남은 잔재가 클라 정전 경고를 300s 고정으로 오발시켰다.
 //  상수를 지웠으므로 재발은 grep 불가능. 클라도 darkAt()을 쓴다 — D-NET6)
 // v0.11 신설 — 밤 시계·새벽 마감 (docs/goal/chicken-heist-dawn-deadline.md)
-const NIGHT_LEN=480;             // 밤 전체 길이(초) — 시계 00:00→06:00 매핑, 만료 = 새벽 실패. DARK_BASE보다 길어야 한다. 튜닝 상수
+const NIGHT_LEN=245;             // 밤 전체 길이(초) — 시계 00:00→06:00 매핑, 만료 = 새벽 실패. DARK_BASE보다 길어야 한다. 튜닝 상수
 const DAWN_WARNS=[60,30,10];     // 예고 시점 (잔여 실초) — 수탉은 세계의 신호, 경적은 기사의 신호
 const DAWN_MSGS=['멀리서 수탉이 뒤척인다…','수탉이 울었다 — 기사가 시동을 건다','경적!! 트럭이 떠난다!!'];
 // 밤의 이 지점부터 하늘이 물들기 시작 (렌더 전용 — "그냥 타이머"가 아니게 하는 축).
@@ -668,17 +670,17 @@ const TRUCK_GO_T=6.0, TRUCK_GO_D=900;   // v0.13(D3): 막차 유예 — 이 6초
 // 원칙: 앰비언트만 낮추고 램프는 절대 건드리지 않는다 — 0.20 베이스에선 램프 웅덩이가 체감 광량의
 // ~80%가 되어 정전의 램프 일괄 소등이 오히려 더 극적으로 읽힌다. ?bright=1 = dev A/B (v0.14 값 복원)
 const BRIGHT_AB=/[?&]bright=1/.test(location.search);
-// v0.15.3: 개발자 검수 "아직 너무 밝아" → 2단 감광 (0.20/0.12 → 0.12/0.06). 정전과의 앰비언트 낙차는
+// v0.16: 개발자 검수 "아직 너무 밝아" → 2단 감광 (0.20/0.12 → 0.12/0.06). 정전과의 앰비언트 낙차는
 // 줄지만(0.12 vs 0.06) 정전 정체성은 램프 일괄 소등 + 범주 신호(플리커·소리·발광 반전)가 진다 (D-DARK2)
 const HEMI_LIT=BRIGHT_AB?0.58:0.12, HEMI_DARK=0.06, MOON_LIT=BRIGHT_AB?0.22:0.06, MOON_DARK=0.04;   // 광량 기준값 (정전·새벽이 공유)
 const SKY_NIGHT_HEX=BRIGHT_AB?0x0c1424:0x03060c;   // 밤하늘·안개 기저색 — 거리(fog near/far)는 불변 (트럭 가시성)
 const WARN_DIP_T=0.12;           // 잔여 30/10초 조명 딥 (flickT 기구 재사용)
 const PATROL_SPD=65;             // 순찰 전용 속도 — 배회 42와 invest 110 사이 (신설 상태의 신설 상수)
-const PACK_R=500;                // 무리 경보 반경 (소리 기반 — 앵커 리쉬 600이 자연 상한)
+const PACK_R=200;                // 무리 경보 반경 (소리 기반 — 앵커 리쉬 600이 자연 상한)
 const ALARM_JOIN_CD=8;           // 같은 닭의 경보 재합류 쿨 (INVEST_CD와 별도)
 const GUARD_HOLD=6;              // 지킴이 트레이 경계 체류 상한 — 유한해야 KO가 대책이 된다
 const KO_T=6;                    // 펀치 KO — 기상은 무조건 격노 (파밍 방지)
-const REVENGE_R=200, REVENGE_T=5;// KO 목격 닭의 복수 추격 (빈손 무관 — 무위험 사냥 봉쇄)
+const REVENGE_R=92, REVENGE_T=5;// KO 목격 닭의 복수 추격 (빈손 무관 — 무위험 사냥 봉쇄)
 const SWAP_T=1.2;                // Q 품 동작 시간 (중 밀치기·던지기 불가 — 공짜 순간이동 방지)
                                  // v0.13: 0.5→1.2 (D9). 품은 밝은 구간 발각 게이지에 안 걸리는 무적이라
                                  // 왕복 루프에선 "집자마자 Q"가 항상 정답이 된다. carriesEgg를 고치면
@@ -687,17 +689,17 @@ const CART_SLOTS=2, CART_GRAB_R=70, CART_LOAD_R=60;
 const CART_MULT=0.75, CART_LAG=0.55, CART_EJECT_T=4;  // 달리기 견인 누적 4s → 알 1개 결정적 이탈
 const JUMP_V=260, JUMP_G=650;    // 점프 정점 52 — 물통(26)·상자(40)만 넘는다. 벽은 원천 불가
 const JUMP_SKIP={trough:1,crate:1,brooder:1};  // 공중 통과 + 2D 판정(시야·파동·카메라) 제외 목록 (v0.15: 보온 상자 40 추가)
-const VIS_PUNCH=380, VIS_ALARM=500;  // 신설 동사 파동 (펀치 LOGIC=PICKUP_LOUD 310 재사용, 경보 LOGIC=0)
+const VIS_PUNCH=160, VIS_ALARM=210;  // 신설 동사 파동 (펀치 LOGIC=PICKUP_LOUD 310 재사용, 경보 LOGIC=0)
 // (순찰·지킴 리터럴은 v0.9부터 CHK_DEF로 통합 — 트레이 정의 아래 참조)
 
 // v0.9 신설 — 발각 게이지 (밝은 구간 전용. 정전은 v0.7 즉발 유지 — 140/200 공식 동결)
 // 밝은 구간 로직 최초 변경 — 개발자 권한 해제 (2026-08-12, "언제 잡으러 오는지 납득 가능하게")
-const DET_NEAR=60;               // 이 안은 즉발 — 코너 정면충돌의 갑툭튀는 벽 210이 산 자산
+const DET_NEAR=40;               // 이 안은 즉발 — 코너 정면충돌의 갑툭튀는 벽 210이 산 자산
 const DET_RATE_NEAR=2.5, DET_RATE_FAR=0.5;   // 60~반경 선형 충전율(/s)
 const DET_DECAY=0.4, DET_GRACE=0.5;          // 감쇠 + LOS 상실 유예
 const DET_DEMOTE=0.5;            // chase→invest 강등 시 유지되는 의심 잔량
 const DET_INVEST_MULT=2;         // invest 중 충전 배속 (지킴이 리다이렉트 무력화 방지)
-const RING_MAX_D=400;            // 시야 원 표시 거리 상한
+const RING_MAX_D=200;            // 시야 원 표시 거리 상한
 const INVEST_TRAVEL_T=6;         // invest 이동 타임아웃 밸브 (교착 방지)
 
 // v0.7 신설 — 스태미나 (유일 신규 시스템. docs/goal/chicken-heist-stamina-telegraph.md)
@@ -721,8 +723,8 @@ function nameSub(i){
 const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사전 배치 (첫 프레임 분리 밀침 방지)
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
-const NET_SNAP_R=200;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.15.3'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
+const NET_HZ=20, PROTO_V='v0.16'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -733,11 +735,11 @@ function seg(x1,z1,x2,z2,kind,baseY){return {x1,z1,x2,z2,kind:kind||'wall',baseY
 // cage·plug 210: 계란 비행 물리도 여기 물려 있다 — 벽 너머 투척 전술 삭제는 v0.6 의도된 변경
 const SEG_H={wall:96, barn:BARN_H, cage:210, plug:210, truck:92, hay:56, trough:26, crate:40, flapIn:BARN_H, stair:210, brooder:40};
 
-const TRUCK_X=250, TRUCK_Z=aisleZC(SPINE);
+const TRUCK_X=170, TRUCK_Z=aisleZC(SPINE);   // v0.16 마당 압축 (하한: SPAWN.x ≥ truckPad.x+136 — 검사 18)
 const truckPad={x:TRUCK_X+130,z:TRUCK_Z,r:45};
 const SPAWN={x:TRUCK_X+290,z:TRUCK_Z};   // v0.13(D8): 패드 밖으로 — 스폰이 은행 안이면 즉시 0점 출발이 가능해진다
-const DOOR_W=150, DOOR_Z=aisleZC(SPINE);
-const HOLE_W=120, HOLE_Z=aisleZC(EAST_HOLE_AISLE);
+const DOOR_W=AH, DOOR_Z=aisleZC(SPINE);   // v0.16: 문 = 통로 폭 정확히. 구 150은 새 통로 85보다 넓어 문이 케이지 열을 파고든다
+const HOLE_W=60, HOLE_Z=aisleZC(EAST_HOLE_AISLE);   // 몸만 빠지는 구멍 — 수레(56 필요) 불가는 의도
 const DOOR_IN={x:BARN.x0+55,z:DOOR_Z}, DOOR_OUT={x:BARN.x0-55,z:DOOR_Z};
 
 const walls=[
@@ -747,12 +749,13 @@ const walls=[
   seg(TRUCK_X+58,TRUCK_Z+70,TRUCK_X-58,TRUCK_Z+70,'truck'),
   seg(TRUCK_X-58,TRUCK_Z-70,TRUCK_X-58,TRUCK_Z+70,'truck'),
   // 마당 장애물
-  seg(560,TRUCK_Z-620,660,TRUCK_Z-620,'hay'), seg(660,TRUCK_Z-620,660,TRUCK_Z-540,'hay'),
-  seg(660,TRUCK_Z-540,560,TRUCK_Z-540,'hay'), seg(560,TRUCK_Z-540,560,TRUCK_Z-620,'hay'),
-  seg(560,TRUCK_Z+540,660,TRUCK_Z+540,'hay'), seg(660,TRUCK_Z+540,660,TRUCK_Z+620,'hay'),
-  seg(660,TRUCK_Z+620,560,TRUCK_Z+620,'hay'), seg(560,TRUCK_Z+620,560,TRUCK_Z+540,'hay'),
-  seg(600,TRUCK_Z-90,660,TRUCK_Z-90,'crate'), seg(660,TRUCK_Z-90,660,TRUCK_Z-30,'crate'),
-  seg(660,TRUCK_Z-30,600,TRUCK_Z-30,'crate'), seg(600,TRUCK_Z-30,600,TRUCK_Z-90,'crate'),
+  // v0.16: 소품 크기(풋프린트)는 몸 축척이라 불변, 위치만 마당 압축을 따라간다
+  seg(366,TRUCK_Z-207,466,TRUCK_Z-207,'hay'), seg(466,TRUCK_Z-207,466,TRUCK_Z-127,'hay'),
+  seg(466,TRUCK_Z-127,366,TRUCK_Z-127,'hay'), seg(366,TRUCK_Z-127,366,TRUCK_Z-207,'hay'),
+  seg(366,TRUCK_Z+127,466,TRUCK_Z+127,'hay'), seg(466,TRUCK_Z+127,466,TRUCK_Z+207,'hay'),
+  seg(466,TRUCK_Z+207,366,TRUCK_Z+207,'hay'), seg(366,TRUCK_Z+207,366,TRUCK_Z+127,'hay'),
+  seg(406,TRUCK_Z-90,466,TRUCK_Z-90,'crate'), seg(466,TRUCK_Z-90,466,TRUCK_Z-30,'crate'),
+  seg(466,TRUCK_Z-30,406,TRUCK_Z-30,'crate'), seg(406,TRUCK_Z-30,406,TRUCK_Z-90,'crate'),
 ];
 // 축사 외벽 — 서쪽 정문 + 동쪽 개구멍(진입 전용)만 뚫린다
 function wallGapsZ(fixedX,from,to,gaps,kind){
@@ -826,11 +829,12 @@ for(const b of plugBoxes){
   walls.push(seg(b.x0,b.z0,b.x1,b.z0,'plug',b.base), seg(b.x1,b.z0,b.x1,b.z1,'plug',b.base),
              seg(b.x1,b.z1,b.x0,b.z1,'plug',b.base), seg(b.x0,b.z1,b.x0,b.z0,'plug',b.base));
 }
-// 물통 3개 — 계단참으로 이전 (v0.9: 통로 255에선 잔폭 계약 불가 — 전원이 지나는 자리로. 잔폭 230 유지)
+// 물통 3개 — 계단참. v0.16: 계단참이 260각→130각이라 구 리터럴은 물통이 계단참 밖으로 삐져나온다.
+// 잔폭 계약도 리터럴 230(계단참 260 시절 유도값) → "수레가 지나간다" 파생식으로 (검사 8)
 const TROUGHS=[
-  {x0:STAIR.L1.x0+40,x1:STAIR.L1.x0+150,z0:STAIR.L1.z0+2, z1:STAIR.L1.z0+30},
-  {x0:STAIR.L1.x1-30,x1:STAIR.L1.x1-2,  z0:ZA-67.5,       z1:ZA+42.5},
-  {x0:STAIR.L2.x0+40,x1:STAIR.L2.x0+150,z0:STAIR.L2.z1-30,z1:STAIR.L2.z1-2},
+  {x0:STAIR.L1.x0+20,x1:STAIR.L1.x0+70,z0:STAIR.L1.z0+2, z1:STAIR.L1.z0+16},
+  {x0:STAIR.L1.x1-16,x1:STAIR.L1.x1-2, z0:ZA-34,         z1:ZA+21},
+  {x0:STAIR.L2.x0+20,x1:STAIR.L2.x0+70,z0:STAIR.L2.z1-16,z1:STAIR.L2.z1-2},
 ];
 for(const b of TROUGHS){
   walls.push(seg(b.x0,b.z0,b.x1,b.z0,'trough'), seg(b.x1,b.z0,b.x1,b.z1,'trough'),
@@ -840,9 +844,11 @@ for(const b of TROUGHS){
 // 동물 소유 농장에서 텍스트 없이 읽히는 유일한 열원 = 동물 자신의 설비. 전기라서 정전 인과도 공짜.
 // 1F 축사 내부 랜덤 셀 — 마당은 강탈 종이 없어 "기다림=위험" 가격표가 지워진다 (교차심문 확정)
 const KITCHEN_CELL=LAYOUT.kitchen;
-const KITCH_D=90;                    // 보온 상자 한 변 — 통로 255에서 잔폭 165 ≥ 160 (물통 잔폭 검사의 동형)
-const KITCHEN_POS={x:fCellXC(0,KITCHEN_CELL[1]), z:fAisleZ0(0,KITCHEN_CELL[0])+AH-4-KITCH_D/2};
-const KITCHEN_R=70;                  // 조리 반경 — 상자 가장자리(45)+계란(7)이 안에 들어온다. 튜닝 상수
+const KITCH_D=30;                    // 보온 상자 한 변 — 통로 85에서 잔폭 51 ≥ 사람 30 (수레 56은 불가 — 기하 필연)
+// v0.16 잠재 버그 수리: x를 셀 중앙에 두면 z진입 gapPoint(x=셀 중앙)가 상자 "안"에 놓여
+// (실측 1000시드 71.2%) collideCircle이 못 밀어내고 닭이 상자 면에 붙어 도달 실패한다. 셀 구석으로 뺀다
+const KITCHEN_POS={x:fCellXC(0,KITCHEN_CELL[1])+(OPEN_W+CW-PLUG_W)/4, z:fAisleZ0(0,KITCHEN_CELL[0])+AH-4-KITCH_D/2};
+const KITCHEN_R=28;                  // 조리 반경 — 상자 반변 15 + 계란 7 + 여유 6. 튜닝 상수
 { // 상자 충돌 세그 — kind 'brooder': 높이 40 (점프 통과·시야/파동/카메라 비차단), SEGS 버킷 분리 전에 push
   const h=KITCH_D/2, kx=KITCHEN_POS.x, kz=KITCHEN_POS.z;
   walls.push(seg(kx-h,kz-h,kx+h,kz-h,'brooder'), seg(kx+h,kz-h,kx+h,kz+h,'brooder'),
@@ -872,7 +878,7 @@ function segsFor(x,z){
 //  지도가 위협 채널이 되는 순간 월드 읽기(게이지·응시·연기·빛 웅덩이) 투자가 죽는다.
 //  정적 레이어는 생성 산출물(SEGS0/SEGS1)에서만 그린다 — 좌표 리터럴 수동 중복 금지 (첫 비폴백 시드에서 즉사)
 // ============================================================
-const MAP_W=240, MAP_H=170, MAP_SS=2;          // CSS 크기 / 슈퍼샘플 배율
+const MAP_W=320, MAP_H=130, MAP_SS=3;          // CSS 크기 / 슈퍼샘플 배율
 let mapOn=true;
 try{ mapOn=localStorage.getItem('ch_map')!=='0'; }catch(e){}
 const mapCv=document.createElement('canvas');
@@ -1182,7 +1188,7 @@ let truckGoT=-1; let missed=[];                                  // 트럭 출�
 const CART_HOME={x:TRUCK_X+60,z:TRUCK_Z+160};
 // cart.pulled → cart.owner (플레이어 인덱스, -1=없음) — 견인자 신원 (패널 D10)
 const cart={x:CART_HOME.x,z:CART_HOME.z,r:26,dir:0,owner:-1,slots:[],trail:[],runAcc:0};
-const GLOVE_POS={x:630,z:TRUCK_Z-60};   // 마당 상자 위 — 스폰 시야 안
+const GLOVE_POS={x:436,z:TRUCK_Z-60};   // 마당 상자 위 — 스폰 시야 안 (v0.16 상자 이동 동반)
 let phase='title';
 let now=0, simT=0, shake=0, flash=0, fade=0;
 let introSeen=false, introT=0, failT=0, rattleCd=0;
@@ -1201,7 +1207,7 @@ const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('gl'),ant
 renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(SKY_NIGHT_HEX);
-scene.fog=new THREE.Fog(SKY_NIGHT_HEX,2200,BARN.x1+1300);   // v0.15: 색만 어둡게 — 거리 당기면 축사 문에서 트럭이 안 보인다
+scene.fog=new THREE.Fog(SKY_NIGHT_HEX,1190,BARN.x1+700);   // v0.16: 축척 동반 (near 2200은 새 축사 대각 2040보다 커서 실내에서 안개가 꺼진다)   // v0.15: 색만 어둡게 — 거리 당기면 축사 문에서 트럭이 안 보인다
 const camera=new THREE.PerspectiveCamera(72,1,1,14000);
 camera.rotation.order='YXZ';
 scene.add(camera);
@@ -1221,24 +1227,31 @@ const C_SKY_NIGHT=new THREE.Color(SKY_NIGHT_HEX), C_SKY_DAWN=new THREE.Color(0x2
 const C_HEMI_NIGHT=new THREE.Color(0x33506c), C_HEMI_SUN=new THREE.Color(0xd09a6e);
 const _sky=new THREE.Color();
 const lampLights=[];
-// 1F: 코너 4 + 척추 2 (하나는 첫 트레이 위 — 불웅덩이) / B1: 코너 2 + 척추 1 (전부 정전 시 일괄 소등)
+// v0.16 조명 재설계 — 개발자가 램프 성역을 해제했다 ("이게 안밝다고? 말이안돼").
+// 크림색의 진짜 원인은 세기가 아니라 도달거리와 감쇠였다: distance 2600은 새 축사 대각(2040)의 127%라
+// 램프 하나가 전 층을 채웠고, PointLight decay 기본 1(선형)이라 1300u 밖에서도 절반이 남았다.
+// 손잡이를 바꾼다: distance 2600→300 + decay 1→2 (역제곱). 세기는 오히려 올린다 —
+// "전체를 흐리게"가 아니라 "웅덩이만 남기고 나머지를 없앤다". 웅덩이 밖은 진짜 캄캄해진다.
+// z는 통로 중심에 스냅한다 — 웅덩이가 좁아지면 케이지 열 위에 떨어진 램프는 통로를 못 밝힌다
+const LAMP_D=300;
 const LAMP_POS=[
-  {x:BARN.x0+COOP_W*0.18, z:BARN.z0+COOP_D*0.28, i:1.35},
-  {x:BARN.x0+COOP_W*0.18, z:BARN.z0+COOP_D*0.72, i:1.35},
-  {x:BARN.x0+COOP_W*0.74, z:BARN.z0+COOP_D*0.28, i:1.35},
-  {x:BARN.x0+COOP_W*0.74, z:BARN.z0+COOP_D*0.72, i:1.35},
-  {x:BARN.x0+COOP_W*0.14, z:aisleZC(SPINE), i:1.2},
-  {x:cellXC(TRAY_CELLS[0][1]), z:aisleZC(SPINE), i:1.8},   // v0.6: 벽 210 상향의 복도 감광 보정
-  {x:B1.x0+(B1.x1-B1.x0)*0.25, z:B1.z0+(B1.z1-B1.z0)*0.3, i:1.3, b:-FLOOR_H},
-  {x:B1.x0+(B1.x1-B1.x0)*0.75, z:B1.z0+(B1.z1-B1.z0)*0.7, i:1.3, b:-FLOOR_H},
-  {x:B1.x0+(B1.x1-B1.x0)*0.2,  z:ZB, i:1.5, b:-FLOOR_H},  // B1 척추 — 계단 출구의 회복축 불웅덩이
+  {x:fCellXC(0,1), z:fAisleZC(0,1), i:2.0},
+  {x:fCellXC(0,1), z:fAisleZC(0,6), i:2.0},
+  {x:fCellXC(0,4), z:fAisleZC(0,1), i:2.0},
+  {x:fCellXC(0,4), z:fAisleZC(0,6), i:2.0},
+  {x:fCellXC(0,0), z:aisleZC(SPINE), i:1.8},               // 정문 안쪽 — 진입 앵커
+  {x:cellXC(TRAY_CELLS[0][1]), z:aisleZC(SPINE), i:2.6},   // 첫 트레이 위 불웅덩이 (생성 트레이를 따라간다)
+  {x:B1.x0+(B1.x1-B1.x0)*0.25, z:fAisleZC(1,1), i:2.0, b:-FLOOR_H},
+  {x:B1.x0+(B1.x1-B1.x0)*0.75, z:fAisleZC(1,4), i:2.0, b:-FLOOR_H},
+  {x:B1.x0+(B1.x1-B1.x0)*0.2,  z:ZB, i:2.4, b:-FLOOR_H},   // B1 척추 — 계단 출구의 회복축
+  {x:STAIR.B.x0+45, z:(ZA+ZB)/2, i:2.0, b:-FLOOR_H*0.5},   // v0.16 신설: 계단통. 웅덩이화하면 층 이동 경로가 완전 암흑이 된다
 ];
 for(const p of LAMP_POS){
-  const L=new THREE.PointLight(0xffcf92,p.i,Math.max(2600,COOP_W*0.6));
-  L.position.set(p.x,(p.b||0)+175,p.z); scene.add(L); lampLights.push(L);
+  const L=new THREE.PointLight(0xffcf92,p.i,LAMP_D,2);   // decay 2 = 역제곱 (구 기본 1 = 선형 필 라이트)
+  L.position.set(p.x,(p.b||0)+LAMP_D*0.33,p.z); scene.add(L); lampLights.push(L);
   L.userData.lit=p.i;
 }
-const padLight=new THREE.PointLight(0xffe08a,0.7,260);
+const padLight=new THREE.PointLight(0xffe08a,0.7,150,2);
 padLight.position.set(truckPad.x,60,truckPad.z); scene.add(padLight);
 // 계란 랜턴 — 플레이어 슬롯당 1개, 4개 상주 (라이트 수 변경 시 셰이더 재컴파일 히치 방지 — M1 D29)
 const LANTERNS=[];
@@ -1347,22 +1360,25 @@ for(const b of plugBoxes){
   g.position.y=b.base||0;
   scene.add(g);
 }
-// 천장 전구 줄 (발광 메시 — 실광원은 4개뿐)
+// 천장 전구 줄 (발광 메시 — 실광원은 램프 10개뿐).
+// v0.16: 웅덩이를 좁힌 대가로 "램프가 시야에 없는 셀"에서 정전이 무사건이 된다 —
+// 전구를 두 층 전 셀에 1개씩 깔아, 어디서든 소등 순간이 화면에 보이게 한다 (정전 = 클라이맥스 계약)
 const bulbMat=new THREE.MeshBasicMaterial({color:0xffd9a0});
 {
-  const bg=new THREE.SphereGeometry(7,10,8);
+  const bg=new THREE.SphereGeometry(5,10,8);
   const cordM=mat(0x2f2c28), shadeM=mat(0x3c3833);
-  const cordG=new THREE.CylinderGeometry(1.5,1.5,44,6);
-  const shadeG=new THREE.ConeGeometry(17,14,10);
-  for(let a=0;a<A_N;a++){
-    for(let k=0;k<4;k++){
-      const x=BARN.x0+COOP_W*(0.13+0.25*k), z=aisleZC(a);
+  const cordG=new THREE.CylinderGeometry(1.2,1.2,30,6);
+  const shadeG=new THREE.ConeGeometry(11,9,10);
+  for(let f=0;f<FLOORS.length;f++){
+    const FL=FLOORS[f];
+    for(let a=0;a<FL.an;a++) for(let c=0;c<FL.cn;c++){
+      const x=fCellXC(f,c), z=fAisleZC(f,a), y0=FL.base+BARN_H;
       const cord=new THREE.Mesh(cordG,cordM);
-      cord.position.set(x,BARN_H-22,z); scene.add(cord);
+      cord.position.set(x,y0-15,z); scene.add(cord);
       const shade=new THREE.Mesh(shadeG,shadeM);
-      shade.position.set(x,BARN_H-34,z); scene.add(shade);
+      shade.position.set(x,y0-24,z); scene.add(shade);
       const bulb=new THREE.Mesh(bg,bulbMat);
-      bulb.position.set(x,BARN_H-46,z); scene.add(bulb);
+      bulb.position.set(x,y0-32,z); scene.add(bulb);
     }
   }
 }
@@ -1442,9 +1458,9 @@ let headA=null, headB=null;
   }
   const target=new THREE.Object3D();
   target.position.set(BARN.x0-TRUCK_X+120,10,0); truckG.add(target);
-  headA=new THREE.SpotLight(0xfff3cf,1.25,1400,0.42,0.5);
+  headA=new THREE.SpotLight(0xfff3cf,1.25,700,0.42,0.5);
   headA.position.set(68,42,-38); headA.target=target; truckG.add(headA);
-  headB=new THREE.SpotLight(0xfff3cf,1.25,1400,0.42,0.5);
+  headB=new THREE.SpotLight(0xfff3cf,1.25,700,0.42,0.5);
   headB.position.set(68,42,38); headB.target=target; truckG.add(headB);
   for(const z of [-38,38]){
     const hl=new THREE.Mesh(new THREE.SphereGeometry(5,10,8),
@@ -1636,8 +1652,8 @@ let kitchenBulbM=null, kitchenLight=null;
   kitchenBulbM=new THREE.MeshBasicMaterial({color:0xffa24e});   // 발광 전구 — 앰비언트 무시, 어두운 밝은 구간의 온색 랜드마크
   const bulb=new THREE.Mesh(new THREE.SphereGeometry(6,10,8),kitchenBulbM);
   bulb.position.y=131; g.add(bulb);
-  kitchenLight=new THREE.PointLight(0xff9a40,KITCHEN_LIGHT_I,500);
-  kitchenLight.position.y=118; g.add(kitchenLight);
+  kitchenLight=new THREE.PointLight(0xff9a40,KITCHEN_LIGHT_I,220,2);
+  kitchenLight.position.y=60; g.add(kitchenLight);
   for(const [cx,cz] of [[-16,12],[14,-10]]){                    // 병아리 2 — 이게 걔네 보온등이라는 왜-질문 봉인
     const ch=new THREE.Mesh(new THREE.SphereGeometry(6,8,6),mat(0xffe28a,0x40300a));
     ch.position.set(cx,41,cz); ch.scale.set(1.1,0.9,1); g.add(ch);
@@ -1697,7 +1713,7 @@ const RING_GEO=new THREE.RingGeometry(0.94,1,48);
 const RING_MAT=new THREE.MeshBasicMaterial({color:0xffc060,transparent:true,opacity:0.22,side:THREE.DoubleSide,depthWrite:false});
 function makeChicken(){
   const g=new THREE.Group();
-  const white=mat(0xfdfbf4,0x2c2c28), red=mat(0xe0473c,0x300a08), orange=mat(0xf0a23a,0x2a1a06);
+  const white=mat(0xfdfbf4), red=mat(0xe0473c), orange=mat(0xf0a23a);   // v0.16: emissive 제거 — 닭은 이제 불빛 아래로 들어와야 보인다
   const body=new THREE.Mesh(new THREE.SphereGeometry(13,14,12),white);
   body.scale.set(1.15,1,0.95); body.position.y=16; g.add(body);
   const tail=new THREE.Mesh(new THREE.ConeGeometry(8,17,7),white);
@@ -1772,12 +1788,12 @@ for(let i=0;i<CHK_COUNT;i++){
 // 닭의 층·순찰·강탈 시스템과 겹치는 지점이 하나도 없다 (검증 변수를 마당으로 격리).
 // 규칙 한 줄: 가운데를 "걸으면" 지나갈 수 있고, "뛰면" 깬다.
 const geese=[];
-// v0.15.3: 두 초소를 요충지 술어(WAKE 150 + CHOKE_M 80 = 230)를 만족하는 자리로 동시 이동.
-// v0.15.3까지는 거위0만 옮겨서 정문 회랑 132u·글러브 134u가 남아 있었다 (v0.14는 글러브 59u로 더 깊었다 —
+// v0.16: 두 초소를 요충지 술어(WAKE 150 + CHOKE_M 80 = 230)를 만족하는 자리로 동시 이동.
+// v0.16까지는 거위0만 옮겨서 정문 회랑 132u·글러브 134u가 남아 있었다 (v0.14는 글러브 59u로 더 깊었다 —
 // 글러브만 주우면 무조건 거위가 깼다). 최소 여유 +50u, 섭동 ±30u에도 전항 통과.
 // 배치 원리(이번에 확정): 두 초소의 x가 같으면 청음 원이 겹쳐 차선 서쪽에 공짜 질주 구간이 반드시 생긴다 —
 // 대칭 배치 금지. 행동 상수는 한 글자도 안 바뀐다 (걸으면 통과·뛰면 깬다 그대로)
-const GOOSE_HOME=[{x:800,z:TRUCK_Z-360},{x:660,z:TRUCK_Z+280}];
+const GOOSE_HOME=[];   // v0.16: 비었다. 요충지 술어는 남는다 — 다음 위협이 오면 그 술어를 통과해야 한다
 const GS_STATES=['sleep','honk','charge','back'];
 function makeGoose(){
   const g=new THREE.Group();
@@ -2178,7 +2194,7 @@ function applyDark(on){
   kitchenLight.intensity=on?0:KITCHEN_LIGHT_I;              // v0.15 보온등도 같은 전력망 — 정전=조리 정지의 시각 절반
   kitchenBulbM.color.setHex(on?0x2a201a:0xffa24e);
   bulbMat.color.setHex(on?0x241d14:0xffd9a0);
-  headA.distance=headB.distance=on?HEADLIGHT_DARK:1400;
+  headA.distance=headB.distance=on?HEADLIGHT_DARK:700;
   doorSpill.visible=on;
   eggGlow(on);
   updSky();                                  // 복구 직후 1프레임 밤색으로 튀는 것 방지 (새벽 진행분을 즉시 덮어쓴다)
@@ -3617,7 +3633,7 @@ function render(){
     if(camMode===1){
       const indoor=inZoneOrCorr(v.x,v.z);
       // 실내 목표거리 110 캡 — 코너마다 46↔155 줌 펌핑(멀미) 완화
-      const target=Math.min(camDistRaw(-_fwd.x,-_fwd.z), indoor?110:TP_DIST);
+      const target=Math.min(camDistRaw(-_fwd.x,-_fwd.z), indoor?66:TP_DIST);
       if(target<tpCur) tpCur=target;
       else tpCur+=(target-tpCur)*Math.min(1,1/60*6);
       const rx=Math.cos(v.yaw), rz=-Math.sin(v.yaw);
@@ -4626,10 +4642,10 @@ window.addEventListener('blur',()=>{ keys.clear(); charge=-1; });
 //  검증 스위트 — 로드 시 1회. v0.15부터 위상이 시드 산출물이므로 "이 로드의 시드"를 검증한다.
 //  격자 술어는 생성 루프와 같은 layoutChecks 하나를 공유 (단일 소스 — 검사 드리프트 차단)
 // ============================================================
-// v0.15.3 요충지 테이블 — "플레이어가 반드시 서거나 지나는 자리"만 들어간다. 시드 무관 리터럴.
-// 마진 80 = v0.15.3 검사 23이 이미 쓰던 GOOSE_WAKE_R+80의 상수 승격 (새 숫자를 발명하지 않는다).
+// v0.16 요충지 테이블 — "플레이어가 반드시 서거나 지나는 자리"만 들어간다. 시드 무관 리터럴.
+// 마진 80 = v0.16 검사 23이 이미 쓰던 GOOSE_WAKE_R+80의 상수 승격 (새 숫자를 발명하지 않는다).
 // 이 값은 개발자의 세 판정을 그대로 재현한다: 스폰 153✗ / 스폰 258✓ / 정문 132✗
-const CHOKE_M=80;
+const CHOKE_M=Math.round(SIGHT_IN/3);
 const CHOKE_IN=PLR_R+2;      // collideCircle이 벽에서 밀어내는 거리 — 개구부를 이만큼 안쪽으로 물린다
 const _pD=(x,z,h)=>Math.hypot(x-h.x,z-h.z);                                                  // 점
 const _dD=(x,z,r,h)=>Math.max(0,_pD(x,z,h)-r);                                               // 원반
@@ -4677,20 +4693,21 @@ function mustRoute(){
   // 생성 결정론 — 같은 시드로 재생성해 비교. 다르면 생성 경로에 Math.random·비결정 순회가 샌 것 (D-GEN3)
   if(!USE_BAKED&&layoutKey(genLayout(MAP_SEED))!==layoutKey(LAYOUT)) bad.push('generation nondeterministic');
   // 주방 정적 — 잔폭·존·불웅덩이 정렬 (전부 파생값이지만 미래 수정이 결합을 끊으면 즉발 검출)
-  if(AH-KITCH_D<160) bad.push('kitchen walkway');
+  if(AH-KITCH_D-4<2*(PLR_R+2)) bad.push('kitchen walkway');   // v0.16: 리터럴 160(AH=255 시절) → "사람이 지나간다" 파생식
   if(zoneOfArea(KITCHEN_POS.x,KITCHEN_POS.z)!==0||!inCoopPt(KITCHEN_POS.x,KITCHEN_POS.z)) bad.push('kitchen off 1F barn');
   if(LAMP_POS[5].x!==cellXC(TRAY_CELLS[0][1])) bad.push('lamp6 off tray0');
   // 7) 계단 입구가 1F 척추에서 읽히는가 (정문 → 계단 입구 LOS)
   if(lineBlocked(DOOR_IN.x,DOOR_IN.z,BARN.x1-20,ZA)) bad.push('stair entrance not readable from door');
   // 8) 계단참 물통 잔폭 ≥230
-  if(STAIR.L1.z1-TROUGHS[0].z1<230) bad.push('trough0 walkway');
-  if(TROUGHS[1].x0-STAIR.L1.x0<230) bad.push('trough1 walkway');
-  if(TROUGHS[2].z0-STAIR.L2.z0<230) bad.push('trough2 walkway');
+  const TRW=2*(cart.r+2)+8;   // v0.16: 리터럴 230(계단참 260 시절) → "수레가 지나간다" 파생식
+  if(STAIR.L1.z1-TROUGHS[0].z1<TRW) bad.push('trough0 walkway');
+  if(TROUGHS[1].x0-STAIR.L1.x0<TRW) bad.push('trough1 walkway');
+  if(TROUGHS[2].z0-STAIR.L2.z0<TRW) bad.push('trough2 walkway');
   // 9) 램프 위 물통·트레이 금지
   for(const b of TROUGHS) if(b.x0>=STAIR.R.x0) bad.push('trough on ramp');
   // 10) 존 이격 ≥620 + 모든 광역 반경 상수 < 이격 (신설 상수가 이격을 넘으면 층 격리 붕괴)
   const gap=B1.x0-BARN.x1;
-  if(gap<620) bad.push('zone gap '+gap);
+  if(gap<Math.max(PACK_R,CHK_LEASH,RING_MAX_D)+50) bad.push('zone gap '+gap);   // v0.16: 리터럴 620 → 반경 파생 (드리프트 차단)
   if(PACK_R>=gap||CHK_LEASH>=gap||RING_MAX_D>=gap) bad.push('radius exceeds gap');
   // 11) 트레이 좌표의 존 정합 (강탈·둥지 동존 필터의 전제)
   for(const [i,p] of NEST_POS.entries()) if(zoneOfArea(p.x,p.z)!==(p.f===1?1:0)) bad.push('tray'+i+' zone mismatch');
@@ -4701,7 +4718,7 @@ function mustRoute(){
     if(minD<500) bad.push('floor cells too close '+Math.round(minD));
   }
   // 글러브 스폰 (승계)
-  if(!(GLOVE_POS.x>=600&&GLOVE_POS.x<=660&&GLOVE_POS.z>=TRUCK_Z-90&&GLOVE_POS.z<=TRUCK_Z-30))
+  if(!(GLOVE_POS.x>=406&&GLOVE_POS.x<=466&&GLOVE_POS.z>=TRUCK_Z-90&&GLOVE_POS.z<=TRUCK_Z-30))
     bad.push('glove off crate');
   // 13) v0.10 멀티 구조 불변 — targetOf 액세서·틴트 신호색 분리·스폰 4자리 존 정합·det 배열 크기
   if(players.length!==MAX_PLAYERS||SPAWN_OFFS.length!==MAX_PLAYERS) bad.push('players/spawn size');
@@ -4715,7 +4732,7 @@ function mustRoute(){
   if(DAWN_WARNS.length!==DAWN_MSGS.length||DAWN_WARNS.length!==dawnWarned.length) bad.push('dawn warn arrays mismatch');
   // 15) v0.12 하늘이 시간을 말한다 — 물들기 시작이 정전보다 뒤면 밝은 구간에 볼 시간이 안 남는다
   //     v0.13: 분모가 DARK_TIMER → DARK_MIN (정전이 가장 빨리 켜지는 시점 기준으로 봐야 안전하다)
-  if(DAWN_SKY_T*NIGHT_LEN>=DARK_MIN-60) bad.push('sky warms too late vs blackout');
+  if(DAWN_SKY_T*NIGHT_LEN>=DARK_MIN-30) bad.push('sky warms too late vs blackout');
   // 16) v0.13 점수제 — 팀 실패 진입점은 startDawnFail 하나뿐이어야 한다 (쿼터 실패 잔재 금지)
   if(/function\s+checkFail|function\s+checkWin/.test(update.toString()+deliverEgg.toString())) bad.push('quota judgment resurfaced');
   if(typeof NEED_EGGS!=='undefined') bad.push('NEED_EGGS still defined');
@@ -4732,7 +4749,7 @@ function mustRoute(){
     const d=Math.hypot(SPAWN.x+o[0]-truckPad.x,SPAWN.z+o[1]-truckPad.z);
     if(d<truckPad.r+PLR_R) bad.push('spawn inside pad '+Math.round(d));
   }
-  // 20~23 통합) v0.15.3 요충지 이격 — 위협 배치의 일반 술어.
+  // 20~23 통합) v0.16 요충지 이격 — 위협 배치의 일반 술어.
   // 세 번의 개별 수리(문 앞 닭 / 스폰 거위 / 정문 거위)는 전부 "그 자리를 아무도 안 봤다"였다.
   // 목록을 데이터로 만든다 — 요충지 × 위협 × 마진 이중 루프 하나가 전부고, 새 요충지는 배열에 한 줄이다.
   // 결정적 변경: 거리를 랜드마크 "중심"이 아니라 플레이어가 실제로 설 수 있는 "영역"까지 잰다.
@@ -4747,18 +4764,17 @@ function mustRoute(){
       const d=cp.d(t);
       if(d<t.r+CHOKE_M) bad.push(t.n+' 요충지 침범 '+cp.n+' '+Math.round(d)+'<'+(t.r+CHOKE_M));
     }
-    // 상한 — 요충지에서 띄우다가 "뛰어도 안 깨는" 구간을 만들면 v0.14가 무의미해진다
-    for(const p of mustRoute()){
+    // 상한 — 요충지에서 띄우다가 "뛰어도 안 깨는" 구간을 만들면 마당 위협이 무의미해진다.
+    // v0.16: 거위를 회수해 마당 위협이 0이므로 이 검사는 휴면. 다음 마당 위협이 오면 자동으로 되살아난다
+    if(GOOSE_HOME.length) for(const p of mustRoute()){
       let best=1e9; for(const h of GOOSE_HOME) best=Math.min(best,Math.hypot(p[0]-h.x,p[1]-h.z));
       if(best>=GOOSE_HEAR_R){ bad.push('필수 경로에 청음 사각 '+Math.round(p[0])+','+Math.round(p[1])); break; }
     }
-    // 구조 검사 (기존 20·21 승계 — 성격이 다르므로 남긴다)
+    // 구조 검사 (마당 위협 일반 — 거위가 없으면 무동작)
     for(const [i,h] of GOOSE_HOME.entries()){
-      if(inCoopPt(h.x,h.z)) bad.push('goose'+i+' inside barn');
-      if(zoneOfArea(h.x,h.z)!==0) bad.push('goose'+i+' off yard zone');
-      if(h.x>GOOSE_MAX_X) bad.push('goose'+i+' home past boundary');
+      if(inCoopPt(h.x,h.z)) bad.push('yard threat '+i+' inside barn');
+      if(zoneOfArea(h.x,h.z)!==0) bad.push('yard threat '+i+' off yard zone');
     }
-    if(GOOSE_MAX_X>=BARN.x0) bad.push('goose can enter barn');
     if(geese.length!==GOOSE_N) bad.push('goose count');
   }
   // 19) v0.13 레버는 반납대와 물리적으로 떨어져 있어야 한다 (E 폴스루가 반납과 섞이지 않게)
