@@ -334,6 +334,50 @@ below as single decisions. Do not resurrect the losing variants.
       exception + v0.16 restore, darkness override, procgen/seed/minimap
       contracts, decoyPulse coupling #2).
 
+## v0.15.3 — Chokepoint clearance becomes a predicate (post-ship repair)
+
+Three consecutive developer reports ("시작하자마자 / 입구에 몬스터가 아직") were each patched
+individually. A 4-lens audit + cross-exam found the common cause: **there was no general rule**,
+only ad-hoc checks covering 5 of 11 yard chokepoints, and every check measured to a landmark's
+*centre* rather than to where a player can actually stand.
+
+- **D-CHOKE1. One predicate, one table.** `CHOKE_M=80` (promoted from the literal v0.15.2 check 23
+  already used — no invented number; it reproduces all three developer verdicts: spawn 153 ✗ /
+  spawn 258 ✓ / door 132 ✗). Threshold = threat's no-notice radius + CHOKE_M. `yardChokes()` lists
+  all 11 chokepoints as data (pad, door corridor, quiet lane, glove, lever, cart home, 4 spawn
+  seats); validate() runs threats × chokepoints as one double loop. Chickens ride the same loop
+  with `SIGHT_IN` as their radius, so the rule is species-agnostic. Adding a chokepoint is one line.
+- **D-CHOKE2. Measure to the standable region, not the centre.** Disc/box/segment closed forms;
+  openings inset by `CHOKE_IN=PLR_R+2` (what `collideCircle` enforces). The 2u knife-edge that
+  passed review was an artifact of measuring to a door-jamb corner no player can ever occupy.
+- **D-CHOKE3. Upper bound keeps the threat real.** `mustRoute()` samples the pad→door lane and the
+  full door opening; if any sample is ≥ `GOOSE_HEAR_R` from every goose, that is a violation too.
+  Clearing chokepoints must not create a free sprint corridor — that would quietly undo v0.14.
+- **D-CHOKE4. `GOOSE_HOME = [{800, TRUCK_Z-360}, {660, TRUCK_Z+280}]`.** Min clearance +50u,
+  hearing margin 54u, survives ±30u perturbation of both posts. Behaviour constants untouched.
+  **New placement principle: the two posts must differ in x** — equal x makes the two hearing
+  circles cover the same lane span, leaving a guaranteed free-sprint gap to the west (measured 159u
+  for symmetric (800,±360)). (Rejected: moving only goose1 — leaves glove at 134u; moving GLOVE_POS
+  instead — two moving parts and the glove is pinned to the crate.)
+- **D-CHOKE5. Interior gates: residency was never the bug, transit was.** `gateChecks(L)` folds into
+  `layoutChecks` (single source) and forbids a chicken home/patrol from sitting on **or lying on any
+  shortest path through** the three gate cells (front door, 1F stair, B1 stair). Measured on 2000
+  seeds: residency violations 0.00%, transit violations **15.65%** (door 3.90 / 1F stair 3.35 /
+  B1 stair 8.80). Uses `onAnyShortest` (sum-of-two-BFS-fields) rather than replaying `nextCell`,
+  so the predicate is a superset of the runtime path and cannot drift from it.
+- **Cost**: mean attempts 1.05 → 1.25, max retry 5/16, **fallbacks 0 over 10000 seeds**;
+  determinism and the baked fallback both still pass.
+
+Verified live by rollback: reverting to v0.15.2 coords makes the check fire 3 violations
+(glove 134, door corridor 132, quiet lane 180); v0.14 coords fire 8 (glove 59 — i.e. picking up the
+glove always woke the goose, shipped and unnoticed since v0.14); pushing the geese far away fires 68
+hearing-blind-spot violations. The check is not vacuous in either direction.
+
+Open (developer's call): mid-lane sprint interception is now geometrically impossible (a goose 230u
+off the lane cannot catch a loaded runner) — 4-lap sim says contact actually *rose* 11→14 because
+both geese now wake and converge on the stopping points (pad, door). Whether "hit in mid-yard" →
+"caught when you stop" is the intended trade is a feel judgment.
+
 ## Implementation Notes (filled in during the build)
 - Bright-phase theft nuance, confirmed against source: the abandoned-item
   robbery loop is blackout-gated, so an unattended cooking item is not stolen
