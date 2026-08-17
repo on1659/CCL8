@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.20.7</title>
+<title>양계장 습격 — 웹 프로토타입 v0.20.8</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -122,7 +122,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.20.7</div>
+  <div class="sub">웹 프로토타입 v0.20.8</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -767,7 +767,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.20.7'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.20.8'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -4787,13 +4787,35 @@ function mpWaitCount(n){
 function clientGate(){
   NET.started=true;
   document.getElementById('title').style.display='none';
-  if(locked&&AC){ enterPlayClient(); return; }   // 재시작 판: 이미 락 보유면 게이트 생략
+  if(locked&&AC){ enterPlayClient(); return; }        // 재시작 판: 이미 락 보유면 게이트 생략
+  if(NET.gatePassed&&AC){ enterPlayClient(); return; }// v0.20.8: 한 번 통과했으면 다시 안 막는다 (재접속·재시작 중복 호출)
+  NET.gateSince=0;
   document.getElementById('gateOv').style.display='flex';
 }
-document.getElementById('gateOv').addEventListener('click',()=>{
-  document.getElementById('gateOv').style.display='none';
+// v0.20.8 게이트 통과 다중 경로 (개발자 보고: "클릭해서 입장이 안 사라져").
+// 원인 재현 불가 — 그래서 원인 추적 대신 막힐 수 있는 경로를 없앤다:
+// pointerdown(클릭보다 먼저·확실) / click / 아무 키 / 12초 자동 통과. 무엇 하나라도 통하면 지나간다
+function passGate(){
+  const g=document.getElementById('gateOv');
+  if(g.style.display==='none') return;
+  g.style.display='none';
+  NET.gatePassed=true;
   enterPlayClient();
-});
+}
+{
+  const g=document.getElementById('gateOv');
+  g.addEventListener('pointerdown',e=>{ e.preventDefault(); passGate(); });
+  g.addEventListener('click',passGate);
+}
+window.addEventListener('keydown',()=>{ if(NET.on&&!NET.host) passGate(); },true);   // WASD를 눌러보는 자연 반응도 통과로
+// 마지막 안전망: 게이트가 12초 넘게 떠 있으면 스스로 통과한다.
+// 포인터락은 못 잡을 수 있지만(그건 일시정지 화면에서 다시 잡을 수 있다) 화면이 영구히 막히는 일은 없다
+setInterval(()=>{
+  const g=document.getElementById('gateOv');
+  if(g.style.display!=='flex'){ NET.gateSince=0; return; }
+  if(!NET.gateSince) NET.gateSince=now;
+  else if(now-NET.gateSince>12) passGate();
+},1000);
 function enterPlayClient(){
   initAudio();
   if(AC&&AC.state==='suspended') AC.resume();
@@ -4877,6 +4899,12 @@ pauseEl.addEventListener('click',e=>{
     paint();
   });
 }
+document.addEventListener('pointerlockerror',()=>{   // v0.20.8: 락 획득 실패를 조용히 넘기지 않는다
+  if(phase==='play'){
+    pauseEl.style.display='flex';
+    document.querySelector('#pauseOv .t').textContent='마우스 시점을 켜려면 화면을 한 번 더 클릭';
+  }
+});
 document.addEventListener('pointerlockchange',()=>{
   locked=(document.pointerLockElement===renderer.domElement);
   if(phase==='play'){
