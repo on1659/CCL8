@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.20.1</title>
+<title>양계장 습격 — 웹 프로토타입 v0.20.2</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -116,7 +116,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.20.1</div>
+  <div class="sub">웹 프로토타입 v0.20.2</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -653,7 +653,7 @@ const LOOT_VAL={egg:1,bigEgg:3,meat:2};
 // KO 파밍 열세 유지: 고기 전조리 라인 40 < 생계란 라인 42 < 조리 계란 라인 60 (D-KIT4·5)
 const COOK_BONUS={egg:1,bigEgg:1,meat:2};
 const BURNT_VAL=1;               // 숯덩이도 납품된다 — 트럭까지 들고 가는 것 자체가 개그 (0이면 개그가 죽는다)
-const COOK_T=12;                 // 익기까지(초) — 지킴 체류 6의 2박. 기다림이 곧 프리미엄의 가격. 튜닝 상수
+const COOK_T=6;                  // 익기까지(초) — v0.20.2: 12→6 (개발자 '너무 느리다'). 기다림 가격은 이동+리스크가 진다. 튜닝 상수
 const BURN_T=24;                 // 익은 뒤 타기까지 — 넉넉하게: 타는 건 반사 실패가 아니라 쫓겨난 대가다. 튜닝 상수
 const BURN_WARN=6;               // 타기 전 연기 기둥 예고(초) — 위협 3원칙 ③(선전조)의 요리판. 렌더 전용
 const PER_TRAY=3;                // 트레이당 개수 — 총 18 (1F 6 / B1 12). 트레이 개수는 6 그대로
@@ -760,7 +760,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.20.1'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.20.2'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -1755,10 +1755,10 @@ function updCookFx(dt){
         ring.egg=e;
         ring.spr.position.set(e.x,groundY(e.x,e.z)+PAN_Y+30,e.z);
         ring.spr.visible=true;
-        if(tick){
+        { // v0.20.2: 매 프레임 갱신(64px 캔버스 4개 — 공짜) + 요리색: 크림→황금 (초록은 요리가 아니다)
           const f2=Math.min(1,e.cookT/COOK_T), ov2=Math.max(0,(e.cookT-COOK_T)/BURN_T);
-          if(e.heat===0) drawCookRing(ring,f2,f2<0.85?'#7bd77b':'#e0d34a',false);
-          else drawCookRing(ring,Math.max(0,1-ov2),ov2>0.72?'#e2564a':'#e0a34a',ov2>0.72);
+          if(e.heat===0) drawCookRing(ring,f2,'rgb(255,'+Math.round(230-120*f2)+','+Math.round(192-128*f2)+')',false);
+          else drawCookRing(ring,Math.max(0,1-ov2),ov2>0.72?'#e2564a':'#ffa040',ov2>0.72);
         }
       }
     } else { const ring=cookRings.find(r=>r.egg===e); if(ring){ ring.egg=null; ring.spr.visible=false; } }
@@ -1829,7 +1829,7 @@ function drawCookUI(n){
     const f=Math.min(1,e.cookT/COOK_T), ov=Math.max(0,(e.cookT-COOK_T)/BURN_T);
     const done=e.heat===1;
     const pct=Math.round((done?ov:f)*100);
-    const col=done?(ov>0.72?'#e2564a':'#e0a34a'):'#7bd77b';
+    const col=done?(ov>0.72?'#e2564a':'#ffa040'):'#ffca7a';
     const lab=done?(ov>0.72?'탄다!':'다 익었다 — 집어가라'):'익는 중';
     html+='<div class="cr"><b>'+nm+'</b> '+lab+'<i style="width:'+pct+'%;background:'+col+'"></i></div>';
   }
