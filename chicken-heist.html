@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.20.8</title>
+<title>양계장 습격 — 웹 프로토타입 v0.20.9</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -122,7 +122,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.20.8</div>
+  <div class="sub">웹 프로토타입 v0.20.9</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -767,7 +767,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.20.8'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.20.9'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -3695,7 +3695,7 @@ function start(){
   resetWorld();
   document.getElementById('title').style.display='none';
   document.getElementById('cross').style.display='block';
-  renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock();
+  askPointerLock();   // v0.20.9: 실패(NotAllowedError)를 삼키고 안내로 대체
   if(NET.on) introSeen=true;                    // 멀티는 인트로 생략 (D27 — endIntro 로컬 변이의 phase 산개 방지)
   if(!introSeen){
     introSeen=true;
@@ -4795,34 +4795,53 @@ function clientGate(){
 // v0.20.8 게이트 통과 다중 경로 (개발자 보고: "클릭해서 입장이 안 사라져").
 // 원인 재현 불가 — 그래서 원인 추적 대신 막힐 수 있는 경로를 없앤다:
 // pointerdown(클릭보다 먼저·확실) / click / 아무 키 / 12초 자동 통과. 무엇 하나라도 통하면 지나간다
-function passGate(){
+function passGate(gesture){
   const g=document.getElementById('gateOv');
   if(g.style.display==='none') return;
   g.style.display='none';
   NET.gatePassed=true;
+  NET.noGesture=!gesture;                 // v0.20.9: 제스처 아닌 통과는 락을 요청하지 않는다
   enterPlayClient();
+  NET.noGesture=false;
+  if(!gesture) showLockHint();            // 대신 "화면을 클릭하면 시점이 켜진다" 안내
 }
 {
   const g=document.getElementById('gateOv');
-  g.addEventListener('pointerdown',e=>{ e.preventDefault(); passGate(); });
-  g.addEventListener('click',passGate);
+  g.addEventListener('pointerdown',e=>{ e.preventDefault(); passGate(true); });
+  g.addEventListener('click',()=>passGate(true));
 }
-window.addEventListener('keydown',()=>{ if(NET.on&&!NET.host) passGate(); },true);   // WASD를 눌러보는 자연 반응도 통과로
+window.addEventListener('keydown',()=>{ if(NET.on&&!NET.host) passGate(true); },true);   // WASD를 눌러보는 자연 반응도 통과로 (키도 제스처다)
 // 마지막 안전망: 게이트가 12초 넘게 떠 있으면 스스로 통과한다.
 // 포인터락은 못 잡을 수 있지만(그건 일시정지 화면에서 다시 잡을 수 있다) 화면이 영구히 막히는 일은 없다
 setInterval(()=>{
   const g=document.getElementById('gateOv');
   if(g.style.display!=='flex'){ NET.gateSince=0; return; }
   if(!NET.gateSince) NET.gateSince=now;
-  else if(now-NET.gateSince>12) passGate();
+  else if(now-NET.gateSince>12) passGate(false);   // 최후 안전망 — 제스처가 아니므로 락은 안 잡고 안내만
 },1000);
+// v0.20.9: requestPointerLock은 "사용자 제스처 안에서만" 허용된다 (Chrome).
+// 타이머·스냅샷 같은 비제스처 경로에서 부르면 NotAllowedError가 나고 콘솔이 더럽혀진다 —
+// 실패를 삼키고, 대신 클릭 가능한 일시정지 판때기로 안내한다 (그 클릭이 진짜 제스처가 된다)
+function askPointerLock(){
+  const el=renderer.domElement;
+  if(!el.requestPointerLock) return;
+  try{
+    const p=el.requestPointerLock();
+    if(p&&p.catch) p.catch(()=>showLockHint());
+  }catch(e){ showLockHint(); }
+}
+function showLockHint(){
+  if(phase!=='play') return;
+  pauseEl.style.display='flex';
+  document.querySelector('#pauseOv .t').textContent='화면을 클릭하면 마우스 시점이 켜진다';
+}
 function enterPlayClient(){
   initAudio();
   if(AC&&AC.state==='suspended') AC.resume();
   document.getElementById('winOv').style.display='none';
   document.getElementById('failOv').style.display='none';
   document.getElementById('cross').style.display='block';
-  renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock();
+  if(!NET.noGesture) askPointerLock();
   gotSnap=false;
   phase='play';                                  // 첫 스냅샷이 곧바로 진실을 덮는다
 }
@@ -4880,7 +4899,7 @@ document.getElementById('mpStart').addEventListener('click',e=>{
 });
 pauseEl.addEventListener('click',e=>{
   if(e.target.closest&&e.target.closest('#setPanel')) return;   // 설정 조작이 재개로 새지 않게
-  renderer.domElement.requestPointerLock && renderer.domElement.requestPointerLock();
+  askPointerLock();   // v0.20.9: 실패(NotAllowedError)를 삼키고 안내로 대체
 });
 // 설정 — 감도·음량 (localStorage 저장, M 음소거가 음량보다 우선)
 {
