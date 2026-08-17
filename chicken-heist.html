@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.20.5</title>
+<title>양계장 습격 — 웹 프로토타입 v0.20.6</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -59,6 +59,10 @@
   #inv .slot.dim .ico{opacity:0.22;font-size:20px;color:#fff;}
   #stamRow{font-size:10px;color:rgba(255,236,205,0.7);}
   #hpRow{font-size:10px;color:rgba(255,236,205,0.7);}
+  #joinRow{margin-top:8px;}
+  #joinRow input{width:110px;padding:6px 8px;background:rgba(20,14,8,0.8);border:1px solid rgba(255,207,146,0.4);
+    color:#ffeccd;border-radius:3px;font-size:13px;text-transform:uppercase;letter-spacing:2px;}
+  #joinRow button{padding:6px 10px;margin-left:6px;}
   #hpRow #hpPips{margin-left:6px;font-size:12px;letter-spacing:2px;}
   #hurt{position:fixed;inset:0;pointer-events:none;z-index:4;opacity:0;
     background:radial-gradient(ellipse at center, transparent 55%, rgba(190,40,30,0.55) 100%);}
@@ -116,12 +120,13 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.20.5</div>
+  <div class="sub">웹 프로토타입 v0.20.6</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
   <div id="mpArea">
     <button id="mpBtn">🧑‍🤝‍🧑 친구와 함께 (최대 4명)</button>
+    <div id="joinRow"><input id="joinCode" maxlength="4" placeholder="방 코드 4글자" autocomplete="off"><button id="joinBtn">코드로 참가</button></div>
     <div id="mpPanel">
       <div id="mpStatus"></div>
       <div id="mpLinkRow"><input id="mpLink" readonly><button id="mpCopy">복사</button></div>
@@ -760,7 +765,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.20.5'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.20.6'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -4686,7 +4691,7 @@ function clientOnD(d){
       try{ tried=!!sessionStorage.getItem('ch_seedfix'); }catch(e){}
       if(!tried){
         try{ sessionStorage.setItem('ch_seedfix','1'); }catch(e){}
-        location.replace(location.pathname+'?room='+ROOM_PARAM+'&ws='+encodeURIComponent(NET.url)+'&seed='+(d.seed>>>0));
+        location.replace(location.pathname+'?room='+JOIN_CODE+'&ws='+encodeURIComponent(NET.url)+'&seed='+(d.seed>>>0));
         return;
       }
       setNetMsg('맵이 어긋난다 — 호스트에게 새 링크를 받아라');
@@ -4734,15 +4739,17 @@ if(('ontouchstart' in window) && !matchMedia('(pointer:fine)').matches)
 
 // ---------- M3 로비 — 참가는 ?room 링크만 (D26: 친구 클릭 수는 1을 유지한다) ----------
 const ROOM_PARAM=((location.search.match(/[?&]room=([A-Za-z0-9]+)/)||[])[1]||'').toUpperCase();
+let JOIN_CODE=ROOM_PARAM;   // v0.20.6: 링크가 메신저에서 잘려도 코드 4글자로 참가할 수 있게 (손입력이 덮는다)
 if(ROOM_PARAM){
   document.querySelector('#title .desc').innerHTML=
     '친구의 습격에 초대받았다 — 방 '+ROOM_PARAM+'.<br>같이 털 수 있는 만큼 털어서 트럭까지.';
   document.querySelector('#title .go').textContent='클릭해서 참가';
   document.getElementById('mpBtn').style.display='none';
+  document.getElementById('joinRow').style.display='none';
 }
 titleEl.addEventListener('click',e=>{
   if(e.target.closest&&e.target.closest('#mpArea')) return;   // 로비 패널 조작이 시작으로 새지 않게
-  if(ROOM_PARAM){ joinRoom(); return; }                        // 링크로 온 친구: 전면 클릭 = 참가
+  if(JOIN_CODE){ joinRoom(); return; }                         // 링크로 온 친구·코드 입력자: 전면 클릭 = 참가
   if(NET.on&&NET.host) return;                                 // 방 연 호스트는 [시작] 버튼으로만
   start();
 });
@@ -4754,14 +4761,14 @@ function joinRoom(){
   setNetMsg('서버 깨우는 중… (최대 1분)');
   setTimeout(()=>{ if(!NET.on&&NET.joining&&!document.getElementById('netMsg').textContent.includes('버전'))
     setNetMsg('아직 연결 중… 회사·학교 네트워크는 wss를 막기도 한다. 핫스팟으로 시도해봐라'); },20000);
-  netConnect(r.url,()=>{ netSend({t:'join',code:ROOM_PARAM}); });
+  netConnect(r.url,()=>{ netSend({t:'join',code:JOIN_CODE}); });
 }
 function clientJoinErr(why){
   if(why==='noroom') setNetMsg('그 방이 없다 — 링크가 오래됐거나 호스트가 나갔다');
   else if(why==='full') setNetMsg('방이 가득 찼다 (4/4)');
   else if(why==='started'){
     setNetMsg('판 진행 중 — 이 판이 끝나면 자동 입장한다. 창을 닫지 마라');
-    setTimeout(()=>{ if(!NET.on) netSend({t:'join',code:ROOM_PARAM}); },5000);
+    setTimeout(()=>{ if(!NET.on) netSend({t:'join',code:JOIN_CODE}); },5000);
   }
   else setNetMsg('참가 실패: '+why);
 }
@@ -4795,6 +4802,15 @@ function enterPlayClient(){
   gotSnap=false;
   phase='play';                                  // 첫 스냅샷이 곧바로 진실을 덮는다
 }
+// v0.20.6 코드 참가 — 링크가 잘린 친구의 우회로. 방장이 코드 4글자만 불러주면 된다
+document.getElementById('joinBtn').addEventListener('click',e=>{
+  e.stopPropagation();
+  const code=(document.getElementById('joinCode').value||'').trim().toUpperCase();
+  if(code.length!==4){ setNetMsg('방 코드는 4글자다 — 방장 화면에 떠 있다'); return; }
+  JOIN_CODE=code;
+  joinRoom();
+});
+document.getElementById('joinCode').addEventListener('keydown',e=>{ e.stopPropagation(); if(e.key==='Enter') document.getElementById('joinBtn').click(); });
 // 호스트 경로 — "친구와 함께" → 방 생성 → 링크 공유 → [시작]
 document.getElementById('mpBtn').addEventListener('click',e=>{
   e.stopPropagation();
