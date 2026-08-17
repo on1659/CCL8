@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.20.6</title>
+<title>양계장 습격 — 웹 프로토타입 v0.20.7</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -60,6 +60,8 @@
   #stamRow{font-size:10px;color:rgba(255,236,205,0.7);}
   #hpRow{font-size:10px;color:rgba(255,236,205,0.7);}
   #joinRow{margin-top:8px;}
+  .roomCode{font-size:44px;font-weight:900;color:#ffe08a;letter-spacing:14px;margin:2px 0 6px;
+    text-shadow:0 2px 8px rgba(0,0,0,0.8);}
   #joinRow input{width:110px;padding:6px 8px;background:rgba(20,14,8,0.8);border:1px solid rgba(255,207,146,0.4);
     color:#ffeccd;border-radius:3px;font-size:13px;text-transform:uppercase;letter-spacing:2px;}
   #joinRow button{padding:6px 10px;margin-left:6px;}
@@ -120,7 +122,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.20.6</div>
+  <div class="sub">웹 프로토타입 v0.20.7</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -765,7 +767,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.20.6'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.20.7'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -4826,7 +4828,9 @@ function mpShowRoom(){
   NET.on=true; NET.started=false;
   setAvatarTints(true);
   setNetMsg('');
-  document.getElementById('mpStatus').textContent='방 '+NET.room+' — 이 링크를 친구에게 보내라:';
+  document.getElementById('mpStatus').innerHTML=
+    '<div class="roomCode">'+NET.room.split('').join(' ')+'</div>'+
+    '친구는 같은 주소에서 이 <b>코드 4글자</b>를 입력하면 된다 (또는 아래 링크):';
   const base=location.href.split('?')[0];
   document.getElementById('mpLink').value=base+'?room='+NET.room+'&ws='+encodeURIComponent(NET.url)+'&seed='+MAP_SEED;   // v0.15: 클라가 접속 전에 같은 맵을 짓는다 (D-NET2)
   document.getElementById('mpLinkRow').style.display='flex';
