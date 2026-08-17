@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.20.9</title>
+<title>양계장 습격 — 웹 프로토타입 v0.20.10</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -21,6 +21,12 @@
   @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
   #pauseOv{background:rgba(6,10,20,0.6);display:none;pointer-events:auto;cursor:pointer;color:#fff4e2;}
   #pauseOv .t{font-size:20px;}
+  /* v0.20.10 ESC 메뉴 — 판때기 배경 클릭=계속 관례는 유지하고, 동사는 버튼으로 노출 */
+  #menuBtns{margin-top:18px;display:flex;gap:10px;pointer-events:auto;cursor:default;}
+  #menuBtns button{font-size:14px;font-weight:700;color:#ffeccd;background:rgba(255,224,138,0.10);
+    border:1px solid rgba(255,224,138,0.45);border-radius:8px;padding:8px 20px;cursor:pointer;font-family:inherit;}
+  #menuBtns button:hover{background:rgba(255,224,138,0.22);}
+  #menuBtns button.armed{color:#1c1408;background:#ffb08a;border-color:#ffb08a;}
   #winOv{background:rgba(6,10,20,0.65);display:none;color:#fff4e2;}
   #winOv .t{font-size:44px;font-weight:800;color:#ffe08a;margin-bottom:16px;}
   #winOv .s{font-size:17px;color:rgba(255,245,230,0.9);margin-bottom:8px;line-height:1.9;}
@@ -117,12 +123,12 @@
   <div id="hpRow">체력<span id="hpPips"></span></div>
   <div id="stamRow">스태미나<div id="stamBox"><div id="stamFill"></div></div></div>
 </div>
-<div id="help">마우스 시점 · WASD 이동 · Shift 달리기(스태미나) · Space 점프 · E 줍기/내려놓기 · Q 품 · F 수레<br>좌클릭 미끼 던지기(빈손 밀치기 · 글러브 있으면 펀치) · V 시점전환 · Tab 미니맵 · R 재시작 · M 소리 · Esc 일시정지·설정</div>
+<div id="help">마우스 시점 · WASD 이동 · Shift 달리기(스태미나) · Space 점프 · E 줍기/내려놓기 · Q 품 · F 수레<br>좌클릭 미끼 던지기(빈손 밀치기 · 글러브 있으면 펀치) · V 시점전환 · Tab 미니맵 · R 재시작 · M 소리 · Esc 메뉴·설정</div>
 <div id="cross"></div>
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.20.9</div>
+  <div class="sub">웹 프로토타입 v0.20.10</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -140,6 +146,12 @@
 <div id="netMsg"></div>
 <div class="ov" id="gateOv"><div class="t">클릭해서 입장</div><div class="s">마우스 시점과 소리가 켜진다</div></div>
 <div class="ov" id="pauseOv"><div class="t">일시정지 — 클릭해서 계속</div>
+  <div id="menuBtns">
+    <button id="mResume">계속하기</button>
+    <button id="mPause">일시정지</button>
+    <button id="mRestart">처음부터</button>
+    <button id="mQuit">나가기</button>
+  </div>
   <div id="setPanel">
     <div>마우스 감도 <input type="range" id="sensR" min="0.2" max="3" step="0.1"> <span id="sensV"></span></div>
     <div>음량 <input type="range" id="volR" min="0" max="1" step="0.05"> <span id="volV"></span></div>
@@ -767,7 +779,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.20.9'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.20.10'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -3718,15 +3730,20 @@ function restart(){
   document.getElementById('failOv').style.display='none';
   document.getElementById('cross').style.display='block';
   if(NET.host){ netSend({t:'unlock'}); netCast({g:'restart'}); }   // 방 잠금 해제 + 클라 재입장 게이트
-  if(!locked) pauseEl.style.display='flex';
+  userPaused=false;                             // 새 판은 정지 없이 시작 (메뉴에서 처음부터를 눌러도)
+  if(!locked){ pauseEl.style.display='flex'; syncMenu(); }
 }
 function paused(){ return phase==='play' && !locked; }   // 솔로 의미 유지 (하위호환)
-// 시뮬 정지 술어 — 솔로: 포인터락 상실. 멀티 호스트: 락 상실·탭 숨김 = 정직한 전원 정지 (D13).
+let userPaused=false;   // v0.20.10 멀티 호스트의 명시 일시정지 (ESC 메뉴 [일시정지] 버튼만 켠다)
+// 시뮬 정지 술어 — 솔로: 포인터락 상실(=ESC 메뉴가 곧 일시정지 화면. 관례이고 피해자가 없다).
+// 멀티 호스트: 명시 선택(userPaused)·탭 숨김만 — v0.20.10 D13 개정 (개발자 "포커스 벗어났다고 일시정지냐"):
+// 락 상실·포커스 이탈은 더 이상 전원 정지가 아니다. document.hidden이 남는 건 정책이 아니라 물리 —
+// 숨은 탭은 RAF가 멎어 시뮬이 실제로 못 도니, 그 정지를 정직하게 방송한다('호스트 자리 비움').
 // 클라는 시뮬이 없으므로 이 술어와 무관 (호스트가 알려준 NET.pause로 연출만 멈춘다)
 function simPaused(){
   if(phase!=='play') return false;
   if(!NET.on) return !locked;
-  return !locked||document.hidden;
+  return userPaused||document.hidden;
 }
 // 로컬 입력 → 이동 인텐트 (호스트·클라 공통. 원격 플레이어의 mv는 넷이 채운다)
 function pollInput(){
@@ -4174,12 +4191,15 @@ function render(){
       (blackout?' · <span class="warn">정전</span>':'')+timerStr+mates+
       (depT>=0?'<br><span class="warn">출발까지 '+Math.ceil(depT)+'초</span> — C 취소':'');
   }
+  // v0.20.10: 메뉴는 이제 시뮬을 안 멈추므로(호스트) 메뉴가 열린 채 정산에 도달할 수 있다 — 판때기 회수
+  if(phase==='win'||phase==='fail') pauseEl.style.display='none';
   // 클라: 호스트발 일시정지 오버레이 (D13) — 로컬 락 상실 오버레이와 같은 판때기, 다른 문구
   if(NET.on&&!NET.host&&phase==='play'){
     const tEl=document.querySelector('#pauseOv .t');
     if(NET.pause){ pauseEl.style.display='flex'; tEl.textContent=(NET.pauseWhy||'호스트 일시정지')+' — 잠깐 멈췄다'; }
     else if(locked) pauseEl.style.display='none';
     else { pauseEl.style.display='flex'; tEl.textContent='메뉴 — 게임은 계속 진행 중! 클릭해서 복귀'; }
+    document.getElementById('menuBtns').style.display=locked?'none':'flex';   // 락 중(호스트 정지 구경)엔 버튼 없이 문구만
   }
   const pr=document.getElementById('prompt');
   const v=P();
@@ -4727,9 +4747,10 @@ function setAvatarTints(on){
   avatars[0].bodyM.color.setHex(on?PLAYER_TINTS[0]:0xd8d2c4);
   avatars[0].hatM.color.setHex(on?PLAYER_TINTS[0]:0xf4f4f0);
 }
-// 호스트 자리 비움 브로드캐스트 (D13) — RAF가 멎어도 1s 인터벌(브라우저 클램프 하한)로 pz는 흐른다
+// 호스트 자리 비움 브로드캐스트 (D13 개정 잔존분) — RAF가 멎어도 1s 인터벌(브라우저 클램프 하한)로 pz는 흐른다.
+// v0.20.10: !locked는 이제 정지가 아니므로 제외 — 락 상실 중엔 RAF가 살아 있어 정규 20Hz가 흐른다
 document.addEventListener('visibilitychange',()=>{ if(NET.on&&NET.host&&NET.started) netCast(buildSnap()); });
-setInterval(()=>{ if(NET.on&&NET.host&&NET.started&&(document.hidden||!locked)) netCast(buildSnap()); },1000);
+setInterval(()=>{ if(NET.on&&NET.host&&NET.started&&document.hidden) netCast(buildSnap()); },1000);
 
 // ============================================================
 //  입력
@@ -4898,8 +4919,51 @@ document.getElementById('mpStart').addEventListener('click',e=>{
   start();                                       // 호스트: 인트로 생략 경로 (D27)
 });
 pauseEl.addEventListener('click',e=>{
-  if(e.target.closest&&e.target.closest('#setPanel')) return;   // 설정 조작이 재개로 새지 않게
+  if(e.target.closest&&e.target.closest('#setPanel,#menuBtns')) return;   // 설정·메뉴 조작이 재개로 새지 않게
+  userPaused=false;   // 배경 클릭 = 계속 (정지 중이었다면 전원 재개 — [계속하기]와 같은 뜻)
   askPointerLock();   // v0.20.9: 실패(NotAllowedError)를 삼키고 안내로 대체
+});
+// ---------- v0.20.10 ESC 메뉴 (spec: docs/goal/chicken-heist-esc-menu.md) ----------
+// 문구·버튼 노출의 단일 소유자. 클라 전용 문구는 updateHud의 클라 블록이 매 프레임 덮는다(호스트 정지 우선).
+function syncMenu(){
+  const tEl=document.querySelector('#pauseOv .t');
+  if(NET.on&&NET.host) tEl.textContent=userPaused?'일시정지 — 전원 멈췄다':'메뉴 — 게임은 계속 돈다! 클릭해서 복귀';
+  else if(NET.on) tEl.textContent='메뉴 — 게임은 계속 진행 중! 클릭해서 복귀';
+  else tEl.textContent='일시정지 — 클릭해서 계속';
+  mPause.style.display=(NET.on&&NET.host)?'':'none';    // 정지 권한은 호스트만 (솔로는 메뉴=정지라 버튼이 무의미)
+  mPause.textContent=userPaused?'▶ 재개':'일시정지';
+  mRestart.style.display=(NET.on&&!NET.host)?'none':''; // R 권한과 동일 (D14 — 클라 R은 인텐트가 아니다)
+  menuDisarm();
+}
+const mResume=document.getElementById('mResume'), mPause=document.getElementById('mPause'),
+      mRestart=document.getElementById('mRestart'), mQuit=document.getElementById('mQuit');
+let menuArm=null, menuArmT=0;   // 파괴 버튼(처음부터·나가기) 2클릭 확인 — R 꾹(D14)과 같은 철학: 오클릭으로 런을 증발시키지 않는다
+function menuDisarm(){
+  if(!menuArm) return;
+  menuArm.classList.remove('armed');
+  menuArm.textContent=(menuArm===mRestart)?'처음부터':'나가기';
+  menuArm=null;
+}
+function menuConfirm(btn,go){
+  if(menuArm===btn&&now-menuArmT<2.5){ menuDisarm(); go(); return; }
+  menuDisarm();
+  menuArm=btn; menuArmT=now;
+  btn.classList.add('armed'); btn.textContent='정말? 한 번 더';
+}
+mResume.addEventListener('click',e=>{ e.stopPropagation(); userPaused=false; askPointerLock(); });
+mPause.addEventListener('click',e=>{
+  e.stopPropagation();
+  userPaused=!userPaused;   // 시뮬 정지는 simPaused()가, 클라 방송은 기존 pz/pw 채널이 나른다
+  syncMenu();
+});
+mRestart.addEventListener('click',e=>{
+  e.stopPropagation();
+  menuConfirm(mRestart,()=>restart());
+});
+mQuit.addEventListener('click',e=>{
+  e.stopPropagation();
+  // 나가기 = 타이틀로 (호스트면 ws가 닫혀 클라는 기존 hostLost 경로로 안내받는다 — 새 넷 메시지 없음)
+  menuConfirm(mQuit,()=>location.replace(location.pathname));
 });
 // 설정 — 감도·음량 (localStorage 저장, M 음소거가 음량보다 우선)
 {
@@ -4928,9 +4992,7 @@ document.addEventListener('pointerlockchange',()=>{
   locked=(document.pointerLockElement===renderer.domElement);
   if(phase==='play'){
     pauseEl.style.display=locked?'none':'flex';
-    // 죽은 입력을 안내하지 않는다 (D12): 클라의 락 상실은 로컬 오버레이일 뿐, 게임은 계속 돈다
-    document.querySelector('#pauseOv .t').textContent=
-      (NET.on&&!NET.host)?'메뉴 — 게임은 계속 진행 중! 클릭해서 복귀':'일시정지 — 클릭해서 계속';
+    if(locked) menuDisarm(); else syncMenu();   // 문구·버튼 노출은 역할별 단일 소유자 syncMenu가
   }
   if(!locked){ keys.clear(); charge=-1; }
 });
