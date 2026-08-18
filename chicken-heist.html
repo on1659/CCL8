@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.21.0</title>
+<title>양계장 습격 — 웹 프로토타입 v0.22.0</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -128,7 +128,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.21.0</div>
+  <div class="sub">웹 프로토타입 v0.22.0</div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -622,16 +622,31 @@ const SHAKE_TELE=1-0.8/SHAKE_FULL_T;
 
 // 닭 — LOGIC 상수는 전부 v0.4 그대로 (2열 표 원칙)
 const CHK_R=12;
-const CHK_WANDER=42, CHK_CHASE=124;
-const OUT_CHASE_MULT=0.75;
-const CHK_LEASH=280;
+// v0.22 추격 개편 (docs/goal/chicken-heist-relentless-chase.md) — 밝은 구간 LOGIC 불변의 세 번째 예외.
+// 범위를 좁게 못 박는다: 이번 라운드는 "발각된 뒤에 무엇을 하는가"만 바꾼다. 인지 반경 0건, 플레이어 속도 0건.
+// 예산 지출은 딱 넷 — CHK_CHASE·CHASE_TURN·OUT_CHASE_MULT·(리쉬→예산/층 종결). 나머지는 전부 버그 수리다.
+const CHK_WANDER=42, CHK_CHASE=132;   // 132 = SPD_WALK 정확히: "사냥 중인 닭은 내 걷는 속도"를 세계가 가르친다.
+                                      // 124는 지속 운반(118.2) 대비 5.8u/s라 충돌·모퉁이 손실 노이즈에 먹혔다 (= 너무 느려의 기계적 원인)
+const OUT_CHASE_MULT=0.80;            // 마당은 스태미나가 결정: 105.6 = 탈진보행 92.4와 조깅 118.2의 중점 (자가검사 A5)
+                                      // 구 0.75(93.0)는 탈진 운반자 92.4와 0.6u/s 무승부 — 트럭행 직선이 밤에서 가장 안전한 구간이었다
+const CHK_LEASH=280;                  // 반경 불변. 역할만 좁혔다: 추격 경계 → toInvest 소집 게이트 전용 (v0.22)
 const CHK_REACT=0.35;
-const CHASE_TURN=150*Math.PI/180;
+const CHASE_TURN=280*Math.PI/180;     // 회전 지름 2*132/(280°) = 54.0 < 자유 횡폭 57 (A6) — 처음으로 통로 안에서 돈다.
+                                      // 150일 땐 지름 94.8 > 57이라 물리적으로 못 돌고 collideCircle이 벽 미끄러짐으로 해소했다
+const TURN_DRAG=0.45;                 // 꺾을수록 느려진다 — 미로가 계속 반격 수단이도록 (90° = 19.1u = 1.38초 벌기)
+const CHASE_BUDGET=10;                // 연속 추격 상한(초). 어떤 이유로도 갱신되지 않는다 = 즉사 금지 밸브 2단.
+                                      // 개발자가 '!' 벽투시를 기각했으므로 14→10 (안 보이는 긴 추격은 긴장이 아니라 억울함)
+const DEAGGRO_R=170;                  // 짐을 다 놓았을 때 풀려나는 거리 — 기존 맨 숫자에 이름만 붙였다 (값 불변)
+const CHASE_BREAK_T=1.2;              // 포기 비트: 그 자리에 서서 두리번 (CHK_REACT 0.35의 3배 — 재발견 경련과 안 헷갈리게)
+const CHASE_CD=3;                     // 포기 직후 재추격 금지(초). toAlert만 막는다 — 정전·복수·KO 기상은 못 막는다
+const CUT_RECALC=0.5, CUT_MAX=1;      // 협공: 0.5초마다 역할 재계산, 차단자는 최대 한 마리 (둘 이상은 난이도가 아니라 동전던지기)
 const AGGRO_RUN=130;
 const PICKUP_QUIET=50, PICKUP_LOUD=130;
 const SIGHT_IN=110, SIGHT_OUT=73;
 const DECOY_R=110, PECK_T=4.0;
-const PUSH_R=60, PUSH_STUN=0.8, PUSH_KB=520, PUSH_STAGGER=0.35, PUSH_NOISE=85;
+// v0.22: PUSH_STUN 0.8 → 0.55. 단독 변경이 아니라 "맞으면 다시 달려든다"(v0.20 밀치기 탈출 버프 번복)의
+// 짝이다 — 0.8 > PUSH_CD 0.70이면 재개가 의미를 갖는 순간 M1 홀드가 영구 스턴락이 된다 (A7)
+const PUSH_R=60, PUSH_STUN=0.55, PUSH_KB=520, PUSH_STAGGER=0.35, PUSH_NOISE=85;
 // v0.22 수리: 비틀 감속은 한 곳에서만 정의한다. 호스트가 두 번 곱하고(0.16×) 클라는 안 곱해(1.00×)
 // 6.25× 고무줄이 나던 자리 — 하필 추격 판정과 겹치는 구간이라 측정 자체가 두 세계를 재고 있었다
 const STAGGER_MULT=0.4;
@@ -793,6 +808,15 @@ const INVEST_TRAVEL_T=6;         // invest 이동 타임아웃 밸브 (교착 �
 const STAM_DRAIN_T=6;            // 전력질주 지속(초) — 가득→바닥
 const STAM_REGEN_T=8;            // 회복(초) — 바닥→가득 (질주하지 않을 때)
 const STAM_MIN_RESUME=0.25;      // 바닥 친 뒤 재질주 문턱 (스터터 스팸 방지)
+// v0.22 탈출 밸브의 파생 기호 — 즉사 금지 보증을 리터럴이 아니라 산수로 적는다.
+// 왜 파생인가: 누군가 SPD_RUN·CARRY_MULT·스태미나를 만지면 밸브 부등식(A1~A12)이 같이 움직여
+// 로드타임에 터진다. 152.6·118.2 같은 숫자를 코드에 박으면 그 연결이 조용히 끊긴다.
+const SPRINT_SLICE=STAM_MIN_RESUME*STAM_DRAIN_T;     // 1.5s — 바닥에서 재개해 쓸 수 있는 질주 조각
+const WALK_SLICE=STAM_MIN_RESUME*STAM_REGEN_T;       // 2.0s — 그걸 벌기 위해 걸어야 하는 시간
+const CARRY_SPRINT=SPD_RUN*CARRY_MULT;               // 152.6 — 운반 질주 (버스트. 6초뿐이다)
+const CARRY_SUST=(SPRINT_SLICE*CARRY_SPRINT+WALK_SLICE*SPD_WALK*CARRY_MULT)/(SPRINT_SLICE+WALK_SLICE);   // 118.2 — 진짜 도주 속도
+const EMPTY_SUST=(SPRINT_SLICE*SPD_RUN+WALK_SLICE*SPD_WALK)/(SPRINT_SLICE+WALK_SLICE);                   // 168.9 — 빈손은 언제나 이긴다 (밸브 1단)
+const CART_CARRY_SPRINT=SPD_RUN*CARRY_MULT*CART_MULT;// 114.45 — 짐 실은 수레는 마당에서 따라잡힌다 (개발자 승인)
 const SENS_DEF=1.0, VOL_DEF=0.5; // 설정 기본값 (localStorage ch_sens / ch_vol)
 
 // v0.10 신설 — 멀티플레이 (docs/goal/chicken-heist-multiplayer.md — 패널 33결정)
@@ -809,7 +833,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.21.0'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.22.0'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -2114,6 +2138,9 @@ for(let i=0;i<CHK_COUNT;i++){
     loopI:0,dwell:0,ax:CHK_HOME[i].x,az:CHK_HOME[i].z,
     alarmCd:0,revengeT:0,ko:false,snoreT:0,meatGiven:false,dead:false,wakeT:0,
     seeAcc:0,predicted:false,lsVX:0,lsVZ:0,
+    // v0.22 추격 — 전부 호스트 전용(무선 0). chaseCd 재추격 금지 / cutter 협공 역할 /
+    // searchN·searchV 수색 예산과 도주 벡터 / preChase 밀쳐지기 직전이 추격이었나
+    chaseCd:0,cutter:false,searchN:0,searchVX:0,searchVZ:0,preChase:false,
     tgt:0,                                     // 표적 플레이어 인덱스 — targetOf(c)의 유일한 재료
     det:new Float32Array(MAX_PLAYERS),detG:new Float32Array(MAX_PLAYERS),detTicked:false});
 }
@@ -2561,6 +2588,13 @@ function carriesEgg(p){
   if(!blackout) return p.held!==null;
   return p.held!==null||p.pocket!==null||(cart.owner===p.idx&&cart.slots.length>0);
 }
+// v0.22 유지(retention) 술어 — 인지(carriesEgg)와 분리한다. 소비자는 딱 하나: 추격 유지 조항.
+// 왜 분리인가: carriesEgg를 넓히면 updDet의 게이트까지 넓어져 품·수레 소지자가 사상 처음으로
+// "시야로 발각 가능"해진다 — 유지 문제를 인지 변경으로 푸는 셈이고, 밝은 구간은 손만(v0.4 바이트 동일)이 깨진다.
+// 소리 내어 읽으면: 품은 아직 못 찾은 눈을 속이지, 이미 붙은 놈을 속이지는 못한다
+function holdsLoot(p){
+  return p.held!==null||p.pocket!==null||(cart.owner===p.idx&&cart.slots.length>0);
+}
 function anyCarrier(){ for(const p of players) if(p.active&&carriesEgg(p)) return p; return null; }
 function startBlackout(p){
   if(blackout||!darkEnabled) return;
@@ -2823,7 +2857,7 @@ function throwEgg(p,pw,ayaw,apitch){
   const v=THROW_MIN+(THROW_MAX-THROW_MIN)*pw;
   const e=p.held; p.held=null;
   p.shake=0;
-  e.state='fly'; e.thrown=true;
+  e.state='fly'; e.thrown=true; e.thrownBy=p.idx;   // v0.22: 던진 사람 — 그를 쫓던 닭은 이 미끼에 안 속는다
   e.x=p.x+dx*18; e.z=p.z+dz*18; e.y=CARRY_H+groundY(p.x,p.z);  // 점프 y는 절대 미합산 (v0.6 계약)
   e.vx=dx*v; e.vy=dy*v; e.vz=dz*v;
   whipS(pw,sxz(p),szz(p));
@@ -2905,7 +2939,7 @@ function updEggs(dt){
         e.vx=e.vy=e.vz=0; e.state='rest'; e.restT=0;
         e.forceSurvive=false; e.forceBreak=false;
         if(inPad(e.x,e.z)){ deliverEgg(e); continue; }
-        if(e.thrown){ e.thrown=false; decoyPulse(e.x,e.z,e); }
+        if(e.thrown){ const by=(e.thrownBy===undefined?-1:e.thrownBy); e.thrown=false; e.thrownBy=-1; decoyPulse(e.x,e.z,e,by); }
       }
     }
   }
@@ -2990,6 +3024,7 @@ function detMax(c){ let m=0; for(let i=0;i<MAX_PLAYERS;i++) if(c.det[i]>m) m=c.d
 function detArgmax(c){ let m=0,mi=-1; for(let i=0;i<MAX_PLAYERS;i++) if(players[i].active&&c.det[i]>m){ m=c.det[i]; mi=i; } return mi; }
 function toAlert(c,pi){
   if(c.state!=='wander'&&c.state!=='return'&&c.state!=='invest') return;
+  if(c.chaseCd>0) return;                 // v0.22: 포기 비트 직후엔 다시 안 붙는다 (핑퐁 금지 — A10)
   c.tgt=pi;
   c.state='alert'; c.t=CHK_REACT;
   c.lsX=players[pi].x; c.lsZ=players[pi].z; c.lsT=simT;
@@ -2997,6 +3032,19 @@ function toAlert(c,pi){
   alertS(c.x,c.z);
 }
 function toAlertForce(c,pi){ c.tgt=pi; c.state='alert'; c.t=CHK_REACT; c.lsX=players[pi].x; c.lsZ=players[pi].z; c.lsT=simT; c.seeAcc=0; c.predicted=false; alertS(c.x,c.z); }
+// v0.22 포기 비트 — 추격의 모든 종결은 여기를 지난다. 조용히 뒤도는 전이는 하나도 없다는 게 계약이다.
+// 부품을 새로 안 만든다: invest+ivArr가 '?' 마커와 두리번을 이미 그리고, alertS가 소리를,
+// 이어지는 return 터덜터덜(63u/s)이 문장을 끝낸다.
+// det[tgt]=0이 핵심 — showG가 det>0.05면 '?' 대신 게이지를 그리므로, DET_DEMOTE를 남기면
+// "포기했다" 대신 "다시 눈치채는 중"이 표시된다. 마커 문법을 갈라 두는 줄이다
+function breakChase(c){
+  c.state='invest'; c.ivX=c.x; c.ivZ=c.z; c.ivArr=true;
+  c.t=CHASE_BREAK_T; c.ivT=0; c.searchN=0;
+  c.det[c.tgt]=0; c.detG[c.tgt]=0;
+  c.chaseCd=CHASE_CD;
+  c.cutter=false;
+  alertS(c.x,c.z);
+}
 function toInvest(c,x,z){
   if(c.state!=='wander'&&c.state!=='return'&&c.state!=='invest') return;
   if(Math.hypot(x-c.ax,z-c.az)>CHK_LEASH) return;       // 앵커 리쉬 — 600은 그대로, 기준점만 현재 앵커
@@ -3012,12 +3060,21 @@ function toInvest(c,x,z){
 // 알이 아직 그 트레이에 있으면 소음 원점 대신 트레이로 (경계 = invest 재사용, 6s 상한)
 // v0.9: 타존·복도 원점은 자기 층 계단 입구로 클램프 — "닭들이 계단 입구에 모여든다"
 // (복도 좌표가 invest에 실리면 cellOf -1 → 정문 특례/직선 폴백 교착이 나는 실버그의 원천 봉쇄)
-function guardOrInvest(c,x,z){
+// v0.22: 존 클램프를 단일 함수로 승격 — 소비자가 셋이 됐다(guardOrInvest·추격 강등·예측).
+// 복사본을 만들지 말 것 (layoutChecks 선례). 복도·계단·마당 좌표는 cellOf가 -1이라
+// navTo가 "실외"로 오판해 1층 닭을 1745u 떨어진 정문으로 보낸다 — 아래 주석이 예고해 둔 그 버그다
+// 술어는 존 불일치 하나뿐이다 — 원본에서 글자 그대로 추출했다. cellOf<0을 조건에 더하지 말 것:
+// 마당은 같은 존(0)인데 셀이 없고, 그 경우 navTo가 정문으로 보내는 것이 정답이다 (계단만 반대 방향)
+function zoneClamp(c,x,z){
   const cz=zoneOfArea(c.x,c.z);
   if(zoneOfArea(x,z)!==cz){
     const se=STAIR_ENTR[cz===1?1:0];
-    x=se.x; z=se.z;
+    return {x:se.x,z:se.z};
   }
+  return {x,z};
+}
+function guardOrInvest(c,x,z){
+  { const q=zoneClamp(c,x,z); x=q.x; z=q.z; }
   if(c.guard>=0){
     const tp=NEST_POS[c.guard], te=trayAlive(c.guard);
     if(te&&Math.hypot(te.x-tp.x,te.z-tp.z)<50&&Math.hypot(x-tp.x,z-tp.z)<DECOY_R){
@@ -3057,27 +3114,40 @@ function alarmFlock(x,z){
 }
 // C2 예측 차단 — 시야 상실 순간 1회, 관찰된 도주 방향으로 개통 인접 셀 1개만 전진.
 // 재예측 금지 (그건 라이브 추적의 다른 이름). 기존 도착·강등 로직은 무수정 작동.
-function predictAdvance(c){
-  const vl=Math.hypot(c.lsVX,c.lsVZ);
-  if(vl<20) return;
-  const ux=c.lsVX/vl, uz=c.lsVZ/vl;
-  const oc=cellOf(c.lsX,c.lsZ);
-  if(oc<0) return;
+// v0.22: 갈림목 1칸 전진을 순수 함수로 분리 — 예측과 협공 차단자가 같은 함수 하나를 부른다.
+// 복사본 금지 (두 곳이 어긋나면 "차단자가 예측과 다른 데로 간다"가 되고 아무도 못 찾는다)
+function forwardGap(x,z,vx,vz){
+  const vl=Math.hypot(vx,vz);
+  if(vl<20) return null;
+  const ux=vx/vl, uz=vz/vl;
+  const oc=cellOf(x,z);
+  if(oc<0) return null;
   let best=null, bd=0.3;
   for(const n of CELLS[oc].nbrs){
     const g=gapPoint(oc,n);
-    const dx=g.x-c.lsX, dz=g.z-c.lsZ, dl=Math.hypot(dx,dz)||1;
+    const dx=g.x-x, dz=g.z-z, dl=Math.hypot(dx,dz)||1;
     const dot=(dx/dl)*ux+(dz/dl)*uz;
     if(dot>bd){ bd=dot; best=g; }
   }
-  if(best){ c.lsX=best.x; c.lsZ=best.z; }
+  return best;
 }
-function decoyPulse(x,z,egg){
+function predictAdvance(c){
+  const q=zoneClamp(c,c.lsX,c.lsZ);       // v0.22: 타존 목격점(계단)을 여기서 접는다 — 없으면 예측이 조용히 무동작이었다
+  c.lsX=q.x; c.lsZ=q.z;
+  const g=forwardGap(c.lsX,c.lsZ,c.lsVX,c.lsVZ);
+  if(g){ c.lsX=g.x; c.lsZ=g.z; }
+}
+// v0.22: src = 미끼를 던진 플레이어. 그를 쫓던 닭은 자기 표적이 던진 미끼에 안 속는다 —
+// alarmNoise의 "남의 발소리로 꺾이는 프랑켄 추적 봉쇄"와 같은 조항. 세계 소음(깨짐·탄 것)은 src=-1로 종전 동작
+function decoyPulse(x,z,egg,src){
+  if(src===undefined) src=-1;
   for(const c of chickens){
     if(c.dead) continue;
     if(c.state==='peck'||c.state==='flap'||c.state==='grab'||c.state==='rob'||c.state==='stunned'||c.state==='dormant') continue;
+    if(c.state==='chase'&&c.tgt===src) continue;
     if(Math.hypot(c.x-x,c.z-z)>=DECOY_R) continue;
-    c.state='peck'; c.peckX=x; c.peckZ=z; c.peckEgg=egg; c.arrived=false; c.t=PECK_T;
+    const q=zoneClamp(c,x,z);
+    c.state='peck'; c.peckX=q.x; c.peckZ=q.z; c.peckEgg=egg; c.arrived=false; c.t=PECK_T;
   }
 }
 function onCaught(c){
@@ -3127,9 +3197,12 @@ function onCaught(c){
     e.vx=Math.cos(a+Math.PI)*140; e.vz=Math.sin(a+Math.PI)*140; e.vy=110;
   }
   if(NET.host) NET.ev.push(['big',nameSub(p.idx)+' 잡혔다!',-2,p.idx]);  // -2: 당사자 제외 동료 알림 (D28)
+  // v0.22: 추격 중인 놈은 이 자비에서 빠진다 — 긴장이 정점인 순간에 방 전체를 꺼 주던 줄이
+  // 개발자가 말한 "갑자기 뒤로 감"의 세 번째 원인이었다. 안전한 이유는 무적 시간이 아니라 구조다:
+  // 넉다운은 손·품을 다 털고 수레 소유도 놓으므로 항상 빈손이 된다 = 밸브 1단이 자동 실행된다
   for(const o of chickens){
     if(o===c) continue;
-    if(o.state==='peck'||o.state==='rob'||o.state==='grab'||o.state==='stunned'||o.state==='dormant') continue;
+    if(o.state==='peck'||o.state==='rob'||o.state==='grab'||o.state==='stunned'||o.state==='dormant'||o.state==='chase') continue;
     if(Math.hypot(o.x-p.x,o.z-p.z)<200){ o.state='flap'; o.t=FLAP_T; }
   }
 }
@@ -3165,6 +3238,7 @@ function tryShove(p,ayaw){
   if(bestR&&(!best||bdR<bd)){ raccHit(bestR,p); return; }
   if(!best) return;
   const dx=best.x-p.x, dz=best.z-p.z, d=Math.hypot(dx,dz)||1;
+  best.preChase=(best.state==='chase');   // v0.22: 맞기 직전이 추격이었나 — 스턴 해제 시 복귀 판정의 재료
   best.kbx=dx/d*PUSH_KB; best.kbz=dz/d*PUSH_KB;
   if((best.state==='rob'||best.state==='grab')&&best.robEgg){
     const e=best.robEgg;                          // 강탈 닭 명중 시 알 방출 — 펀치도 승계 (마지막 알의 유일한 물리 회수 수단)
@@ -3255,15 +3329,25 @@ function pickWander(c){
   c.tz=fAisleZ0(f,a)+30+Math.random()*(AH-60);
   c.t=2.2+Math.random()*2.6;
 }
-function steerMove(c,tx,tz,spd,dt){
-  const want=Math.atan2(tx-c.x,tz-c.z);
+// v0.22: 세 가지 수리. ① 0거리 가드 — atan2(0,0)=0이라 목표에 정확히 닿은 닭이 전속력으로 북쪽으로
+// 달려갔다(플레이어가 남쪽이면 문자 그대로 "혼자 뒤로 감"). 최후 목격점에 도착할 때마다 도달 가능했다.
+// ② 도착 감쇠 — moveToward가 이미 지키던 계약(step ≤ 남은 거리). 없으면 목표점 주위를 지름 95로 공전한다.
+// ③ 회전 항력 — 꺾는 프레임엔 느려진다. 미로가 반격 수단으로 남는 유일한 장치.
+// brake는 지점 표적에서만 켠다 — 살아있는 플레이어 앞에서 감속하면 확실히 어렵게가 무너진다
+function steerMove(c,tx,tz,spd,dt,brake){
+  const dx=tx-c.x, dz=tz-c.z, D=Math.hypot(dx,dz);
+  if(D<1e-4) return 0;
+  const want=Math.atan2(dx,dz);
   let diff=want-c.heading;
   while(diff>Math.PI) diff-=TAU;
   while(diff<-Math.PI) diff+=TAU;
   const maxT=CHASE_TURN*dt;
   c.heading+=Math.max(-maxT,Math.min(maxT,diff));
-  c.x+=Math.sin(c.heading)*spd*dt;
-  c.z+=Math.cos(c.heading)*spd*dt;
+  let v=spd*(1-TURN_DRAG*Math.min(1,Math.abs(diff)/(maxT||1e-9)));
+  if(brake&&D<60) v*=0.55+0.45*D/60;
+  const step=Math.min(v*dt,D);
+  c.x+=Math.sin(c.heading)*step;
+  c.z+=Math.cos(c.heading)*step;
   if(Math.abs(diff)>1.05 && c.skidCd<=0){
     c.skidCd=0.5;
     burst(c.x,3,c.z,6,COL_DUST,10,0.5,3.5);
@@ -3467,7 +3551,36 @@ function updRacc(dt){
     }
   }
 }
+// v0.22 협공 역할 배정 (호스트 전용, 0.5초마다) — 같은 표적을 쫓는 무리에서
+// 가장 가까운 놈이 추적자(종전 동작), 나머지 중 최대 한 마리만 차단자.
+// 결정론: chickens 배열 순서로만 정렬한다 (난수·타임스탬프 금지 — 시드 결정론 계약).
+// 배정 시점에 표적이 보여야 한다는 조건이 갑툭튀 가드다 — 옆으로 새는 그 순간을 플레이어가 봤다는 뜻
+let cutT=0;
+function assignCutters(dt){
+  cutT-=dt;
+  if(cutT>0) return;
+  cutT=CUT_RECALC;
+  for(let pi=0;pi<MAX_PLAYERS;pi++){
+    const tp=players[pi];
+    const pack=[];
+    for(const c of chickens) if(!c.dead&&c.state==='chase'&&c.tgt===pi) pack.push(c);
+    for(const c of pack) c.cutter=false;
+    if(!tp.active||pack.length<2) continue;
+    if(cellOf(tp.x,tp.z)<0) continue;                       // 마당·복도엔 앞지를 갈림목이 없다 — 전원 직접 추격
+    if(Math.hypot(tp.vx,tp.vz)<20) continue;                // 멈춘 표적은 앞지를 방향이 없다
+    let lead=null, ld=1e9;
+    for(const c of pack){ const d=Math.hypot(c.x-tp.x,c.z-tp.z); if(d<ld){ ld=d; lead=c; } }
+    let n=0;
+    for(const c of pack){
+      if(c===lead||n>=CUT_MAX) continue;
+      if(lineBlocked(tp.x,tp.z,c.x,c.z)) continue;
+      c.cutter=true; n++;
+      alertS(c.x,c.z);                                      // 옆으로 새는 소리 — 배정은 들린다
+    }
+  }
+}
 function updChickens(dt){
+  assignCutters(dt);
   for(const c of chickens){
     if(c.dead){ c.det.fill(0); c.detG.fill(0); continue; }   // v0.20 시체는 시뮬에서 완전히 빠진다
     if(c.state==='dormant'){                                 // v0.21 몰래 리젠 (D2) — 활성화, 생성 아님
@@ -3505,6 +3618,7 @@ function updChickens(dt){
     c.investCd=Math.max(0,c.investCd-dt);
     c.alarmCd=Math.max(0,c.alarmCd-dt);
     c.revengeT=Math.max(0,c.revengeT-dt);
+    c.chaseCd=Math.max(0,c.chaseCd-dt);        // v0.22 재추격 금지 잔여
     // 발각: 밝은 구간 = 게이지 적분 (플레이어별 — D1), 정전 = 즉발 (아래 각 상태의 blackout 분기)
     if(phase==='play'&&!blackout&&(c.state==='wander'||c.state==='return'||c.state==='invest'))
       updDet(c,dt);
@@ -3552,6 +3666,7 @@ function updChickens(dt){
       c.t-=dt;
       if(c.t<=0){
         c.state='chase'; c.loseT=0; c.heading=Math.atan2(tp.x-c.x,tp.z-c.z);
+        c.t=0;                                // v0.22: c.t가 곧 추격 시계 (신규 필드 0 — 예산의 유일한 재료)
         alarmFlock(c.lsX,c.lsZ);              // C3 — 추격 진입 스냅샷 펄스 (발화점 1/2)
       }
     }
@@ -3571,13 +3686,21 @@ function updChickens(dt){
       // 라이브 추적은 확정(시야/신선 파동)일 때만 — 아니면 최후 목격점 (벽투시·협공 차단)
       const tx=fresh?((see)?tp.x:c.lsX):c.lsX;
       const tz=fresh?((see)?tp.z:c.lsZ):c.lsZ;
-      if(see&&!lineBlocked(c.x,c.z,tp.x,tp.z)){
-        steerMove(c,tp.x,tp.z,spd,dt);                    // 보일 때는 몸으로 (몸개그 보존)
+      // v0.22 협공: 차단자로 뽑힌 놈은 몸이 아니라 "앞질러 갈 갈림목"으로 간다.
+      // 무선 비용 0 — 차단자의 효과는 전부 위치이고 클라는 이미 위치를 미러한다
+      const cutG=(c.cutter&&see)?forwardGap(tp.x,tp.z,tp.vx,tp.vz):null;
+      if(cutG){
+        const nav=navTo(c,cutG.x,cutG.z);
+        c.tx=nav.x; c.tz=nav.z;
+        steerMove(c,nav.x,nav.z,spd,dt,true);
+      }
+      else if(see&&!lineBlocked(c.x,c.z,tp.x,tp.z)){
+        steerMove(c,tp.x,tp.z,spd,dt,false);              // 보일 때는 몸으로 (몸개그 보존). 살아있는 표적 앞에서 감속 금지
         c.tx=tp.x; c.tz=tp.z;
       } else {
         const nav=navTo(c,tx,tz);
         c.tx=nav.x; c.tz=nav.z;
-        steerMove(c,nav.x,nav.z,spd,dt);
+        steerMove(c,nav.x,nav.z,spd,dt,true);             // 지점 표적에서만 도착 브레이크 (공전 방지)
       }
       moving=true;
       if(c.t>0.9 && Math.random()<dt*0.7) squawkS(c.x,c.z);
@@ -3586,12 +3709,18 @@ function updChickens(dt){
       if(c.state==='chase'){
         if(!see&&!fresh) c.loseT+=dt; else c.loseT=0;
         const arrivedLS=Math.hypot(c.x-c.lsX,c.z-c.lsZ)<30;
-        if(hd>CHK_LEASH){ c.state='return'; }
-        else if(!carriesEgg(tp) && c.revengeT<=0 && td>170){ c.state='return'; }  // 개인 술어 (D2) — 복수 중엔 빈손이어도 쫓는다
+        // v0.22 종결 조건 셋 — 거리는 하나도 없다 (리쉬는 chase에서 빠졌다. toInvest 소집 게이트로만 남는다).
+        // ① 예산: 갱신되지 않는 시계 = 즉사 금지 밸브 2단 ② 층: 계단을 진짜 자산으로 ③ 해제: 짐을 다 놓았을 때
+        if(c.t>CHASE_BUDGET){ breakChase(c); }
+        else if(zoneOfArea(c.x,c.z)!==zoneOfArea(c.ax,c.az)){ breakChase(c); }
+        else if(!holdsLoot(tp) && c.revengeT<=0 && td>DEAGGRO_R){ breakChase(c); }   // 복수 중엔 빈손이어도 쫓는다
         else if(c.loseT>CHASE_LOSE_T || (arrivedLS&&!see&&!fresh)){
-          // 실내외 공통 강등: 시야도 신선 확정도 없으면 최후 목격점 수색 후 복귀. 의심 잔량 0.5 유지 (표적분만)
-          c.state='invest'; c.ivX=c.lsX; c.ivZ=c.lsZ; c.ivArr=false; c.t=INVEST_DWELL; c.chainN=INVEST_CHAIN;
+          // 평범한 끝: 시야도 신선 확정도 없으면 최후 목격점 수색. 의심 잔량 0.5 유지 (표적분만)
+          const q=zoneClamp(c,c.lsX,c.lsZ);   // v0.22 수리: 날 좌표를 실으면 계단 목격점이 1층 닭을 정문으로 보낸다
+          c.state='invest'; c.ivX=q.x; c.ivZ=q.z; c.ivArr=false; c.t=INVEST_DWELL; c.chainN=INVEST_CHAIN;
           c.ivT=0; c.det[c.tgt]=DET_DEMOTE;
+          // 수색 예산은 chainN과 별도다 — chainN은 "외부 소음의 연쇄 소집 차단"이고 여기서 풀면 안 된다
+          c.searchN=INVEST_CHAIN; c.searchVX=c.lsVX; c.searchVZ=c.lsVZ;
         }
       }
     }
@@ -3606,6 +3735,18 @@ function updChickens(dt){
         if(Math.hypot(c.x-c.ivX,c.z-c.ivZ)<30) c.ivArr=true;
       } else {
         c.t-=dt;                               // 두리번 (렌더에서 머리 홱)
+        // v0.22 수색: 도착해서 못 찾았고 예산이 남았으면 도주 방향으로 한 갈림목 더 간다.
+        // 새 FSM이 아니라 기존 부품(forwardGap+ivArr)의 재전진이고, searchN이 분기를,
+        // INVEST_TRAVEL_T가 각 구간을 유계로 만든다 (A9 — 종료가 구성적으로 보장된다)
+        if(c.t<=0&&c.searchN>0){
+          const g=forwardGap(c.x,c.z,c.searchVX,c.searchVZ);
+          c.searchN--;
+          if(g){
+            const q=zoneClamp(c,g.x,g.z);
+            c.ivX=q.x; c.ivZ=q.z; c.ivArr=false; c.ivT=0; c.t=INVEST_DWELL;
+            cluckS(c.x,c.z);                   // 한 번 더 뒤진다는 소리 — 포기 비트와 안 헷갈리게
+          }
+        }
         if(c.t<=0){ c.state='return'; }
       }
       if(blackout && phase==='play'){ const cp=nearestSeenCarrier(c); if(cp) toAlertForce(c,cp.idx); }
@@ -3713,7 +3854,20 @@ function updChickens(dt){
           }
         }
         else if(blackout){ const cp=nearestSeenCarrier(c); if(cp) toAlertForce(c,cp.idx); else c.state='return'; }
-        else c.state='return';                 // 밝은 구간: 게이지가 자연 재충전 (밀치기 탈출 버프 — 의도된 변경)
+        // v0.22 (개발자 확정 번복): 맞았다고 집에 가지 않는다. v0.20의 "밀치기 탈출 버프 — 의도된 변경"을
+        // 개발자 판단으로 뒤집는다 — 사거리 60 대 잡힘 28이라 마주 본 플레이어는 항상 먼저 때리고,
+        // 그 한 대가 추격을 지우면 펀치를 아는 사람에겐 이번 라운드 전체가 무의미해진다.
+        // 짐을 아직 들고 있을 때만 재개한다: 다 놓았으면 밸브 1단이 그대로 작동해야 한다.
+        // 영구 제거는 여전히 글러브 KO(6초) 몫이고, 밀치기는 1.5초를 사는 템포 기술로 남는다
+        else if(c.preChase&&holdsLoot(targetOf(c))&&phase==='play'){
+          c.preChase=false;
+          const t2=targetOf(c);
+          c.state='alert'; c.t=CHK_REACT;
+          c.lsX=t2.x; c.lsZ=t2.z; c.lsT=simT;
+          c.seeAcc=0; c.predicted=false;
+          squawkS(c.x,c.z);
+        }
+        else { c.preChase=false; c.state='return'; }
       }
     }
     else{ // return — 목적지는 현재 앵커 (순찰 웨이포인트/지킴 트레이/홈)
@@ -4060,6 +4214,7 @@ function resetWorld(){
     c.loopI=0; c.dwell=0; c.ax=c.hx; c.az=c.hz;
     c.alarmCd=0; c.revengeT=0; c.ko=false; c.snoreT=0; c.wakeT=0;
     c.seeAcc=0; c.predicted=false; c.lsVX=0; c.lsVZ=0;
+    c.chaseCd=0; c.cutter=false; c.searchN=0; c.searchVX=0; c.searchVZ=0; c.preChase=false;   // v0.22
     c.det.fill(0); c.detG.fill(0); c.detTicked=false; c.ivT=0; c.tgt=0;
     if(c.meatGiven){ c.meatGiven=false; c.m.tail.visible=true; c.m.g.scale.set(1,1,1); }
     if(c.dead){ c.dead=false; c.m.g.rotation.set(0,0,0); c.m.g.visible=true; }   // v0.20 판이 새로 시작하면 닭도 돌아온다
@@ -4736,7 +4891,9 @@ function buildSnap(){
         p.hp,q1(p.shoveCd),
         p.sunglasses?1:0]),                     // [13][14] v0.20, [15] v0.21 선글라스 — 중간 삽입·삭제 금지 (append-only 관례)
     ck:chickens.map(c=>[q1(c.x),q1(c.z),q1(c.dir),CK_STATES.indexOf(c.state),c.ko?1:0,
-        q1(c.det[0]),q1(c.det[1]),q1(c.det[2]),q1(c.det[3]),c.tgt]),
+        q1(c.det[0]),q1(c.det[1]),q1(c.det[2]),q1(c.det[3]),c.tgt,
+        (c.revengeT>0?1:0)]),                 // [10] v0.22 append — 격노 비트. revengeT는 updChickens 안에만 살아서
+                                              // 클라에선 진홍 점멸이 한 번도 뜬 적이 없었다. 협공·예산은 여전히 호스트 전용(무선 0)
     eg:eggs.map(e=>[EGG_STATES.indexOf(e.state),q1(e.x),q1(e.y),q1(e.z),e.cracked?1:0,
         e.carrier?chickens.indexOf(e.carrier):-1,LOOT_KINDS.indexOf(e.kind||'egg'),
         e.heat||0,q1(e.cookT||0)]),                       // [7][8] v0.15 append — 열 상태·진행 (D-NET1)
@@ -4909,6 +5066,7 @@ function applySnap(s){
     const ns2=CK_STATES[a[3]]||'wander';       // v0.21 방어 폴백 (gs 패턴 — 잊힌 범프 보험)
     if(ns2!==c.state){ ckTransitionFx(c,c.state,ns2); c.state=ns2; }
     c.det[0]=a[5]; c.det[1]=a[6]; c.det[2]=a[7]; c.det[3]=a[8]; c.tgt=a[9];
+    c.revengeT=(a[10]?1:0);                    // v0.22: 렌더 전용 미러 (판정 아님 — 클라는 updChickens를 안 돈다)
     if(c.ko&&!c.meatGiven){ c.meatGiven=true; c.m.tail.visible=false; c.m.g.scale.set(1,0.88,1); }
     const nowDead=(ns2==='dead');                                // v0.20 죽음도 상태 델타에서 파생 (D22)
     if(nowDead&&!c.dead){
@@ -5650,6 +5808,34 @@ function mustRoute(){
     if(!(KILL_CD>=KO_T)) bad.push('kill cd < ko window');
     if(!(HP_MAX>=2)) bad.push('hp max too small');
     if(!(HURT_STUN<STUMBLE_T)) bad.push('hurt stun >= stumble'); }
+  // 24) v0.22 탈출 밸브 계약 A1~A12 — 즉사 금지를 산수로 못 박는다 (docs/goal/chicken-heist-relentless-chase.md).
+  // 전부 파생 기호로 쓴다: 누가 SPD_RUN·CARRY_MULT·스태미나·추격 상수를 만지면 여기가 로드타임에 터진다
+  {
+    // 1단 무조건 해제 — 짐을 다 놓으면 빈손이 언제나 더 빠르다
+    if(!(EMPTY_SUST>CHK_CHASE)) bad.push('A1 빈손 지속 < 추격 ('+EMPTY_SUST.toFixed(1)+'<='+CHK_CHASE+')');
+    if(!(CHK_CHASE<CARRY_SPRINT)) bad.push('A4 추격 >= 운반 질주');
+    // 2단 유계 시계 — 예산이 끝날 때 쉬고 있던 운반자는 아직 잡힘 반경 밖이다
+    const clear=SIGHT_IN+STAM_DRAIN_T*(CARRY_SPRINT-CHK_CHASE)-(CHASE_BUDGET-STAM_DRAIN_T)*(CHK_CHASE-CARRY_SUST);
+    if(!(clear>CHK_R+PLR_R+3)) bad.push('A3 예산 만료 시 여유 '+Math.round(clear)+' <= 잡힘 '+(CHK_R+PLR_R+3));
+    // 시야 이탈이 물리적으로 가능한가 — 초반 질주 예금이 시야 반경보다 커야 한다 (CHK_CHASE 상한을 정하는 식)
+    if(!(STAM_DRAIN_T*(CARRY_SPRINT-CHK_CHASE)>SIGHT_IN)) bad.push('A2 질주 예금 < 시야 반경 — 추격 속도 과다');
+    // 3단 템포 — 밀치기가 얼지 않고 흐르도록
+    if(!(PUSH_STUN<PUSH_CD)) bad.push('A7 스턴 >= 쿨 (M1 홀드 영구 스턴락)');
+    // 기하 보증
+    if(!(Math.abs(CHK_CHASE*OUT_CHASE_MULT-(CARRY_SUST+SPD_WALK*CARRY_MULT)/2)<8)) bad.push('A5 마당 무승부 재발');
+    if(!(2*CHK_CHASE/CHASE_TURN<=AH-2*(CHK_R+2))) bad.push('A6 회전 지름 > 통로 자유폭');
+    if(!(RACC_DRAG_SPD<CARRY_SPRINT)) bad.push('A8 너구리 끌기 >= 운반 질주');
+    if(!((INVEST_CHAIN+1)*(INVEST_TRAVEL_T+INVEST_DWELL)<NIGHT_LEN*0.15)) bad.push('A9 수색이 안 끝난다');
+    if(!(CHASE_CD>CHASE_BREAK_T)) bad.push('A10 포기 비트 중 재추격 (핑퐁)');
+    if(!(CART_CARRY_SPRINT<CHK_CHASE)) bad.push('A12 수레 부등식 반전 — 수레 놓기가 즉시 1회여야 한다');
+    // 인지 반경 동결 확인 — 이번 예외의 범위가 "발각된 뒤"임을 로드타임에 증명한다
+    if(!(SIGHT_IN===110&&SIGHT_OUT===73&&DET_NEAR===40&&AGGRO_RUN===130&&PACK_R===200&&REVENGE_R===92&&CHK_LEASH===280))
+      bad.push('v0.22 범위 위반: 인지 반경이 움직였다');
+    if(!(SPD_WALK===132&&SPD_RUN===218&&CARRY_MULT===0.70&&CART_MULT===0.75))
+      bad.push('v0.22 범위 위반: 플레이어 속도가 움직였다');
+    // ck 튜플 폭 잠금 (격노 비트 append)
+    if(buildSnap().ck[0].length!==11) bad.push('ck tuple drift');
+  }
   // 18) v0.13 출발 — 스폰이 패드 밖이어야 한다 (안이면 t=0에 '전원 패드' 단축이 참이 되어 즉시 0점 종료)
   for(const o of SPAWN_OFFS){
     const d=Math.hypot(SPAWN.x+o[0]-truckPad.x,SPAWN.z+o[1]-truckPad.z);
