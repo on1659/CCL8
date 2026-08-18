@@ -623,7 +623,7 @@ const SHAKE_TELE=1-0.8/SHAKE_FULL_T;
 // 닭 — LOGIC 상수는 전부 v0.4 그대로 (2열 표 원칙)
 const CHK_R=12;
 const CHK_WANDER=42, CHK_CHASE=124;
-const OUT_CHASE_MULT=0.75, OUT_LOSE_T=1.5;
+const OUT_CHASE_MULT=0.75;
 const CHK_LEASH=280;
 const CHK_REACT=0.35;
 const CHASE_TURN=150*Math.PI/180;
@@ -632,6 +632,9 @@ const PICKUP_QUIET=50, PICKUP_LOUD=130;
 const SIGHT_IN=110, SIGHT_OUT=73;
 const DECOY_R=110, PECK_T=4.0;
 const PUSH_R=60, PUSH_STUN=0.8, PUSH_KB=520, PUSH_STAGGER=0.35, PUSH_NOISE=85;
+// v0.22 수리: 비틀 감속은 한 곳에서만 정의한다. 호스트가 두 번 곱하고(0.16×) 클라는 안 곱해(1.00×)
+// 6.25× 고무줄이 나던 자리 — 하필 추격 판정과 겹치는 구간이라 측정 자체가 두 세계를 재고 있었다
+const STAGGER_MULT=0.4;
 // v0.20 연사 상향 (개발자 "연사속도가 너무 느려"): 2.5 → 2×PUSH_STAGGER=0.70 — 때리는 동안 감속 듀티 정확히 50%.
 // 실측 정정: 구 2.5의 사살 억제력은 이동시간에 흡수되어 4~5초뿐이었다. 진짜 억제는 KILL_CD가 진다
 const PUSH_CD=2*PUSH_STAGGER;
@@ -3818,9 +3821,8 @@ function updPlayer(p,dt){
   }
   p.running=!!(run&&moving);
   let spd=(run?SPD_RUN:SPD_WALK)*((p.held||p.pocket)?CARRY_MULT:1);
-  if(p.stagger>0) spd*=0.4;                     // v0.20 호스트와 같은 식 — 없으면 연타 시 위치 보정이 튄다  // 감속은 몸에 계란 ≥1이면 적용 (품도 짐이다)
   if(cart.owner===p.idx) spd*=CART_MULT;         // 견인 감속은 견인자에게만 (D10)
-  if(p.stagger>0) spd*=0.4;
+  if(p.stagger>0) spd*=STAGGER_MULT;             // v0.22 수리: 여기 한 번만. 클라 예측(clientPredict)에도 같은 줄이 있어야 한다
   if(moving){
     const l=Math.hypot(mx,mz); mx/=l; mz/=l;
     const fx=-Math.sin(p.yaw), fz=-Math.cos(p.yaw);
@@ -5017,6 +5019,7 @@ function clientPredict(dt){
   p.running=!!run;
   let spd=(run?SPD_RUN:SPD_WALK)*((p.held||p.pocket)?CARRY_MULT:1);
   if(cart.owner===me) spd*=CART_MULT;
+  if(p.stagger>0) spd*=STAGGER_MULT;   // v0.22 수리: 호스트와 같은 식 (없으면 밀친 직후 6.25× 고무줄 — 추격 판정과 겹치는 구간이다)
   if(moving){
     const l=Math.hypot(mx,mz); mx/=l; mz/=l;
     const fx=-Math.sin(p.yaw), fz=-Math.cos(p.yaw);
