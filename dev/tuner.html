@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>양계장 습격 — 몬스터 튜너</title>
+<style>
+  :root{ --bg:#12100e; --pane:#1b1815; --line:#3a332b; --ink:#e8dcc8; --dim:#a99c86;
+         --gold:#ffe08a; --warn:#ffb08a; --bad:#ff7a6a; --ok:#8fd77b; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Malgun Gothic",system-ui,sans-serif;}
+  #wrap{display:flex;height:100vh;}
+  #left{width:520px;min-width:420px;overflow-y:auto;border-right:1px solid var(--line);padding:14px 16px 60px;}
+  #right{flex:1;display:flex;flex-direction:column;background:#0b0a09;}
+  h1{font-size:18px;margin:0 0 4px;color:var(--gold);}
+  .sub{font-size:12px;color:var(--dim);margin-bottom:12px;}
+  .grp{margin:14px 0 6px;font-size:13px;font-weight:700;color:var(--gold);
+       border-bottom:1px solid var(--line);padding-bottom:4px;}
+  .grp small{font-weight:400;color:var(--dim);margin-left:6px;}
+  .row{display:grid;grid-template-columns:150px 1fr 74px 22px;gap:8px;align-items:center;padding:3px 0;}
+  .row label{font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .row label.d{color:var(--warn);}
+  .row input[type=range]{width:100%;accent-color:var(--gold);}
+  .row input[type=number]{width:100%;background:#0f0d0b;border:1px solid var(--line);color:var(--ink);
+       border-radius:4px;padding:2px 4px;font:12px inherit;}
+  .row .rv{font-size:11px;color:var(--dim);cursor:pointer;text-align:center;}
+  .row .rv:hover{color:var(--gold);}
+  .arr{grid-column:1/-1;display:flex;gap:6px;align-items:center;padding-left:150px;}
+  .arr input{width:64px;background:#0f0d0b;border:1px solid var(--line);color:var(--ink);border-radius:4px;padding:2px 4px;font:12px inherit;}
+  .ro{color:var(--dim);font-size:12px;padding:2px 0 2px 2px;}
+  .ro b{color:var(--ink);font-weight:600;}
+  #bar{position:sticky;top:0;background:var(--pane);border:1px solid var(--line);border-radius:8px;
+       padding:8px 10px;margin-bottom:10px;z-index:5;}
+  #verdict{font-weight:700;}
+  #verdict.ok{color:var(--ok);} #verdict.bad{color:var(--bad);} #verdict.busy{color:var(--dim);}
+  #badlist{font-size:12px;color:var(--bad);margin-top:4px;white-space:pre-wrap;}
+  #derived{font-size:12px;color:var(--dim);margin-top:6px;line-height:1.7;}
+  #derived b{color:var(--ink);}
+  #derived .w{color:var(--warn);}
+  button{font:13px inherit;background:#2a251f;color:var(--ink);border:1px solid var(--line);
+         border-radius:6px;padding:5px 10px;cursor:pointer;}
+  button:hover{background:#3a332b;}
+  button.p{background:var(--gold);color:#1c1408;border:0;font-weight:700;}
+  #acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+  #frame{flex:1;border:0;width:100%;background:#000;}
+  #rtop{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);}
+  #rtop input{width:110px;background:#0f0d0b;border:1px solid var(--line);color:var(--ink);border-radius:4px;padding:3px 6px;font:12px inherit;}
+  #gate{padding:40px;max-width:640px;margin:60px auto;background:var(--pane);border:1px solid var(--line);border-radius:12px;}
+  #gate code{display:block;background:#0f0d0b;padding:10px;border-radius:6px;margin:12px 0;color:var(--gold);user-select:all;}
+  textarea{width:100%;height:180px;background:#0f0d0b;border:1px solid var(--line);color:var(--ink);
+           border-radius:6px;padding:8px;font:12px ui-monospace,Consolas,monospace;}
+</style>
+</head>
+<body>
+<div id="gate" style="display:none">
+  <h1>정적 서버로 열어야 합니다</h1>
+  <p>이 도구는 게임을 iframe으로 띄워 <b>게임 자신의 검사</b>로 설정을 검증합니다.
+     <code>file://</code>로 열면 같은 출처가 아니라 그게 불가능합니다.</p>
+  <p>저장소 루트에서 정적 서버를 띄운 뒤 아래 주소로 여세요:</p>
+  <code>http://localhost:5817/dev/tuner.html</code>
+</div>
+
+<div id="wrap" style="display:none">
+  <div id="left">
+    <h1>몬스터 튜너</h1>
+    <div class="sub">값을 바꾸면 게임을 새로 부팅해 <b>게임의 자가검사</b>로 검증합니다 — 검사를 복사하지 않습니다.</div>
+    <div id="bar">
+      <div id="verdict" class="busy">부팅 중…</div>
+      <div id="badlist"></div>
+      <div id="derived"></div>
+      <div id="acts">
+        <button class="p" id="bDown">monsters.json 저장</button>
+        <button id="bCopy">JSON 복사</button>
+        <button id="bReset">전부 기본값으로</button>
+        <button id="bReload">미리보기 재부팅</button>
+      </div>
+    </div>
+    <div id="knobs"></div>
+    <div class="grp">JSON</div>
+    <textarea id="ta" spellcheck="false"></textarea>
+    <div id="acts"><button id="bApply">텍스트 적용</button></div>
+  </div>
+  <div id="right">
+    <div id="rtop">
+      <span style="font-size:12px;color:var(--dim)">시드</span>
+      <input id="seed" value="12345">
+      <button id="bSeed">이 시드로</button>
+      <span id="src" style="font-size:12px;color:var(--dim);margin-left:auto"></span>
+    </div>
+    <iframe id="frame" allow="pointer-lock; fullscreen; autoplay"></iframe>
+  </div>
+</div>
+
+<script>
+"use strict";
+// 이 도구는 monsters.json만 편집한다. 게임 HTML은 건드리지 않는다.
+// 검증은 게임을 sessionStorage 오버라이드로 콜드 부팅해 window.CCL8_VERDICT를 읽는 방식 —
+// 밸브 부등식(A1~A12)이나 요충지 술어를 여기 복사하는 순간 단일 소스 원칙이 깨진다.
+if(location.protocol==='file:'){ document.getElementById('gate').style.display='block'; }
+else { document.getElementById('wrap').style.display='flex'; boot(); }
+
+const PREVIEW_KEY='ccl8_tune_preview';
+// 표시 메타 — 값의 진실이 아니라 UI 정보다. 여기 없는 키는 '기타'에 자동으로 뜬다 (드리프트 방지)
+const GROUPS=[
+  ['추격', '닭이 발각된 뒤 무엇을 하는가 — v0.22 예외의 범위', [
+    ['CHK_CHASE',80,180,1],['OUT_CHASE_MULT',0.5,1,0.01],['CHASE_BUDGET',3,25,0.5],
+    ['DEAGGRO_R',60,400,5],['CHASE_BREAK_T',0.3,4,0.1],['CHASE_CD',0,10,0.5],
+    ['TURN_DRAG',0,0.9,0.05],['CUT_RECALC',0.2,2,0.1],['CUT_MAX',0,3,1],['CHK_REACT',0.1,1.5,0.05],
+  ]],
+  ['수색·순찰', '시야를 잃은 뒤', [
+    ['CHASE_LOSE_T',0.5,5,0.1],['CONFIRM_FRESH_T',0.3,4,0.1],['INVEST_SPD',40,200,5],
+    ['INVEST_DWELL',0.5,6,0.1],['INVEST_CD',0.5,6,0.5],['INVEST_CHAIN',0,4,1],['INVEST_TRAVEL_T',2,12,0.5],
+    ['CHK_WANDER',20,90,1],['PATROL_SPD',30,120,1],['GUARD_HOLD',2,15,0.5],['CHK_SEP_R',12,60,1],
+  ]],
+  ['인지', '어둠·게이지 (밝은 구간 반경은 동결)', [
+    ['SIGHT_DARK',15,90,1],['CARRIER_SEEN',40,200,2],['DET_RATE_NEAR',0.5,6,0.1],['DET_RATE_FAR',0.1,3,0.1],
+    ['DET_DECAY',0.05,2,0.05],['DET_GRACE',0,2,0.1],['DET_DEMOTE',0,1,0.05],['DET_INVEST_MULT',1,4,0.5],
+    ['RING_MAX_D',80,300,10],
+  ]],
+  ['소리', '무엇이 얼마나 멀리 들리나', [
+    ['PICKUP_QUIET',20,150,5],['PICKUP_LOUD',60,400,10],['PUSH_NOISE',20,300,5],['DECOY_R',40,300,5],
+    ['PECK_T',1,10,0.5],['KILL_ALARM_R',200,1200,25],['ALARM_JOIN_CD',2,20,1],
+    ['CLUCK_DARK_MIN',0.5,8,0.5],['CLUCK_DARK_MAX',1,12,0.5],['CLUCK_WAVE_MAX',80,500,10],['ROB_CLUCK_T',0.5,5,0.1],
+  ]],
+  ['충돌·펀치', '플레이어와 부딪힐 때', [
+    ['PUSH_R',30,120,2],['PUSH_STUN',0.2,2,0.05],['PUSH_KB',200,900,20],['PUSH_STAGGER',0.1,1,0.05],
+    ['STAGGER_MULT',0.1,1,0.05],['SHOVE_ANIM_T',0.1,1,0.05],['ELBOW_T',0.1,1,0.05],
+    ['KO_T',2,15,0.5],['KILL_RAGE_T',3,20,0.5],['REVENGE_T',1,15,0.5],['HP_MAX',1,6,1],
+    ['ROB_SPD',20,120,5],['FLAP_T',0.5,5,0.1],
+  ]],
+  ['등장', '몰래 리젠 — 언제 깨어나는가', [
+    ['THREAT_ACT_MIN_R',60,300,5],['CHK_WAKE_TELE',0.2,3,0.1],['WAKE_SIGHT_R',100,600,10],['WAKE_RETRY',0.5,6,0.5],
+    ['CHK_WAKE_FRAC',0,1,0.01],
+  ]],
+  ['너구리', '마당 재산 포식자', [
+    ['RACC_ATTEND_R',40,300,5],['RACC_GRAB_T',0.2,3,0.1],['RACC_SCOUT_SPD',30,160,5],
+    ['RACC_DRAG_SPD',40,150,5],['RACC_FLEE_SPD',80,260,5],['RACC_REST_T',3,40,1],['RACC_WAKE_FRAC',0,1,0.01],
+  ]],
+  ['밤·경제', '훔칠 만한 가치인가', [
+    ['NIGHT_LEN',120,500,5],['DARK_BASE',60,400,5],['DARK_ACC',0,15,0.5],['DARK_MIN',60,300,5],
+    ['DEPART_T',5,60,1],['DEPART_NEAR_T',0.5,10,0.5],['DEPART_CD',2,20,1],['LEVER_R',20,100,5],
+    ['BURNT_VAL',0,40,1],['COOK_T',1,20,0.5],['BURN_T',5,60,1],['BURN_WARN',1,20,1],
+    ['SHADES_COST',0,200,5],['SHADES_R',20,120,5],['TAG_VIEW_R',80,500,10],['TAG_MAX',1,20,1],
+    ['ABANDON_R',40,200,4],['ABANDON_T',1,10,0.5],
+  ]],
+];
+// 동결·파생은 편집 불가 — 왜 못 만지는지 이유를 같이 보여준다 (회색 슬라이더는 "나중엔 되나?"로 읽힌다)
+const FROZEN=[
+  ['SIGHT_IN / SIGHT_OUT / DET_NEAR / AGGRO_RUN / PACK_R / REVENGE_R / CHK_LEASH','v0.22 범위 계약 — 자가검사가 리터럴 동일성을 강제한다'],
+  ['SPD_WALK / SPD_RUN / CARRY_MULT / CART_MULT','플레이어 속도. 만지면 밸브 A1~A12·너구리·수레·경제가 전부 재산정된다'],
+  ['PUSH_CD / KILL_CD / HURT_STUN / CHASE_TURN(라디안)','파생값 — 원본을 바꾸면 따라온다'],
+  ['PER_TRAY / RACC_N / GOOSE_N / MAX_PLAYERS / CHK_R / RACC_R','구조값 — 풀 크기·엔티티 수. 바꾸면 로드 중 죽어서 자가검사가 보고할 기회조차 없다'],
+];
+
+let DEFAULTS={}, cur={}, meta={}, booting=false, pending=false;
+
+function boot(){
+  fetch('../monsters.json',{cache:'no-store'}).then(r=>r.json()).then(j=>{
+    DEFAULTS=JSON.parse(JSON.stringify(j.values||j));
+    cur=JSON.parse(JSON.stringify(DEFAULTS));
+    for(const [g,,rows] of GROUPS) for(const r of rows) meta[r[0]]={min:r[1],max:r[2],step:r[3]};
+    render(); syncText(); rebuild();
+  }).catch(e=>{
+    document.getElementById('verdict').textContent='monsters.json을 못 읽었습니다: '+e;
+  });
+}
+function fmt(v){ return Array.isArray(v)?('['+v.join(', ')+']'):(typeof v==='object'?JSON.stringify(v):String(v)); }
+function isDirty(k){ return JSON.stringify(cur[k])!==JSON.stringify(DEFAULTS[k]); }
+
+function render(){
+  const host=document.getElementById('knobs');
+  host.innerHTML='';
+  const shown=new Set();
+  for(const [title,note,rows] of GROUPS){
+    const h=document.createElement('div'); h.className='grp';
+    h.innerHTML=title+'<small>'+note+'</small>'; host.appendChild(h);
+    for(const [k,mn,mx,st] of rows){
+      if(!(k in cur)) continue;
+      shown.add(k);
+      host.appendChild(rowFor(k,mn,mx,st));
+    }
+  }
+  // 메타에 없는 키도 반드시 보여준다 — 도구가 조용히 숨기면 json과 어긋난다
+  const rest=Object.keys(cur).filter(k=>!shown.has(k));
+  if(rest.length){
+    const h=document.createElement('div'); h.className='grp';
+    h.innerHTML='기타<small>표시 메타 없음 — 숫자로 직접</small>'; host.appendChild(h);
+    for(const k of rest) host.appendChild(rowFor(k,null,null,null));
+  }
+  const h2=document.createElement('div'); h2.className='grp';
+  h2.innerHTML='편집 불가<small>이유와 함께</small>'; host.appendChild(h2);
+  for(const [names,why] of FROZEN){
+    const d=document.createElement('div'); d.className='ro';
+    d.innerHTML='<b>'+names+'</b><br>'+why; host.appendChild(d);
+  }
+}
+function rowFor(k,mn,mx,st){
+  const v=cur[k];
+  const row=document.createElement('div'); row.className='row';
+  const lab=document.createElement('label'); lab.textContent=k; lab.title=k;
+  if(isDirty(k)) lab.className='d';
+  row.appendChild(lab);
+  if(Array.isArray(v)){
+    row.appendChild(document.createElement('div'));
+    const box=document.createElement('div'); box.style.fontSize='11px'; box.style.color='var(--dim)';
+    box.textContent=fmt(v); row.appendChild(box);
+    const rv=document.createElement('div'); rv.className='rv'; rv.textContent='←'; rv.title='기본값으로';
+    rv.onclick=()=>{ cur[k]=JSON.parse(JSON.stringify(DEFAULTS[k])); render(); syncText(); rebuild(); };
+    row.appendChild(rv);
+    const arr=document.createElement('div'); arr.className='arr';
+    v.forEach((n,i)=>{
+      const inp=document.createElement('input'); inp.type='number'; inp.value=n;
+      inp.step=st||0.01; if(mn!==null){inp.min=mn;inp.max=mx;}
+      inp.oninput=()=>{ const x=parseFloat(inp.value); if(isFinite(x)){ cur[k][i]=x; box.textContent=fmt(cur[k]); lab.className='d'; queue(); } };
+      arr.appendChild(inp);
+    });
+    row.appendChild(arr);
+    return row;
+  }
+  if(v&&typeof v==='object'){
+    row.appendChild(document.createElement('div'));
+    const box=document.createElement('div'); box.style.fontSize='11px'; box.style.color='var(--dim)';
+    box.textContent='아래 JSON에서'; row.appendChild(box);
+    row.appendChild(document.createElement('div'));
+    return row;
+  }
+  const sl=document.createElement('input'); sl.type='range';
+  if(mn===null){ mn=0; mx=Math.max(1,v*3); st=(v%1?0.01:1); }
+  sl.min=mn; sl.max=mx; sl.step=st; sl.value=v;
+  const nb=document.createElement('input'); nb.type='number'; nb.value=v; nb.step=st;
+  const push=x=>{ cur[k]=x; sl.value=x; nb.value=x; lab.className='d'; queue(); };
+  sl.oninput=()=>push(parseFloat(sl.value));
+  nb.oninput=()=>{ const x=parseFloat(nb.value); if(isFinite(x)) push(x); };
+  row.appendChild(sl); row.appendChild(nb);
+  const rv=document.createElement('div'); rv.className='rv'; rv.textContent='←'; rv.title='기본값 '+DEFAULTS[k];
+  rv.onclick=()=>{ push(DEFAULTS[k]); lab.className=''; render(); syncText(); };
+  row.appendChild(rv);
+  return row;
+}
+
+let qt=0;
+function queue(){ clearTimeout(qt); qt=setTimeout(()=>{ syncText(); rebuild(); },450); }
+function syncText(){ document.getElementById('ta').value=JSON.stringify(cur,null,2); }
+
+// 미리보기 = 후보 설정으로 게임을 콜드 부팅. 상수가 const라 오버라이드는 부팅 시점에만 가능하고,
+// 그래서 미리보기는 근사가 아니라 "출하될 그 프로그램"이다
+function rebuild(){
+  if(booting){ pending=true; return; }
+  booting=true;
+  const V=document.getElementById('verdict');
+  V.className='busy'; V.textContent='부팅 중…';
+  try{ sessionStorage.setItem(PREVIEW_KEY,JSON.stringify(cur)); }catch(e){}
+  const f=document.getElementById('frame');
+  const seed=(document.getElementById('seed').value||'').trim();
+  f.onload=()=>{
+    let v=null;
+    try{ v=f.contentWindow.CCL8_VERDICT; }catch(e){}
+    booting=false;
+    if(pending){ pending=false; rebuild(); return; }
+    showVerdict(v);
+  };
+  f.src='../chicken-heist.html'+(seed?('?seed='+encodeURIComponent(seed)):'')+'&_t='+Date.now();
+  setTimeout(()=>{ if(booting){ booting=false; showVerdict(null); } },12000);
+}
+function showVerdict(v){
+  const V=document.getElementById('verdict'), B=document.getElementById('badlist');
+  document.getElementById('src').textContent=v?('출처 '+v.src+' · 해시 '+(v.tune>>>0).toString(16)):'';
+  if(!v){ V.className='bad'; V.textContent='부팅 실패 — 게임이 로드되지 않았습니다'; B.textContent=''; }
+  else if(v.bad.length){ V.className='bad'; V.textContent='✗ 검증 실패 '+v.bad.length+'건 — 저장하면 게임이 깨집니다';
+    B.textContent=v.bad.join('\n'); }
+  else { V.className='ok'; V.textContent='✓ 게임 자가검사 통과'; B.textContent=''; }
+  derived();
+  document.getElementById('bDown').disabled=!(v&&!v.bad.length);
+  document.getElementById('bCopy').disabled=!(v&&!v.bad.length);
+}
+// 항상 보이는 파생 산수 — 밸브 계약이 왜 통과/실패하는지 숫자로 (게임 상수는 못 만지는 값들이라 여기 고정)
+function derived(){
+  const SPD_WALK=132,SPD_RUN=218,CARRY=0.70,CART=0.75,DRAIN=6,REGEN=8,RESUME=0.25,SIGHT=110,AH=85,CHK_R=12,PLR_R=13;
+  const SS=RESUME*DRAIN, WS=RESUME*REGEN;
+  const carrySprint=SPD_RUN*CARRY;
+  const carrySust=(SS*carrySprint+WS*SPD_WALK*CARRY)/(SS+WS);
+  const emptySust=(SS*SPD_RUN+WS*SPD_WALK)/(SS+WS);
+  const c=cur.CHK_CHASE, out=cur.OUT_CHASE_MULT, budget=cur.CHASE_BUDGET;
+  const turnDeg=280;   // CHASE_TURN은 게임 코드 고정 (파생·동결)
+  const dia=2*c/(turnDeg*Math.PI/180), free=AH-2*(CHK_R+2);
+  const clear=SIGHT+DRAIN*(carrySprint-c)-(budget-DRAIN)*(c-carrySust);
+  const yard=c*out, mid=(carrySust+SPD_WALK*CARRY)/2;
+  const w=(b)=>b?'':' class="w"';
+  document.getElementById('derived').innerHTML=
+    '접근 속도차 <b>'+(c-carrySust).toFixed(1)+'</b> u/s (추격 '+c+' − 지속 운반 '+carrySust.toFixed(1)+')<br>'+
+    '<span'+w(emptySust>c)+'>빈손 지속 '+emptySust.toFixed(1)+' vs 추격 '+c+' — 밸브 1단 '+(emptySust>c?'성립':'붕괴')+'</span><br>'+
+    '<span'+w(clear>CHK_R+PLR_R+3)+'>예산 만료 시 여유 <b>'+Math.round(clear)+'</b>u (잡힘 '+(CHK_R+PLR_R+3)+') — 밸브 2단</span><br>'+
+    '<span'+w(dia<=free)+'>회전 지름 '+dia.toFixed(1)+' vs 통로 자유폭 '+free+'</span><br>'+
+    '<span'+w(Math.abs(yard-mid)<8)+'>마당 '+yard.toFixed(1)+' vs 스태미나 중점 '+mid.toFixed(1)+'</span>';
+}
+
+document.getElementById('bReload').onclick=()=>rebuild();
+document.getElementById('bSeed').onclick=()=>rebuild();
+document.getElementById('bReset').onclick=()=>{ cur=JSON.parse(JSON.stringify(DEFAULTS)); render(); syncText(); rebuild(); };
+document.getElementById('bApply').onclick=()=>{
+  try{ const j=JSON.parse(document.getElementById('ta').value);
+       cur=j.values||j; render(); syncText(); rebuild(); }
+  catch(e){ alert('JSON 파싱 실패: '+e.message); }
+};
+function fileText(){
+  const keys=Object.keys(cur).sort();
+  const lines=keys.map(k=>'    '+JSON.stringify(k)+': '+JSON.stringify(cur[k]));
+  return '{\n  "_": "양계장 습격 — 몬스터·설정 데이터. dev/tuner.html로 편집한다.",\n'+
+         '  "_주의": "값을 빼거나 형이 다르면 그 항목만 게임 내장 기본값으로 떨어진다. 구조값(PER_TRAY·RACC_N·GOOSE_N)과 v0.22 동결 상수는 여기 없다 — 게임 코드에만 있다.",\n'+
+         '  "version": "'+((document.getElementById('frame').contentWindow||{}).CCL8_VERDICT||{ver:'?'}).ver+'",\n'+
+         '  "values": {\n'+lines.join(',\n')+'\n  }\n}\n';
+}
+document.getElementById('bDown').onclick=()=>{
+  const b=new Blob([fileText()],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='monsters.json'; a.click();
+};
+document.getElementById('bCopy').onclick=()=>{
+  navigator.clipboard.writeText(fileText()).then(()=>{
+    const b=document.getElementById('bCopy'); const t=b.textContent; b.textContent='복사됨';
+    setTimeout(()=>b.textContent=t,1200);
+  });
+};
+// 도구를 닫으면 미리보기 키를 치운다 — 안 그러면 게임을 그냥 열었을 때도 튜닝값이 물린다
+// (그 경우에도 타이틀에 '튜너 미리보기' 배지가 뜨므로 조용히 어긋나지는 않는다)
+window.addEventListener('beforeunload',()=>{ try{ sessionStorage.removeItem(PREVIEW_KEY); }catch(e){} });
+</script>
+</body>
+</html>

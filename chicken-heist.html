@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.22.0</title>
+<title>양계장 습격 — 웹 프로토타입 v0.23.0</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -128,7 +128,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.22.0</div>
+  <div class="sub">웹 프로토타입 v0.23.0 <span id="tuneBadge"></span></div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -603,6 +603,70 @@ function groundY(x,z){
 // 층별 계단 입구 앵커 — 타존·복도 소음 원점의 클램프 목적지 ("닭들이 계단 입구에 모여든다")
 const STAIR_ENTR=[{x:BARN.x1-50,z:ZA},{x:B1.x0+50,z:ZB}];
 
+// ============================================================
+//  v0.23 설정 외부화 — monsters.json (docs/goal/chicken-heist-tuner.md)
+//  개발자 확정: "몬스터 정보를 따로 json으로 빼서 그거 로드해서 그거가지고 만들게" + "별도 .json 파일까지".
+//  (이전 라운드의 "내장 기본값 + 붙여넣기" 결정을 개발자 권한으로 번복한 것 — CLAUDE.md에 기록)
+//
+//  설계의 핵심: 상수 선언과 그 주석은 제자리에 그대로 둔다. 숫자만 T('이름',기본값)으로 감싼다.
+//  ① 606~900행의 주석 30여 줄은 "왜 132이고 124가 아닌가"를 적어 둔 이 프로젝트의 결정 기록이다 —
+//     데이터 블록으로 옮기면 그 기록이 도구 관할로 넘어가거나 고아가 된다.
+//  ② 리터럴이 곧 폴백이라 monsters.json이 없어도 게임은 그대로 돈다 (단일 파일 성질 보존).
+//  ③ 파생값(PUSH_CD=2*PUSH_STAGGER·KILL_CD=KILL_RAGE_T·HURT_STUN·CHASE_TURN 라디안 환산)은
+//     T()로 감싸지 않는다 — 양쪽을 따로 설정하게 두면 링크가 조용히 끊긴다.
+//  ④ 구조값(PER_TRAY·RACC_N·GOOSE_N·MAX_PLAYERS)과 v0.22 동결 11개도 감싸지 않는다:
+//     전자는 풀 크기·엔티티 수를 바꿔 로드 중 크래시가 나고(자가검사가 보고할 기회조차 없다),
+//     후자는 자가검사가 리터럴 동일성으로 범위 계약을 증명하고 있다.
+//
+//  동기 XHR인 이유: 아래 상수들은 곧바로 소비된다(엔티티 생성·LAYOUT·validate). 비동기로 만들면
+//  5900줄 전체를 async 부팅으로 바꿔야 한다. 실패(file:// 더블클릭·404)는 죽지 않고 기본값으로 떨어진다
+// ============================================================
+let MONSTER_TUNE={}, TUNE_SRC='기본값';
+(function loadTune(){
+  try{                                              // 튜너 미리보기 전용 키 — 친구가 받는 링크엔 존재하지 않는다
+    const s=sessionStorage.getItem('ccl8_tune_preview');
+    if(s){ MONSTER_TUNE=JSON.parse(s)||{}; TUNE_SRC='튜너 미리보기'; return; }
+  }catch(e){}
+  try{
+    const x=new XMLHttpRequest();
+    x.open('GET','monsters.json',false);            // 동기 — 위 주석 참조
+    x.send(null);
+    const txt=x.responseText;
+    if(txt&&(x.status===0||(x.status>=200&&x.status<300))){
+      const j=JSON.parse(txt);
+      if(j&&typeof j==='object'){ MONSTER_TUNE=j.values||j; TUNE_SRC='monsters.json'; }
+    }
+  }catch(e){}                                       // file:// 더블클릭이면 여기로 온다 — 기본값으로 계속 간다
+})();
+const TUNE_USED={};
+// 값 종류가 기본값과 같을 때만 채택한다 — 오타로 문자열이 들어와도 게임이 조용히 망가지지 않게
+function T(k,def){
+  const v=MONSTER_TUNE[k];
+  let ok=false;
+  if(v!==undefined&&v!==null){
+    if(typeof def==='number') ok=(typeof v==='number'&&isFinite(v));
+    else if(Array.isArray(def)) ok=(Array.isArray(v)&&v.length===def.length&&v.every(n=>typeof n==='number'&&isFinite(n)));
+    else if(typeof def==='object') ok=(typeof v==='object'&&!Array.isArray(v)&&Object.keys(def).every(kk=>kk in v));
+  }
+  const out=ok?v:def;
+  TUNE_USED[k]=out;
+  return out;
+}
+// 튜닝 정체성 해시 — 지연 계산(모든 T() 호출이 끝난 뒤 처음 불릴 때). 합류 게이트 4번째 층의 재료다.
+// 정규화: 키 정렬 + 소수 6자리 고정 — 부동소수 표기 차이로 같은 설정이 달라 보이지 않게.
+// 시드·레이아웃 해시와 같은 계급의 "우리가 같은 세계를 도는가" 증명이고, 서버는 여전히 아무것도 모른다
+let _tuneHash=null;
+function tuneHash(){
+  if(_tuneHash!==null) return _tuneHash;
+  const fmt=v=>Array.isArray(v)?('['+v.map(fmt).join(',')+']')
+    :(v&&typeof v==='object')?('{'+Object.keys(v).sort().map(k=>k+':'+fmt(v[k])).join(',')+'}')
+    :(typeof v==='number'?v.toFixed(6):String(v));
+  const s=Object.keys(TUNE_USED).sort().map(k=>k+'='+fmt(TUNE_USED[k])).join(';');
+  let h=2166136261>>>0;                                   // FNV-1a — 생성 스트림과 무관한 순수 문자열 해시
+  for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; }
+  _tuneHash=h>>>0;
+  return _tuneHash;
+}
 // 플레이어
 const PLR_R=13, EYE=52;
 const SPD_WALK=132, SPD_RUN=218;
@@ -625,62 +689,62 @@ const CHK_R=12;
 // v0.22 추격 개편 (docs/goal/chicken-heist-relentless-chase.md) — 밝은 구간 LOGIC 불변의 세 번째 예외.
 // 범위를 좁게 못 박는다: 이번 라운드는 "발각된 뒤에 무엇을 하는가"만 바꾼다. 인지 반경 0건, 플레이어 속도 0건.
 // 예산 지출은 딱 넷 — CHK_CHASE·CHASE_TURN·OUT_CHASE_MULT·(리쉬→예산/층 종결). 나머지는 전부 버그 수리다.
-const CHK_WANDER=42, CHK_CHASE=132;   // 132 = SPD_WALK 정확히: "사냥 중인 닭은 내 걷는 속도"를 세계가 가르친다.
+const CHK_WANDER=T('CHK_WANDER',42), CHK_CHASE=T('CHK_CHASE',132);   // 132 = SPD_WALK 정확히: "사냥 중인 닭은 내 걷는 속도"를 세계가 가르친다.
                                       // 124는 지속 운반(118.2) 대비 5.8u/s라 충돌·모퉁이 손실 노이즈에 먹혔다 (= 너무 느려의 기계적 원인)
-const OUT_CHASE_MULT=0.80;            // 마당은 스태미나가 결정: 105.6 = 탈진보행 92.4와 조깅 118.2의 중점 (자가검사 A5)
+const OUT_CHASE_MULT=T('OUT_CHASE_MULT',0.80);            // 마당은 스태미나가 결정: 105.6 = 탈진보행 92.4와 조깅 118.2의 중점 (자가검사 A5)
                                       // 구 0.75(93.0)는 탈진 운반자 92.4와 0.6u/s 무승부 — 트럭행 직선이 밤에서 가장 안전한 구간이었다
 const CHK_LEASH=280;                  // 반경 불변. 역할만 좁혔다: 추격 경계 → toInvest 소집 게이트 전용 (v0.22)
-const CHK_REACT=0.35;
+const CHK_REACT=T('CHK_REACT',0.35);
 const CHASE_TURN=280*Math.PI/180;     // 회전 지름 2*132/(280°) = 54.0 < 자유 횡폭 57 (A6) — 처음으로 통로 안에서 돈다.
                                       // 150일 땐 지름 94.8 > 57이라 물리적으로 못 돌고 collideCircle이 벽 미끄러짐으로 해소했다
-const TURN_DRAG=0.45;                 // 꺾을수록 느려진다 — 미로가 계속 반격 수단이도록 (90° = 19.1u = 1.38초 벌기)
-const CHASE_BUDGET=10;                // 연속 추격 상한(초). 어떤 이유로도 갱신되지 않는다 = 즉사 금지 밸브 2단.
+const TURN_DRAG=T('TURN_DRAG',0.45);                 // 꺾을수록 느려진다 — 미로가 계속 반격 수단이도록 (90° = 19.1u = 1.38초 벌기)
+const CHASE_BUDGET=T('CHASE_BUDGET',10);                // 연속 추격 상한(초). 어떤 이유로도 갱신되지 않는다 = 즉사 금지 밸브 2단.
                                       // 개발자가 '!' 벽투시를 기각했으므로 14→10 (안 보이는 긴 추격은 긴장이 아니라 억울함)
-const DEAGGRO_R=170;                  // 짐을 다 놓았을 때 풀려나는 거리 — 기존 맨 숫자에 이름만 붙였다 (값 불변)
-const CHASE_BREAK_T=1.2;              // 포기 비트: 그 자리에 서서 두리번 (CHK_REACT 0.35의 3배 — 재발견 경련과 안 헷갈리게)
-const CHASE_CD=3;                     // 포기 직후 재추격 금지(초). toAlert만 막는다 — 정전·복수·KO 기상은 못 막는다
-const CUT_RECALC=0.5, CUT_MAX=1;      // 협공: 0.5초마다 역할 재계산, 차단자는 최대 한 마리 (둘 이상은 난이도가 아니라 동전던지기)
+const DEAGGRO_R=T('DEAGGRO_R',170);                  // 짐을 다 놓았을 때 풀려나는 거리 — 기존 맨 숫자에 이름만 붙였다 (값 불변)
+const CHASE_BREAK_T=T('CHASE_BREAK_T',1.2);              // 포기 비트: 그 자리에 서서 두리번 (CHK_REACT 0.35의 3배 — 재발견 경련과 안 헷갈리게)
+const CHASE_CD=T('CHASE_CD',3);                     // 포기 직후 재추격 금지(초). toAlert만 막는다 — 정전·복수·KO 기상은 못 막는다
+const CUT_RECALC=T('CUT_RECALC',0.5), CUT_MAX=T('CUT_MAX',1);      // 협공: 0.5초마다 역할 재계산, 차단자는 최대 한 마리 (둘 이상은 난이도가 아니라 동전던지기)
 const AGGRO_RUN=130;
-const PICKUP_QUIET=50, PICKUP_LOUD=130;
+const PICKUP_QUIET=T('PICKUP_QUIET',50), PICKUP_LOUD=T('PICKUP_LOUD',130);
 const SIGHT_IN=110, SIGHT_OUT=73;
-const DECOY_R=110, PECK_T=4.0;
+const DECOY_R=T('DECOY_R',110), PECK_T=T('PECK_T',4.0);
 // v0.22: PUSH_STUN 0.8 → 0.55. 단독 변경이 아니라 "맞으면 다시 달려든다"(v0.20 밀치기 탈출 버프 번복)의
 // 짝이다 — 0.8 > PUSH_CD 0.70이면 재개가 의미를 갖는 순간 M1 홀드가 영구 스턴락이 된다 (A7)
-const PUSH_R=60, PUSH_STUN=0.55, PUSH_KB=520, PUSH_STAGGER=0.35, PUSH_NOISE=85;
+const PUSH_R=T('PUSH_R',60), PUSH_STUN=T('PUSH_STUN',0.55), PUSH_KB=T('PUSH_KB',520), PUSH_STAGGER=T('PUSH_STAGGER',0.35), PUSH_NOISE=T('PUSH_NOISE',85);
 // v0.22 수리: 비틀 감속은 한 곳에서만 정의한다. 호스트가 두 번 곱하고(0.16×) 클라는 안 곱해(1.00×)
 // 6.25× 고무줄이 나던 자리 — 하필 추격 판정과 겹치는 구간이라 측정 자체가 두 세계를 재고 있었다
-const STAGGER_MULT=0.4;
+const STAGGER_MULT=T('STAGGER_MULT',0.4);
 // v0.20 연사 상향 (개발자 "연사속도가 너무 느려"): 2.5 → 2×PUSH_STAGGER=0.70 — 때리는 동안 감속 듀티 정확히 50%.
 // 실측 정정: 구 2.5의 사살 억제력은 이동시간에 흡수되어 4~5초뿐이었다. 진짜 억제는 KILL_CD가 진다
 const PUSH_CD=2*PUSH_STAGGER;
-const SHOVE_ANIM_T=0.45;         // 렌더 전용 — 쿨 0.70에 애님 0.25면 스윙 사이 정지 포즈가 생긴다
+const SHOVE_ANIM_T=T('SHOVE_ANIM_T',0.45);         // 렌더 전용 — 쿨 0.70에 애님 0.25면 스윙 사이 정지 포즈가 생긴다
 // v0.20 플레이어 HP (개발자 "내 hp가 없고 한방에 죽는 거 별로") — 이번 라운드의 신규 시스템 1개.
 // 완충타: HP-1 + 짧은 비틀(HURT_STUN) + 닭 flap 2s(재사용) — 알은 안 뺏긴다.
 // HP 0째 타격 = 기존 넉다운 그대로(강탈+넘어짐, 신규 실패 상태 0) + HP 재충전. 즉사 금지 무변경.
 // 실측: 넉다운 5.00→1.15회/밤(-77%), 반출률 6.55~6.75 불변 — HP는 경제가 아니라 체감을 바꾼다
-const HP_MAX=3;
+const HP_MAX=T('HP_MAX',3);
 const HURT_STUN=PUSH_STAGGER;    // 완충타 비틀 — 넘어짐(STUMBLE_T 1.15)과 구분되는 짧은 스턴
-const ELBOW_T=0.3;
-const ROB_SPD=55, FLAP_T=2.0;
+const ELBOW_T=T('ELBOW_T',0.3);
+const ROB_SPD=T('ROB_SPD',55), FLAP_T=T('FLAP_T',2.0);
 const FAIL_HOLD=2.5;
 const INTRO_T=1.5, FADE_T=0.5;
 
 // v0.5 신설 — 닭 인지 (패널 확정)
-const CHASE_LOSE_T=1.5;          // 실내외 공통: 시야·신선 파동이 이 시간 끊기면 chase→invest 강등
-const CONFIRM_FRESH_T=1.2;       // 파동·목격 확정의 신선도 — 이 이내에만 라이브 추적
-const INVEST_SPD=110, INVEST_DWELL=2.0, INVEST_CD=2.0, INVEST_CHAIN=2;
-const CHK_SEP_R=24;              // 닭-닭 소프트 분리 (흐름 수렴 "슈퍼닭" 방지)
-const SIGHT_DARK=37;             // 정전: 닭도 밤눈이 어둡다
-const CARRIER_SEEN=92;          // 정전: 발광 알 소지자는 여기서 팔린다 (랜턴 140 < 피탐 200)
+const CHASE_LOSE_T=T('CHASE_LOSE_T',1.5);          // 실내외 공통: 시야·신선 파동이 이 시간 끊기면 chase→invest 강등
+const CONFIRM_FRESH_T=T('CONFIRM_FRESH_T',1.2);       // 파동·목격 확정의 신선도 — 이 이내에만 라이브 추적
+const INVEST_SPD=T('INVEST_SPD',110), INVEST_DWELL=T('INVEST_DWELL',2.0), INVEST_CD=T('INVEST_CD',2.0), INVEST_CHAIN=T('INVEST_CHAIN',2);
+const CHK_SEP_R=T('CHK_SEP_R',24);              // 닭-닭 소프트 분리 (흐름 수렴 "슈퍼닭" 방지)
+const SIGHT_DARK=T('SIGHT_DARK',37);             // 정전: 닭도 밤눈이 어둡다
+const CARRIER_SEEN=T('CARRIER_SEEN',92);          // 정전: 발광 알 소지자는 여기서 팔린다 (랜턴 140 < 피탐 200)
 
 // 정전 (결정 로그 2026-08-11 — 시작: 마지막 필요분 픽업 / 끝: 승리·실패뿐)
 const LANTERN_DIST=64, LANTERN_INT=0.85;    // "계란이 밝힌다" — 발밑 웅덩이만, 분기점은 파동 몫
 const EGG_EMISSIVE_LIT=0x6b5f45, EGG_EMISSIVE_DARK=0xffe8c4;  // "계란이 보인다" — 독립 손잡이
 const FLICKER_T=0.25;            // 소등 연출 (캐스케이드는 폴리시 이연). 로직은 t=0 즉시 전환
 const HEADLIGHT_DARK=350;        // 정전 중 헤드라이트 클램프 — 실내 바닥 침투(거짓 등대) 차단
-const ABANDON_R=92, ABANDON_T=3;// 방치된 발광 알 → 강탈 표적 (내려놓기 탈출기의 유예)
-const CLUCK_DARK_MIN=2.5, CLUCK_DARK_MAX=4.5, CLUCK_WAVE_MAX=280;
-const ROB_CLUCK_T=1.5;
+const ABANDON_R=T('ABANDON_R',92), ABANDON_T=T('ABANDON_T',3);// 방치된 발광 알 → 강탈 표적 (내려놓기 탈출기의 유예)
+const CLUCK_DARK_MIN=T('CLUCK_DARK_MIN',2.5), CLUCK_DARK_MAX=T('CLUCK_DARK_MAX',4.5), CLUCK_WAVE_MAX=T('CLUCK_WAVE_MAX',280);
+const ROB_CLUCK_T=T('ROB_CLUCK_T',1.5);
 
 // 파동 (시각 전용 열. LOGIC은 기존 상수를 그대로 쓴다)
 const WAVE_SPEED=170, WAVE_RAYS=540, STEP_RAYS=180;
@@ -691,42 +755,42 @@ const VIS_WALK=76, VIS_RUN=130, VIS_LAND=126, VIS_BREAK=160, VIS_SHOVE=84,
 // v0.6 신설 — 갑툭튀 배치 (docs/goal/chicken-heist-dark-surprise.md, 패널 확정)
 // v0.13 정전 트리거 — 쿼터가 사라졌으므로 "반납이 시계를 앞당긴다"로 인과 복원 (D1).
 // 가속 인자는 stats.delivered(단조 증가)만 쓴다 — 손·품·수레를 넣으면 파손·강탈 때 시계가 거꾸로 간다
-const DARK_BASE=185, DARK_ACC=4, DARK_MIN=125;
+const DARK_BASE=T('DARK_BASE',185), DARK_ACC=T('DARK_ACC',4), DARK_MIN=T('DARK_MIN',125);
 // v0.13 전리품 — 신규 품목 클래스 0종, 기존 eggs[] 파이프라인에 kind만 얹는다 (D5)
 // v0.21 가격제 (docs/goal/chicken-heist-regen-appraisal.md D3) — 슬롯별 가격 PRICE[slot]이 가치의 진실.
 // 범위가 서로 겹친다(계란∩고기 12..15, 고기∩큰알 20..28) — 겹침이 없으면 kind가 전순서라
 // 가격을 읽을 이유(선글라스의 상품)가 사라진다. 시드 전용 서브스트림에서 굴리므로 무선 비용 0.
 // LOOT_VAL은 이제 "범위 평균" 파생표다 — 가치 계산엔 절대 쓰지 말 것 (자가검사·기대선 부등식 전용)
-const PRICE_RANGE={egg:[5,15],bigEgg:[20,40],meat:[12,28]};
+const PRICE_RANGE=T('PRICE_RANGE',{egg:[5,15],bigEgg:[20,40],meat:[12,28]});
 const LOOT_VAL={};
 for(const k in PRICE_RANGE) LOOT_VAL[k]=(PRICE_RANGE[k][0]+PRICE_RANGE[k][1])/2;
 // v0.15 요리 — 열은 kind가 아니라 필드(e.heat 0생/1익음/2탄것)다: kind==='meat' 게이트(불파괴·주머니 금지)가
 // 조리 후에도 자동 승계된다 (kind 증식안은 교차심문 기각). 보너스는 가산 + 정전 ×2 하나만 —
 // 곱셈이면 정전 스택 ×4로 요리가 의무가 된다. 값 표 raw/cooked/burnt: 알 1/2/1 · 큰알 3/4/1 · 고기 2/4/1.
 // KO 파밍 열세 유지: 고기 전조리 라인 40 < 생계란 라인 42 < 조리 계란 라인 60 (D-KIT4·5)
-const COOK_BONUS={egg:10,bigEgg:10,meat:20};   // v0.21 ×10 환산 (가산 원칙 불변 — 곱셈이면 정전 스택 ×4)
-const BURNT_VAL=5;               // 숯덩이도 납품된다 — 트럭까지 들고 가는 것 자체가 개그 (0이면 개그가 죽는다). v0.21: 최저 계란가(5)와 동가
-const COOK_T=6;                  // 익기까지(초) — v0.20.2: 12→6 (개발자 '너무 느리다'). 기다림 가격은 이동+리스크가 진다. 튜닝 상수
-const BURN_T=24;                 // 익은 뒤 타기까지 — 넉넉하게: 타는 건 반사 실패가 아니라 쫓겨난 대가다. 튜닝 상수
-const BURN_WARN=6;               // 타기 전 연기 기둥 예고(초) — 위협 3원칙 ③(선전조)의 요리판. 렌더 전용
+const COOK_BONUS=T('COOK_BONUS',{egg:10,bigEgg:10,meat:20});   // v0.21 ×10 환산 (가산 원칙 불변 — 곱셈이면 정전 스택 ×4)
+const BURNT_VAL=T('BURNT_VAL',5);               // 숯덩이도 납품된다 — 트럭까지 들고 가는 것 자체가 개그 (0이면 개그가 죽는다). v0.21: 최저 계란가(5)와 동가
+const COOK_T=T('COOK_T',6);                  // 익기까지(초) — v0.20.2: 12→6 (개발자 '너무 느리다'). 기다림 가격은 이동+리스크가 진다. 튜닝 상수
+const BURN_T=T('BURN_T',24);                 // 익은 뒤 타기까지 — 넉넉하게: 타는 건 반사 실패가 아니라 쫓겨난 대가다. 튜닝 상수
+const BURN_WARN=T('BURN_WARN',6);               // 타기 전 연기 기둥 예고(초) — 위협 3원칙 ③(선전조)의 요리판. 렌더 전용
 const PER_TRAY=3;                // 트레이당 개수 — 총 18 (1F 6 / B1 12). 트레이 개수는 6 그대로
-const DEPART_T=20;               // 출발 카운트다운(초) — 1F·마당 다리 기준 (지하 보호는 취소키가 한다, D4)
-const DEPART_NEAR_T=1.5;         // 전원이 패드 안이면 단축 (솔로는 사실상 즉시)
-const DEPART_CD=8;               // 취소 후 재개시 쿨다운
-const LEVER_R=45;                // 운전석 레버 반경 — 반납대(x=380)와 188u 이격
-const GRADE=[10,140,350];        // 인원수 배수 — 빈 트럭 / 오늘 장사는 됐다 / 한탕 했다 / 대형사고
+const DEPART_T=T('DEPART_T',20);               // 출발 카운트다운(초) — 1F·마당 다리 기준 (지하 보호는 취소키가 한다, D4)
+const DEPART_NEAR_T=T('DEPART_NEAR_T',1.5);         // 전원이 패드 안이면 단축 (솔로는 사실상 즉시)
+const DEPART_CD=T('DEPART_CD',8);               // 취소 후 재개시 쿨다운
+const LEVER_R=T('LEVER_R',45);                // 운전석 레버 반경 — 반납대(x=380)와 188u 이격
+const GRADE=T('GRADE',[10,140,350]);        // 인원수 배수 — 빈 트럭 / 오늘 장사는 됐다 / 한탕 했다 / 대형사고
                                  // v0.15: [1,10,25]→[1,14,35] — 요리 보너스로 이론상한 62→100. 방치하면 '대형사고'가 헐값 (튜닝 상수)
                                  // v0.21: ×10 단위 환산 (v0.16 축척 환산과 같은 계급 — 난이도 변경이 아니라 불변 유지)
 // v0.21 선글라스 — 감정(鑑定)만 판다. 위협 가시성·속도 등 다른 특전 일절 금지 (계약)
-const SHADES_COST=30;            // 평균 계란 3개 ≈ 왕복 1회 — 1회차 반납은 구조적으로 깜깜이, 그 다음부터 정보 구매
-const SHADES_R=40;               // 트럭 카운터 소품 구매 반경 (E 프롬프트 체인. SHADES_POS는 트럭 상수 뒤)
-const TAG_VIEW_R=260, TAG_MAX=6; // 가격표 노출 거리·동시 상한 (어둠 무드 예산 — 패널 ux 상한)
+const SHADES_COST=T('SHADES_COST',30);            // 평균 계란 3개 ≈ 왕복 1회 — 1회차 반납은 구조적으로 깜깜이, 그 다음부터 정보 구매
+const SHADES_R=T('SHADES_R',40);               // 트럭 카운터 소품 구매 반경 (E 프롬프트 체인. SHADES_POS는 트럭 상수 뒤)
+const TAG_VIEW_R=T('TAG_VIEW_R',260), TAG_MAX=T('TAG_MAX',6); // 가격표 노출 거리·동시 상한 (어둠 무드 예산 — 패널 ux 상한)
 // v0.21 몰래 리젠 — "생성이 아니라 활성화" (D2). 자유 순찰자 4마리가 휴면으로 시작해
 // 밤의 고정 지점(학습 가능한 유일한 축 = 밤 시계)에서 자기 자리 그대로 깨어난다. RNG 0, 스케줄 불변.
 // 사살과 완전 직교: 죽은 슬롯은 계속 죽어 있고, 스케줄은 어떤 이유로도 가속·지연되지 않는다
-const CHK_WAKE_FRAC=[0.25,0.40,0.55,0.70];   // 밤 분율 — NIGHT_LEN 245 기준 ≈61/98/134/171s
-const WAKE_SIGHT_R=300;          // 이 안에서 벽 차단 없는 시선이 있으면 기상 보류 (불 켜진 복도 실체화 = 갑툭튀)
-const WAKE_RETRY=2;              // 보류 재시도 주기(s)
+const CHK_WAKE_FRAC=T('CHK_WAKE_FRAC',[0.25,0.40,0.55,0.70]);   // 밤 분율 — NIGHT_LEN 245 기준 ≈61/98/134/171s
+const WAKE_SIGHT_R=T('WAKE_SIGHT_R',300);          // 이 안에서 벽 차단 없는 시선이 있으면 기상 보류 (불 켜진 복도 실체화 = 갑툭튀)
+const WAKE_RETRY=T('WAKE_RETRY',2);              // 보류 재시도 주기(s)
 // v0.14 신설 — 거위 (docs/goal/chicken-heist-guard-goose.md)
 // 왜 여기 있나: 농장은 실제로 거위를 경비로 친다. 설명이 필요 없는 종이어야 한다는
 // 금지 해제 조건(CLAUDE.md 2026-08-14)을 만족하는 최단 답이다. 몬스터가 아니다.
@@ -746,7 +810,7 @@ const GOOSE_MAX_X=BARN.x0-40;    // 거위는 이 선을 못 넘는다 — 문 �
 // (DARK_TIMER는 v0.15에서 삭제 — v0.13 대체 후 남은 잔재가 클라 정전 경고를 300s 고정으로 오발시켰다.
 //  상수를 지웠으므로 재발은 grep 불가능. 클라도 darkAt()을 쓴다 — D-NET6)
 // v0.11 신설 — 밤 시계·새벽 마감 (docs/goal/chicken-heist-dawn-deadline.md)
-const NIGHT_LEN=245;             // 밤 전체 길이(초) — 시계 00:00→06:00 매핑, 만료 = 새벽 실패. DARK_BASE보다 길어야 한다. 튜닝 상수
+const NIGHT_LEN=T('NIGHT_LEN',245);             // 밤 전체 길이(초) — 시계 00:00→06:00 매핑, 만료 = 새벽 실패. DARK_BASE보다 길어야 한다. 튜닝 상수
 const DAWN_WARNS=[60,30,10];     // 예고 시점 (잔여 실초) — 수탉은 세계의 신호, 경적은 기사의 신호
 const DAWN_MSGS=['멀리서 수탉이 뒤척인다…','수탉이 울었다 — 기사가 시동을 건다','경적!! 트럭이 떠난다!!'];
 // 밤의 이 지점부터 하늘이 물들기 시작 (렌더 전용 — "그냥 타이머"가 아니게 하는 축).
@@ -763,24 +827,24 @@ const BRIGHT_AB=/[?&]bright=1/.test(location.search);
 const HEMI_LIT=BRIGHT_AB?0.58:0.12, HEMI_DARK=0.06, MOON_LIT=BRIGHT_AB?0.22:0.06, MOON_DARK=0.04;   // 광량 기준값 (정전·새벽이 공유)
 const SKY_NIGHT_HEX=BRIGHT_AB?0x0c1424:0x03060c;   // 밤하늘·안개 기저색 — 거리(fog near/far)는 불변 (트럭 가시성)
 const WARN_DIP_T=0.12;           // 잔여 30/10초 조명 딥 (flickT 기구 재사용)
-const PATROL_SPD=65;             // 순찰 전용 속도 — 배회 42와 invest 110 사이 (신설 상태의 신설 상수)
+const PATROL_SPD=T('PATROL_SPD',65);             // 순찰 전용 속도 — 배회 42와 invest 110 사이 (신설 상태의 신설 상수)
 const PACK_R=200;                // 무리 경보 반경 (소리 기반 — 앵커 리쉬 600이 자연 상한)
-const ALARM_JOIN_CD=8;           // 같은 닭의 경보 재합류 쿨 (INVEST_CD와 별도)
-const GUARD_HOLD=6;              // 지킴이 트레이 경계 체류 상한 — 유한해야 KO가 대책이 된다
+const ALARM_JOIN_CD=T('ALARM_JOIN_CD',8);           // 같은 닭의 경보 재합류 쿨 (INVEST_CD와 별도)
+const GUARD_HOLD=T('GUARD_HOLD',6);              // 지킴이 트레이 경계 체류 상한 — 유한해야 KO가 대책이 된다
 // v0.20 위협 활성화 최소 이격 — 개발자 확정 일반 규칙: "닭만이 아니라 모든 몬스터".
 // 위협은 어떤 활성화 이벤트(KO 기상·스폰·리스폰 일체)도 활성 플레이어 이 반경 안에서 일으키지 않는다.
 // 지금 소비자는 KO 기상 하나지만(리스폰 시스템은 없다), 앞으로 위협을 등장시키는 코드는 전부 이 상수를 지나야 한다
-const THREAT_ACT_MIN_R=140;      // 펀치 60·시야 110 밖, 램프 웅덩이 300 안 — 튜닝 상수
-const CHK_WAKE_TELE=0.8;         // 기상 예고(퍼덕임+꽥) — 멀리서 깨어나도 갑툭튀는 아니어야 한다
-const KILL_ALARM_R=700;          // v0.20 죽는 소리 — 같은 층 대부분에 닿는다 (실측: 평균 3.0마리 반응).
+const THREAT_ACT_MIN_R=T('THREAT_ACT_MIN_R',140);      // 펀치 60·시야 110 밖, 램프 웅덩이 300 안 — 튜닝 상수
+const CHK_WAKE_TELE=T('CHK_WAKE_TELE',0.8);         // 기상 예고(퍼덕임+꽥) — 멀리서 깨어나도 갑툭튀는 아니어야 한다
+const KILL_ALARM_R=T('KILL_ALARM_R',700);          // v0.20 죽는 소리 — 같은 층 대부분에 닿는다 (실측: 평균 3.0마리 반응).
                                  // 자가검사 10(반경 < 존 이격)의 대상이 아니다 — 이 반경은 벽·존을 무시하지 않고
                                  // killChicken 안에서 zoneOfArea 동일성을 명시 검사한다. 검사 10에 넣지 말 것
-const KILL_RAGE_T=9;             // 그 소리를 들은 닭은 조사가 아니라 사냥으로 온다 (조용한 학살 금지)
+const KILL_RAGE_T=T('KILL_RAGE_T',9);             // 그 소리를 들은 닭은 조사가 아니라 사냥으로 온다 (조용한 학살 금지)
 // v0.20 확인사살 전용 재장전 — v0.17 대가(b)의 이름 이전. '다음 사살은 지난 사살이 만든 격노가 끝난 뒤에야'.
 // 실측: 이 값으로 B1 스윕 실비용 26.5%(손익분기 31.1% 바로 아래) = 지배 아닌 빠듯한 선택. KO_T(6)면 지배(20.4%)
 const KILL_CD=KILL_RAGE_T;
-const KO_T=6;                    // 펀치 KO — 기상은 무조건 격노 (파밍 방지)
-const REVENGE_R=92, REVENGE_T=5;// KO 목격 닭의 복수 추격 (빈손 무관 — 무위험 사냥 봉쇄)
+const KO_T=T('KO_T',6);                    // 펀치 KO — 기상은 무조건 격노 (파밍 방지)
+const REVENGE_R=92, REVENGE_T=T('REVENGE_T',5);// KO 목격 닭의 복수 추격 (빈손 무관 — 무위험 사냥 봉쇄)
 const SWAP_T=1.2;                // Q 품 동작 시간 (중 밀치기·던지기 불가 — 공짜 순간이동 방지)
                                  // v0.13: 0.5→1.2 (D9). 품은 밝은 구간 발각 게이지에 안 걸리는 무적이라
                                  // 왕복 루프에선 "집자마자 Q"가 항상 정답이 된다. carriesEgg를 고치면
@@ -795,12 +859,12 @@ const VIS_PUNCH=160, VIS_ALARM=210;  // 신설 동사 파동 (펀치 LOGIC=PICKU
 // v0.9 신설 — 발각 게이지 (밝은 구간 전용. 정전은 v0.7 즉발 유지 — 140/200 공식 동결)
 // 밝은 구간 로직 최초 변경 — 개발자 권한 해제 (2026-08-12, "언제 잡으러 오는지 납득 가능하게")
 const DET_NEAR=40;               // 이 안은 즉발 — 코너 정면충돌의 갑툭튀는 벽 210이 산 자산
-const DET_RATE_NEAR=2.5, DET_RATE_FAR=0.5;   // 60~반경 선형 충전율(/s)
-const DET_DECAY=0.4, DET_GRACE=0.5;          // 감쇠 + LOS 상실 유예
-const DET_DEMOTE=0.5;            // chase→invest 강등 시 유지되는 의심 잔량
-const DET_INVEST_MULT=2;         // invest 중 충전 배속 (지킴이 리다이렉트 무력화 방지)
-const RING_MAX_D=200;            // 시야 원 표시 거리 상한
-const INVEST_TRAVEL_T=6;         // invest 이동 타임아웃 밸브 (교착 방지)
+const DET_RATE_NEAR=T('DET_RATE_NEAR',2.5), DET_RATE_FAR=T('DET_RATE_FAR',0.5);   // 60~반경 선형 충전율(/s)
+const DET_DECAY=T('DET_DECAY',0.4), DET_GRACE=T('DET_GRACE',0.5);          // 감쇠 + LOS 상실 유예
+const DET_DEMOTE=T('DET_DEMOTE',0.5);            // chase→invest 강등 시 유지되는 의심 잔량
+const DET_INVEST_MULT=T('DET_INVEST_MULT',2);         // invest 중 충전 배속 (지킴이 리다이렉트 무력화 방지)
+const RING_MAX_D=T('RING_MAX_D',200);            // 시야 원 표시 거리 상한
+const INVEST_TRAVEL_T=T('INVEST_TRAVEL_T',6);         // invest 이동 타임아웃 밸브 (교착 방지)
 
 // v0.7 신설 — 스태미나 (유일 신규 시스템. docs/goal/chicken-heist-stamina-telegraph.md)
 // 탈진+운반 보행 92.4 < 추격 124 → 부주의한 운반자는 잡힌다.
@@ -833,7 +897,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.22.0'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.23.0'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -855,11 +919,11 @@ const SHADES_POS={x:TRUCK_X+60,z:TRUCK_Z+70};
 // x 비대칭(거위 선례: 같은 x = 겹친 원 = 공짜 구간). 초소가 곧 굴이다: 훔친 짐은 여기서 사라진다
 const RACC_N=2, RACC_R=13;
 const RACC_HOME=[{x:150,z:TRUCK_Z+430},{x:520,z:TRUCK_Z-430}];
-const RACC_WAKE_FRAC=[0.40,0.70];  // 닭 2·4번째 기상과 같은 박자 — 밤이 깊을수록 마당도 붐빈다
-const RACC_ATTEND_R=120;           // "방치" 판정 — 이 안에 활성 플레이어가 있으면 그 짐은 안 건드린다 (끄는 수레는 구조적으로 안전)
-const RACC_GRAB_T=0.6;             // 집기 전 찍찍 예고 (즉발 금지의 절도판)
-const RACC_SCOUT_SPD=80, RACC_DRAG_SPD=100, RACC_FLEE_SPD=175;   // 끌기 100 < 운반 질주 152.6 — 항상 따라잡힌다 (탈출 밸브 부등식 재사용)
-const RACC_REST_T=12;              // 절도 성공 후 굴에서 쉬는 시간 — 그 다음 또 나온다 (지켜야 하는 자산)
+const RACC_WAKE_FRAC=T('RACC_WAKE_FRAC',[0.40,0.70]);  // 닭 2·4번째 기상과 같은 박자 — 밤이 깊을수록 마당도 붐빈다
+const RACC_ATTEND_R=T('RACC_ATTEND_R',120);           // "방치" 판정 — 이 안에 활성 플레이어가 있으면 그 짐은 안 건드린다 (끄는 수레는 구조적으로 안전)
+const RACC_GRAB_T=T('RACC_GRAB_T',0.6);             // 집기 전 찍찍 예고 (즉발 금지의 절도판)
+const RACC_SCOUT_SPD=T('RACC_SCOUT_SPD',80), RACC_DRAG_SPD=T('RACC_DRAG_SPD',100), RACC_FLEE_SPD=T('RACC_FLEE_SPD',175);   // 끌기 100 < 운반 질주 152.6 — 항상 따라잡힌다 (탈출 밸브 부등식 재사용)
+const RACC_REST_T=T('RACC_REST_T',12);              // 절도 성공 후 굴에서 쉬는 시간 — 그 다음 또 나온다 (지켜야 하는 자산)
 const RACC_MAX_X=BARN.x0-40;       // 축사 문턱 못 넘음 (거위 선례 ② 활동 구역 격리)
 const SPAWN={x:TRUCK_X+290,z:TRUCK_Z};   // v0.13(D8): 패드 밖으로 — 스폰이 은행 안이면 즉시 0점 출발이 가능해진다
 const DOOR_W=AH, DOOR_Z=aisleZC(SPINE);   // v0.20: 문 = 통로 폭 정확히. 구 150은 새 통로 85보다 넓어 문이 케이지 열을 파고든다
@@ -4925,6 +4989,10 @@ function hostOnFrom(slot,d){
     // 시드 불일치는 리로드로 고쳐진다(링크 훼손). 시드 동일·해시 불일치는 결정론적 발산 — 리로드로 못 고친다
     if(((d.seed>>>0)||0)!==MAP_SEED){ netSend({t:'to',slot,d:{g:'bad',why:'seed',seed:MAP_SEED}}); return; }
     if(((d.hash>>>0)||0)!==LAYOUT_HASH){ netSend({t:'to',slot,d:{g:'bad',why:'hash'}}); return; }
+    // v0.23 4번째 층 — 몬스터 설정(monsters.json) 정체성. 해시 층과 같은 규칙: 절대 자동 리로드하지 않는다
+    // (그 층의 무리로드 규칙이 이 파일의 유일한 스핀 루프 차단이다). 구버전 클라는 tune 필드가 없어 0으로 온다 —
+    // 그건 버전 층에서 이미 걸러졌으므로 여기 도달하지 않는다
+    if(((d.tune>>>0)||0)!==tuneHash()){ netSend({t:'to',slot,d:{g:'bad',why:'tune'}}); return; }
     p.active=true;
     p.x=SPAWN.x+SPAWN_OFFS[slot][0]; p.z=SPAWN.z+SPAWN_OFFS[slot][1];
     netSend({t:'to',slot,d:{g:'hello',v:PROTO_V,slot,dark:darkEnabled,started:NET.started,seed:MAP_SEED}});
@@ -5289,7 +5357,7 @@ function netConnect(url,onOpen){
       else if(m.t==='err') setNetMsg('방을 만들 수 없다 ('+m.why+')');
     } else {
       if(m.t==='d') clientOnD(m.d);
-      else if(m.t==='joined'){ me=m.slot; players[m.slot].active=true; netToHost({g:'hi',v:PROTO_V,seed:MAP_SEED,hash:LAYOUT_HASH}); }   // v0.15: 시드·해시 동봉 (D-NET3)
+      else if(m.t==='joined'){ me=m.slot; players[m.slot].active=true; netToHost({g:'hi',v:PROTO_V,seed:MAP_SEED,hash:LAYOUT_HASH,tune:tuneHash()}); }   // v0.15: 시드·해시 동봉 (D-NET3) + v0.23 튜닝 해시
       else if(m.t==='err') clientJoinErr(m.why);
       else if(m.t==='closed') hostLost();
     }
@@ -5322,6 +5390,9 @@ function clientOnD(d){
       setNetMsg('맵이 어긋난다 — 호스트에게 새 링크를 받아라');
     }
     else if(d.why==='hash') setNetMsg('빌드가 다르다 — 호스트와 나 둘 다 새로고침해야 한다');
+    // v0.23: 같은 빌드인데 monsters.json이 다르다 = 누군가 로컬 사본을 돌리고 있다.
+    // 조용히 어긋나는 대신 시끄럽게 막는다 (자동 리로드 금지 — 해시 층과 같은 규칙)
+    else if(d.why==='tune') setNetMsg('몬스터 설정이 다르다 — 방장이 준 주소로 접속해야 한다 (내 설정: '+TUNE_SRC+')');
     else {
       // v0.20.5: 오늘처럼 배포가 잦으면 친구 쪽 CDN이 구버전 페이지를 준다 — 손 새로고침을 요구하지 말고
       // 캐시버스트 파라미터로 1회 자동 리로드 (시드 자가치유와 같은 sessionStorage 원샷 가드)
@@ -5836,6 +5907,21 @@ function mustRoute(){
     // ck 튜플 폭 잠금 (격노 비트 append)
     if(buildSnap().ck[0].length!==11) bad.push('ck tuple drift');
   }
+  // 25) v0.23 설정 외부화 — 튜닝이 게임을 벽돌로 만들지 못하게
+  {
+    if(!Object.keys(TUNE_USED).length) bad.push('TUNE_USED 비어 있음 — T() 배선 끊김');
+    if(typeof tuneHash()!=='number'||!isFinite(tuneHash())) bad.push('tune hash 비정상');
+    // 파생 링크가 살아 있는가 (T()로 감싸면 안 되는 것들)
+    if(PUSH_CD!==2*PUSH_STAGGER) bad.push('PUSH_CD 파생 링크 끊김');
+    if(KILL_CD!==KILL_RAGE_T) bad.push('KILL_CD 파생 링크 끊김');
+    if(HURT_STUN!==PUSH_STAGGER) bad.push('HURT_STUN 파생 링크 끊김');
+    // 배열 길이 계약 (튜너가 pip 개수를 바꾸면 자가검사 17e·너구리 검사가 무의미해진다)
+    if(CHK_WAKE_FRAC.length!==4) bad.push('CHK_WAKE_FRAC 길이 != 4');
+    if(RACC_WAKE_FRAC.length!==RACC_N) bad.push('RACC_WAKE_FRAC 길이 != RACC_N');
+    for(const f of CHK_WAKE_FRAC.concat(RACC_WAKE_FRAC)) if(!(f>0&&f<1)) bad.push('기상 분율 범위 이탈 '+f);
+    if(!(HP_MAX>=1&&HP_MAX<=9)) bad.push('HP_MAX 범위 이탈');
+    if(!(CUT_MAX>=0&&CUT_MAX<=3)) bad.push('CUT_MAX 범위 이탈');
+  }
   // 18) v0.13 출발 — 스폰이 패드 밖이어야 한다 (안이면 t=0에 '전원 패드' 단축이 참이 되어 즉시 0점 종료)
   for(const o of SPAWN_OFFS){
     const d=Math.hypot(SPAWN.x+o[0]-truckPad.x,SPAWN.z+o[1]-truckPad.z);
@@ -5887,6 +5973,13 @@ function mustRoute(){
     const L=leverPos();
     if(Math.hypot(L.x-truckPad.x,L.z-truckPad.z)<LEVER_R+truckPad.r) bad.push('lever overlaps pad');
   }
+  // v0.23: 판정을 값으로도 남긴다 — 튜너가 blob: iframe으로 후보 설정을 콜드 부팅한 뒤 이걸 읽는다.
+  // 검사를 복사하지 않고 게임 자신의 술어를 그대로 쓰는 유일한 방법 (단일 소스 원칙). 콘솔 출력은 그대로 둔다
+  try{ window.CCL8_VERDICT={bad:bad.slice(),seed:MAP_SEED,hash:LAYOUT_HASH,ver:PROTO_V,
+       tune:tuneHash(),src:TUNE_SRC,values:TUNE_USED}; }catch(e){}
+  // 설정 출처를 타이틀에 정직하게 (기본값으로 떨어졌으면 그렇다고 말한다 — 조용한 폴백 금지)
+  try{ const tb=document.getElementById('tuneBadge');
+       if(tb&&TUNE_SRC!=='monsters.json'){ tb.textContent='· '+TUNE_SRC; tb.style.color='#ffb08a'; } }catch(e){}
   if(bad.length){ console.error('[검증 실패]',bad); }
   else console.log('[검증] 통과 — 시드 '+MAP_SEED+(USE_BAKED?' (구운맵)':(LAYOUT.baked?' (폴백!)':' ·재시도 '+LAYOUT.attempt))+
     ' · 해시 '+LAYOUT_HASH.toString(16)+' · 주방 ['+KITCHEN_CELL+'] — 셀 '+CELL_N+', 닭 '+CHK_COUNT+'(휴면 '+chickens.filter(c=>c.state==='dormant').length+'), 거위 '+GOOSE_N+', 너구리 '+RACC_N+
