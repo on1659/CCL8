@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.23.0</title>
+<title>양계장 습격 — 웹 프로토타입 v0.24.0</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -131,7 +131,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.23.0 <span id="tuneBadge"></span></div>
+  <div class="sub">웹 프로토타입 v0.24.0 <span id="tuneBadge"></span></div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -829,7 +829,13 @@ const CHASE_LOSE_T=T('CHASE_LOSE_T',6.0);          // v0.24 (D8): 1.5→6.0 — 
                                                     // 이제 시야를 6초 끊어야 강등 = 강등이 사실상 예외가 되고, 통상 종결은 항아리·해제·층뿐
 const CONFIRM_FRESH_T=T('CONFIRM_FRESH_T',2.0);       // v0.24 (D8): 1.2→2.0 — 발소리 갱신의 유효기간도 함께 늘린다 (추적 지속의 짝)
 const INVEST_SPD=T('INVEST_SPD',110), INVEST_DWELL=T('INVEST_DWELL',2.0), INVEST_CD=T('INVEST_CD',2.0), INVEST_CHAIN=T('INVEST_CHAIN',3);   // v0.24: 수색 2→3홉 (A9 녹색 확인: 4×8=32 < 36.75)
-const CHK_SEP_R=T('CHK_SEP_R',24);              // 닭-닭 소프트 분리 (흐름 수렴 "슈퍼닭" 방지)
+const CHK_SEP_R=T('CHK_SEP_R',30);              // 닭-닭 소프트 분리 — v0.24: 24→30 (몸집 1.35×의 휴식 간격. 단정 무관, 동결 목록 밖)
+// v0.24 소나 (D4) — 개발자 "몬스터가 근처에 오면 음파를 보여줘". 공포 발신기이지 레이더가 아니다:
+// 근접(<PROX_R)일 때만, 가까울수록 빨라지는 심박 케이던스(2.5s→0.7s). 링은 몬스터 자리에서 피고(VIS_PROX)
+// 절대 플레이어까지 안 닿으며, castAll이 벽에서 깎는다 = 벽-정직 (v0.16 몸통 비가시 계약 무접촉 —
+// 파동은 "근처에 뭔가 있다"만 말하고, 눈·!·게이지가 여전히 "나를 눈치챘나"를 말한다)
+const PROX_R=T('PROX_R',260);      // 존 이격 350 아래 (검사 10의 max()에 편입 — W1)
+const VIS_PROX=110;                // 파동 반경 — STEP_RAYS 계급 (렌더 전용 플레인 상수)
 const SIGHT_DARK=T('SIGHT_DARK',37);             // 정전: 닭도 밤눈이 어둡다
 const CARRIER_SEEN=T('CARRIER_SEEN',92);          // 정전: 발광 알 소지자는 여기서 팔린다 (랜턴 140 < 피탐 200)
 
@@ -2363,12 +2369,16 @@ const RING_GEO=new THREE.RingGeometry(0.94,1,48);
 const RING_MAT=new THREE.MeshBasicMaterial({color:0xffc060,transparent:true,opacity:0.22,side:THREE.DoubleSide,depthWrite:false});
 function makeChicken(){
   const g=new THREE.Group();
+  // v0.24 거대화 (D7) — 개발자 "작으니까 겁나지가 않아": 몸 파츠만 내부 래퍼 ×1.35.
+  // CHK_R(12)·잡힘 반경은 동결 그대로 — 실루엣 > 판정은 플레이어 유리 방향(스침이 아슬함으로 읽힌다)이고
+  // 역방향만 부정직하다. 마커(!·?·게이지·별)는 바깥 g 소속 = 판독 거리 불변. KO·고기 스케일은 바깥 g를 쓰므로 무충돌
+  const bodyG=new THREE.Group(); bodyG.scale.set(1.35,1.35,1.35); g.add(bodyG);
   const white=mat(0xfdfbf4), red=mat(0xe0473c), orange=mat(0xf0a23a);   // v0.20: emissive 제거 — 닭은 이제 불빛 아래로 들어와야 보인다
   const body=new THREE.Mesh(new THREE.SphereGeometry(13,14,12),white);
-  body.scale.set(1.15,1,0.95); body.position.y=16; g.add(body);
+  body.scale.set(1.15,1,0.95); body.position.y=16; bodyG.add(body);
   const tail=new THREE.Mesh(new THREE.ConeGeometry(8,17,7),white);
-  tail.position.set(-13,24,0); tail.rotation.z=Math.PI*0.72; g.add(tail);
-  const neck=new THREE.Group(); neck.position.set(9,24,0); g.add(neck);
+  tail.position.set(-13,24,0); tail.rotation.z=Math.PI*0.72; bodyG.add(tail);
+  const neck=new THREE.Group(); neck.position.set(9,24,0); bodyG.add(neck);
   const head=new THREE.Mesh(new THREE.SphereGeometry(7.5,12,10),white);
   neck.add(head);
   const comb=new THREE.Mesh(new THREE.BoxGeometry(8,6,3),red);
@@ -2378,8 +2388,8 @@ function makeChicken(){
   const wat=new THREE.Mesh(new THREE.BoxGeometry(3,5,2.5),red);
   wat.position.set(4,-6,0); neck.add(wat);
   const lg=new THREE.BoxGeometry(2.5,12,2.5);
-  const l1=new THREE.Mesh(lg,orange); l1.position.set(2,6,5); g.add(l1);
-  const l2=new THREE.Mesh(lg,orange); l2.position.set(2,6,-5); g.add(l2);
+  const l1=new THREE.Mesh(lg,orange); l1.position.set(2,6,5); bodyG.add(l1);
+  const l2=new THREE.Mesh(lg,orange); l2.position.set(2,6,-5); bodyG.add(l2);
   // v0.7 눈 — "알을 드는 순간 눈깔이 생긴다"는 규칙을 문자 그대로 시각화 (공유 재질 — 전 닭 동기)
   const e1=new THREE.Mesh(new THREE.SphereGeometry(1.8,8,6),EYE_MAT);
   e1.position.set(6,1.8,4.3); e1.scale.set(1,0.16,1); neck.add(e1);
@@ -2441,6 +2451,7 @@ for(let i=0;i<CHK_COUNT;i++){
     // searchN·searchV 수색 예산과 도주 벡터 / preChase 밀쳐지기 직전이 추격이었나
     chaseCd:0,cutter:false,searchN:0,searchVX:0,searchVZ:0,preChase:false,
     jarT:0,jarIdx:-1,jarAng:0,jarPeck:0,       // v0.24 회전 의식 (호스트 전용 — 클라는 위치·상태 미러)
+    pingCd:0,                                  // v0.24 소나 발신 쿨 (호스트 전용)
     tgt:0,                                     // 표적 플레이어 인덱스 — targetOf(c)의 유일한 재료
     det:new Float32Array(MAX_PLAYERS),detG:new Float32Array(MAX_PLAYERS),detTicked:false});
 }
@@ -2503,19 +2514,21 @@ const raccs=[];
 const RC_STATES=['dormant','scout','grab','drag','rest','flee','gone'];   // append-only (탄생부터)
 function makeRacc(){
   const g=new THREE.Group();
+  // v0.24 거대화 (D7) — 닭과 같은 문법 (×1.3). RACC_R 13 동결
+  const bodyG=new THREE.Group(); bodyG.scale.set(1.3,1.3,1.3); g.add(bodyG);
   const fur=mat(0x6e675e), darkf=mat(0x2e2a26), lightf=mat(0xb8b0a2);
   const body=new THREE.Mesh(new THREE.SphereGeometry(15,12,10),fur);
-  body.scale.set(1.5,0.9,1); body.position.y=14; g.add(body);
+  body.scale.set(1.5,0.9,1); body.position.y=14; bodyG.add(body);
   const head=new THREE.Mesh(new THREE.SphereGeometry(8.5,12,10),fur);
-  head.position.set(18,20,0); g.add(head);
+  head.position.set(18,20,0); bodyG.add(head);
   const mask=new THREE.Mesh(new THREE.BoxGeometry(9,4.5,15),darkf);    // 도둑 가면 — 3초 판독의 핵
-  mask.position.set(21,21,0); g.add(mask);
+  mask.position.set(21,21,0); bodyG.add(mask);
   const snout=new THREE.Mesh(new THREE.ConeGeometry(3.5,8,7),lightf);
-  snout.position.set(26,18,0); snout.rotation.z=-Math.PI/2; g.add(snout);
+  snout.position.set(26,18,0); snout.rotation.z=-Math.PI/2; bodyG.add(snout);
   const em=new THREE.MeshBasicMaterial({color:0xffe9b0});
-  const e1=new THREE.Mesh(new THREE.SphereGeometry(1.7,6,6),em); e1.position.set(24,22,4); g.add(e1);
-  const e2=new THREE.Mesh(new THREE.SphereGeometry(1.7,6,6),em); e2.position.set(24,22,-4); g.add(e2);
-  const tail=new THREE.Group(); tail.position.set(-20,16,0); g.add(tail);
+  const e1=new THREE.Mesh(new THREE.SphereGeometry(1.7,6,6),em); e1.position.set(24,22,4); bodyG.add(e1);
+  const e2=new THREE.Mesh(new THREE.SphereGeometry(1.7,6,6),em); e2.position.set(24,22,-4); bodyG.add(e2);
+  const tail=new THREE.Group(); tail.position.set(-20,16,0); bodyG.add(tail);
   for(let i=0;i<4;i++){                                                // 고리 꼬리 — 실루엣 확정
     const seg2=new THREE.Mesh(new THREE.SphereGeometry(4.5-i*0.6,8,6),i%2?darkf:lightf);
     seg2.position.set(-i*6,i*2.4,0); tail.add(seg2);
@@ -2527,7 +2540,7 @@ for(let i=0;i<RACC_N;i++){
   const m=makeRacc();
   raccs.push({m,x:RACC_HOME[i].x,z:RACC_HOME[i].z,hx:RACC_HOME[i].x,hz:RACC_HOME[i].z,
     r:RACC_R,dir:0,state:'dormant',t:0,wakeT:0,wakeAt:RACC_WAKE_FRAC[i]*NIGHT_LEN,
-    carry:null,tgtEgg:null,bob:Math.random()*TAU});
+    carry:null,tgtEgg:null,bob:Math.random()*TAU,pingCd:0});
 }
 
 // ---------- 플레이어 몸 ×4 (틴트 팩토리 — D29) + 1인칭 팔 ----------
@@ -2653,6 +2666,7 @@ const COL_YOLK=[1,0.82,0.3], COL_SHELL=[1,0.97,0.9], COL_FEATHER=[1,1,0.97], COL
 const WCOL={
   dim:[0.42,0.62,0.78], run:[0.55,0.78,0.95], amber:[1,0.82,0.55],
   red:[1,0.45,0.35], white:[0.9,0.95,1], cluck:[1,0.65,0.35], pick:[0.6,0.9,1],
+  prox:[0.85,0.25,0.38],   // v0.24 소나 — 진홍 어둡게 (추격 red·경보와 갈라 읽히게)
 };
 // 플레이어 틴트의 파동용 RGB — 어둠 속 "다가오는 링이 친구인가 위협인가" 판독 (D16)
 const TINT_RGB=PLAYER_TINTS.map(h=>[((h>>16)&255)/255,((h>>8)&255)/255,(h&255)/255]);
@@ -2673,7 +2687,11 @@ function castAll(x,z,rays){
 }
 // own: 발원자가 뷰어 본인일 때만 1인칭 발밑 FOV 부스트 (v1의 sqrt+1.9배). srcIdx≥0면 그 플레이어 틴트 (D16)
 function spawnWave(x,z,maxR,color,srcIdx){
-  if(!blackout||phase==='title') return;
+  // v0.24 (D4): 단일 조임목 유지 — 정전 전용 규칙에 'prox' 한 클래스만 화이트리스트로 뚫는다.
+  // 기존 발신기 전부는 바이트 동일하게 정전 전용으로 남는다 (로컬·넷 경로가 다 이 게이트를 지난다)
+  if(phase==='title') return;
+  if(!blackout&&color!=='prox') return;
+  if(color==='prox') blip(52,0.16,volAt(x,z,0.5,PROX_R+80),'sine');   // 벽 너머 채널은 저음 썸프 ∝1/d (렌더가 벽에 깎이는 것의 보completion)
   const rays=(maxR<=200)?STEP_RAYS:WAVE_RAYS;
   const own=(srcIdx===true)||(typeof srcIdx==='number'&&srcIdx===me);
   const tint=(typeof srcIdx==='number'&&srcIdx>=0&&srcIdx!==me&&NET.on)?TINT_RGB[srcIdx]:null;
@@ -3891,6 +3909,18 @@ function updRacc(dt){
       if(Math.hypot(rc.hx-rc.x,rc.hz-rc.z)<20){ rc.state='gone'; rc.m.g.visible=false; }
     }
     if(rc.x>RACC_MAX_X) rc.x=RACC_MAX_X;       // 축사 절대 금지 (격리 하드라인)
+    // v0.24 소나 발신 (D4) — 닭과 같은 문법
+    rc.pingCd=Math.max(0,(rc.pingCd||0)-dt);
+    if(phase==='play'&&rc.state!=='dormant'&&rc.pingCd<=0){
+      let pd2=1e9;
+      eachP(p2=>{ if(p2.dead||isHidden(p2))return;
+        if(zoneOfArea(p2.x,p2.z)!==zoneOfArea(rc.x,rc.z))return;
+        const d2=Math.hypot(rc.x-p2.x,rc.z-p2.z); if(d2<pd2)pd2=d2; });
+      if(pd2<PROX_R){
+        rc.pingCd=0.7+1.8*Math.max(0,Math.min(1,(pd2-80)/180));
+        waveCast(rc.x,rc.z,VIS_PROX,'prox');
+      }
+    }
     if(moving){
       const px=rc.x,pz=rc.z;
       collideCircle(rc);
@@ -3968,6 +3998,18 @@ function updChickens(dt){
     c.alarmCd=Math.max(0,c.alarmCd-dt);
     c.revengeT=Math.max(0,c.revengeT-dt);
     c.chaseCd=Math.max(0,c.chaseCd-dt);        // v0.22 재추격 금지 잔여
+    // v0.24 소나 발신 (D4) — 산 놈만, 같은 존의 최근접 생존·비은신 플레이어 기준
+    c.pingCd=Math.max(0,c.pingCd-dt);
+    if(phase==='play'&&!c.ko&&c.pingCd<=0){
+      let pd2=1e9;
+      eachP(p2=>{ if(p2.dead||isHidden(p2))return;
+        if(zoneOfArea(p2.x,p2.z)!==zoneOfArea(c.x,c.z))return;
+        const d2=Math.hypot(c.x-p2.x,c.z-p2.z); if(d2<pd2)pd2=d2; });
+      if(pd2<PROX_R){
+        c.pingCd=0.7+1.8*Math.max(0,Math.min(1,(pd2-80)/180));
+        waveCast(c.x,c.z,VIS_PROX,'prox');
+      }
+    }
     // 발각: 밝은 구간 = 게이지 적분 (플레이어별 — D1), 정전 = 즉발 (아래 각 상태의 blackout 분기)
     if(phase==='play'&&!blackout&&(c.state==='wander'||c.state==='return'||c.state==='invest'))
       updDet(c,dt);
@@ -4629,7 +4671,7 @@ function resetWorld(){
     c.alarmCd=0; c.revengeT=0; c.ko=false; c.snoreT=0; c.wakeT=0;
     c.seeAcc=0; c.predicted=false; c.lsVX=0; c.lsVZ=0;
     c.chaseCd=0; c.cutter=false; c.searchN=0; c.searchVX=0; c.searchVZ=0; c.preChase=false;   // v0.22
-    c.jarT=0; c.jarIdx=-1; c.jarAng=0; c.jarPeck=0;   // v0.24
+    c.jarT=0; c.jarIdx=-1; c.jarAng=0; c.jarPeck=0; c.pingCd=0;   // v0.24
     c.det.fill(0); c.detG.fill(0); c.detTicked=false; c.ivT=0; c.tgt=0;
     if(c.meatGiven){ c.meatGiven=false; c.m.tail.visible=true; c.m.g.scale.set(1,1,1); }
     if(c.dead){ c.dead=false; c.m.g.rotation.set(0,0,0); c.m.g.visible=true; }   // v0.20 판이 새로 시작하면 닭도 돌아온다
@@ -4643,7 +4685,7 @@ function resetWorld(){
   for(const [ri,rc] of raccs.entries()){         // v0.21 너구리 — 판이 새로 시작하면 쫓겨난 놈도 돌아온다
     rc.x=rc.hx; rc.z=rc.hz; rc.dir=0; rc.state='dormant'; rc.t=0; rc.wakeT=0;
     rc.wakeAt=RACC_WAKE_FRAC[ri%RACC_WAKE_FRAC.length]*NIGHT_LEN;
-    rc.carry=null; rc.tgtEgg=null; rc.m.g.visible=false; rc.nx=undefined;
+    rc.carry=null; rc.tgtEgg=null; rc.m.g.visible=false; rc.nx=undefined; rc.pingCd=0;
   }
   lastVal=0; popT=0; popSpr.visible=false;
   for(const J of JARS) J.occupant=-1;            // v0.24 항아리 점유 초기화
@@ -6206,8 +6248,8 @@ function mustRoute(){
   for(const b of TROUGHS) if(b.x0>=STAIR.R.x0) bad.push('trough on ramp');
   // 10) 존 이격 ≥620 + 모든 광역 반경 상수 < 이격 (신설 상수가 이격을 넘으면 층 격리 붕괴)
   const gap=B1.x0-BARN.x1;
-  if(gap<Math.max(PACK_R,CHK_LEASH,RING_MAX_D)+50) bad.push('zone gap '+gap);   // v0.20: 리터럴 620 → 반경 파생 (드리프트 차단)
-  if(PACK_R>=gap||CHK_LEASH>=gap||RING_MAX_D>=gap) bad.push('radius exceeds gap');
+  if(gap<Math.max(PACK_R,CHK_LEASH,RING_MAX_D,PROX_R)+50) bad.push('zone gap '+gap);   // v0.20 반경 파생 + v0.24 W1: PROX_R 편입 (튜너가 키우면 여기서 터진다)
+  if(PACK_R>=gap||CHK_LEASH>=gap||RING_MAX_D>=gap||PROX_R>=gap) bad.push('radius exceeds gap');
   // 11) 트레이 좌표의 존 정합 (강탈·둥지 동존 필터의 전제)
   for(const [i,p] of NEST_POS.entries()) if(zoneOfArea(p.x,p.z)!==(p.f===1?1:0)) bad.push('tray'+i+' zone mismatch');
   // 12) 스위치백 접힘 — 두 층 최근접 셀 중심 ≥500
