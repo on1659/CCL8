@@ -792,7 +792,8 @@ const CHK_REACT=T('CHK_REACT',0.35);
 const CHASE_TURN=280*Math.PI/180;     // 회전 지름 2*132/(280°) = 54.0 < 자유 횡폭 57 (A6) — 처음으로 통로 안에서 돈다.
                                       // 150일 땐 지름 94.8 > 57이라 물리적으로 못 돌고 collideCircle이 벽 미끄러짐으로 해소했다
 const TURN_DRAG=T('TURN_DRAG',0.45);                 // 꺾을수록 느려진다 — 미로가 계속 반격 수단이도록 (90° = 19.1u = 1.38초 벌기)
-const CHASE_BUDGET=T('CHASE_BUDGET',10);                // 연속 추격 상한(초). 어떤 이유로도 갱신되지 않는다 = 즉사 금지 밸브 2단.
+const CHASE_BUDGET=T('CHASE_BUDGET',45);                // v0.24 (D8): 10→45 — 밸브의 몸이 다리(A3)에서 항아리(J2)로 이전했으므로
+                                                        // 예산은 "건강한 판에선 아무도 안 닿는 안전 천장"이 된다. 여전히 어떤 이유로도 갱신 안 됨.
                                       // 개발자가 '!' 벽투시를 기각했으므로 14→10 (안 보이는 긴 추격은 긴장이 아니라 억울함)
 const DEAGGRO_R=T('DEAGGRO_R',170);                  // 짐을 다 놓았을 때 풀려나는 거리 — 기존 맨 숫자에 이름만 붙였다 (값 불변)
 const CHASE_BREAK_T=T('CHASE_BREAK_T',1.2);              // 포기 비트: 그 자리에 서서 두리번 (CHK_REACT 0.35의 3배 — 재발견 경련과 안 헷갈리게)
@@ -824,9 +825,10 @@ const FAIL_HOLD=2.5;
 const INTRO_T=1.5, FADE_T=0.5;
 
 // v0.5 신설 — 닭 인지 (패널 확정)
-const CHASE_LOSE_T=T('CHASE_LOSE_T',1.5);          // 실내외 공통: 시야·신선 파동이 이 시간 끊기면 chase→invest 강등
-const CONFIRM_FRESH_T=T('CONFIRM_FRESH_T',1.2);       // 파동·목격 확정의 신선도 — 이 이내에만 라이브 추적
-const INVEST_SPD=T('INVEST_SPD',110), INVEST_DWELL=T('INVEST_DWELL',2.0), INVEST_CD=T('INVEST_CD',2.0), INVEST_CHAIN=T('INVEST_CHAIN',2);
+const CHASE_LOSE_T=T('CHASE_LOSE_T',6.0);          // v0.24 (D8): 1.5→6.0 — "모퉁이 하나 돌면 놓친다"의 몸통이 이 1.5였다.
+                                                    // 이제 시야를 6초 끊어야 강등 = 강등이 사실상 예외가 되고, 통상 종결은 항아리·해제·층뿐
+const CONFIRM_FRESH_T=T('CONFIRM_FRESH_T',2.0);       // v0.24 (D8): 1.2→2.0 — 발소리 갱신의 유효기간도 함께 늘린다 (추적 지속의 짝)
+const INVEST_SPD=T('INVEST_SPD',110), INVEST_DWELL=T('INVEST_DWELL',2.0), INVEST_CD=T('INVEST_CD',2.0), INVEST_CHAIN=T('INVEST_CHAIN',3);   // v0.24: 수색 2→3홉 (A9 녹색 확인: 4×8=32 < 36.75)
 const CHK_SEP_R=T('CHK_SEP_R',24);              // 닭-닭 소프트 분리 (흐름 수렴 "슈퍼닭" 방지)
 const SIGHT_DARK=T('SIGHT_DARK',37);             // 정전: 닭도 밤눈이 어둡다
 const CARRIER_SEEN=T('CARRIER_SEEN',92);          // 정전: 발광 알 소지자는 여기서 팔린다 (랜턴 140 < 피탐 200)
@@ -3362,6 +3364,9 @@ function toAlert(c,pi){
 }
 function toAlertForce(c,pi){ c.tgt=pi; c.state='alert'; c.t=CHK_REACT; c.lsX=players[pi].x; c.lsZ=players[pi].z; c.lsT=simT; c.seeAcc=0; c.predicted=false; alertS(c.x,c.z); }
 // v0.22 포기 비트 — 추격의 모든 종결은 여기를 지난다. 조용히 뒤도는 전이는 하나도 없다는 게 계약이다.
+// v0.24 (D8) 종결 문법은 정확히 둘이다: ① 진짜 종결 = 여기(breakChase, det=0, '?'가 "포기했다"로 읽힘 —
+// 예산·층 도달·짐 해제·항아리 의식) ② 강등-지속 = chase→invest 수색 인계 (det=DET_DEMOTE 0.5 = "아직 의심 중",
+// CHASE_LOSE_T 6s를 끊어야 겨우 진입). 셋째 문법을 만들지 말 것 — 마커 문법이 이 둘에 걸려 있다.
 // 부품을 새로 안 만든다: invest+ivArr가 '?' 마커와 두리번을 이미 그리고, alertS가 소리를,
 // 이어지는 return 터덜터덜(63u/s)이 문장을 끝낸다.
 // det[tgt]=0이 핵심 — showG가 det>0.05면 '?' 대신 게이지를 그리므로, DET_DEMOTE를 남기면
@@ -4042,7 +4047,9 @@ function updChickens(dt){
         // v0.22 종결 조건 셋 — 거리는 하나도 없다 (리쉬는 chase에서 빠졌다. toInvest 소집 게이트로만 남는다).
         // ① 예산: 갱신되지 않는 시계 = 즉사 금지 밸브 2단 ② 층: 계단을 진짜 자산으로 ③ 해제: 짐을 다 놓았을 때
         if(c.t>CHASE_BUDGET){ breakChase(c); }
-        else if(zoneOfArea(c.x,c.z)!==zoneOfArea(c.ax,c.az)){ breakChase(c); }
+        // v0.24 (D8): 계단(존 2)은 통과대로 — 닭이 계단 위까지 따라온다. 종결은 "몸이 반대층 존에 도달"했을 때만.
+        // (기계적 필연이기도 하다: NEXT엔 층간 간선이 없어 반대층에선 항법 그래프가 없다. 계단 어귀 정지는 코미디였다)
+        else if((()=>{ const zc=zoneOfArea(c.x,c.z); return zc!==2&&zc!==zoneOfArea(c.ax,c.az); })()){ breakChase(c); }
         else if(!holdsLoot(tp) && c.revengeT<=0 && td>DEAGGRO_R){ breakChase(c); }   // 복수 중엔 빈손이어도 쫓는다
         else if(c.loseT>CHASE_LOSE_T || (arrivedLS&&!see&&!fresh)){
           // 평범한 끝: 시야도 신선 확정도 없으면 최후 목격점 수색. 의심 잔량 0.5 유지 (표적분만)
@@ -6217,9 +6224,16 @@ function mustRoute(){
     // 1단 무조건 해제 — 짐을 다 놓으면 빈손이 언제나 더 빠르다
     if(!(EMPTY_SUST>CHK_CHASE)) bad.push('A1 빈손 지속 < 추격 ('+EMPTY_SUST.toFixed(1)+'<='+CHK_CHASE+')');
     if(!(CHK_CHASE<CARRY_SPRINT)) bad.push('A4 추격 >= 운반 질주');
-    // 2단 유계 시계 — 예산이 끝날 때 쉬고 있던 운반자는 아직 잡힘 반경 밖이다
-    const clear=SIGHT_IN+STAM_DRAIN_T*(CARRY_SPRINT-CHK_CHASE)-(CHASE_BUDGET-STAM_DRAIN_T)*(CHK_CHASE-CARRY_SUST);
-    if(!(clear>CHK_R+PLR_R+3)) bad.push('A3 예산 만료 시 여유 '+Math.round(clear)+' <= 잡힘 '+(CHK_R+PLR_R+3));
+    // A3 은퇴 (v0.24 D9) — 구 A3은 "예산 만료 시점의 도보 이격"을 보증했고 그 식이 CHASE_BUDGET을 ~20.9s에
+    // 못박았다. 공포 라운드가 그 전제(다리로 탈출)를 의도적으로 파기하므로, 보증의 몸을 항아리로 이전한다:
+    // J1(모든 셀→항아리 ≤1500u, layoutChecks)이 "숨을 곳이 항상 있다"를, 아래 J2가 "거기까지 살아서 간다"를 진다.
+    { const burst=Math.min(JAR_PATH_MAX_U,STAM_DRAIN_T*CARRY_SPRINT);
+      const rest=Math.max(0,JAR_PATH_MAX_U-STAM_DRAIN_T*CARRY_SPRINT);
+      const clearJ=SIGHT_IN+burst/CARRY_SPRINT*(CARRY_SPRINT-CHK_CHASE)-rest/CARRY_SUST*(CHK_CHASE-CARRY_SUST);
+      if(!(clearJ>CHK_R+PLR_R+3)) bad.push('J2 항아리 도주 산수 '+Math.round(clearJ)+' <= 잡힘 '+(CHK_R+PLR_R+3)); }
+    if(!(JAR_GIVE_T>0&&JAR_GIVE_T+CHASE_CD<CHASE_BUDGET)) bad.push('J4 의식+쿨이 예산을 넘는다');
+    if(JARS.some(J2v=>J2v.occupant>=0)) bad.push('J5 항아리 초기 점유');
+    if(JARS.length!==LAYOUT.jars.length) bad.push('J5 항아리 수 불일치');
     // 시야 이탈이 물리적으로 가능한가 — 초반 질주 예금이 시야 반경보다 커야 한다 (CHK_CHASE 상한을 정하는 식)
     if(!(STAM_DRAIN_T*(CARRY_SPRINT-CHK_CHASE)>SIGHT_IN)) bad.push('A2 질주 예금 < 시야 반경 — 추격 속도 과다');
     // 3단 템포 — 밀치기가 얼지 않고 흐르도록
@@ -6297,7 +6311,7 @@ function mustRoute(){
     }
     if(raccs.length!==RACC_N) bad.push('racc count');
     if(RACC_HOME.length>=2&&Math.abs(RACC_HOME[0].x-RACC_HOME[1].x)<60) bad.push('racc posts same x');
-    if(!(RACC_DRAG_SPD<152.6)) bad.push('racc drag outruns carry sprint');   // 운반 질주 152.6 (탈출 밸브 문서값)
+    if(!(RACC_DRAG_SPD<CARRY_SPRINT)) bad.push('racc drag outruns carry sprint');   // v0.24: 리터럴 152.6 → CARRY_SPRINT (드리프트 차단 — A8과 같은 기호)
     if(RACC_WAKE_FRAC.length!==RACC_N) bad.push('racc wake slots');
   }
   // 19) v0.13 레버는 반납대와 물리적으로 떨어져 있어야 한다 (E 폴스루가 반납과 섞이지 않게)
