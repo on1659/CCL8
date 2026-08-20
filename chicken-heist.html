@@ -123,7 +123,7 @@
   <div id="hpRow">체력<span id="hpPips"></span></div>
   <div id="stamRow">스태미나<div id="stamBox"><div id="stamFill"></div></div></div>
 </div>
-<div id="help">마우스 시점 · WASD 이동 · Shift 달리기(스태미나) · Space 점프 · E 줍기/내려놓기 · Q 품 · F 수레<br>좌클릭 미끼 던지기(빈손 밀치기 · 글러브 있으면 펀치) · V 시점전환 · Tab 미니맵 · R 재시작 · M 소리 · Esc 메뉴·설정</div>
+<div id="help">마우스 시점 · WASD 이동 · Shift 달리기(스태미나) · Space 점프 · E 줍기/내려놓기 · Q 품 · F 수레<br>좌클릭 미끼 던지기(빈손 밀치기 · 글러브 있으면 펀치) · V 시점전환 · T 손전등 · Tab 미니맵 · R 재시작 · M 소리 · Esc 메뉴·설정</div>
 <div id="cross"></div>
 
 <div class="ov" id="title">
@@ -824,8 +824,17 @@ const TRUCK_GO_T=6.0, TRUCK_GO_D=900;   // v0.13(D3): 막차 유예 — 이 6초
 const BRIGHT_AB=/[?&]bright=1/.test(location.search);
 // v0.20: 개발자 검수 "아직 너무 밝아" → 2단 감광 (0.20/0.12 → 0.12/0.06). 정전과의 앰비언트 낙차는
 // 줄지만(0.12 vs 0.06) 정전 정체성은 램프 일괄 소등 + 범주 신호(플리커·소리·발광 반전)가 진다 (D-DARK2)
-const HEMI_LIT=BRIGHT_AB?0.58:0.12, HEMI_DARK=0.06, MOON_LIT=BRIGHT_AB?0.22:0.06, MOON_DARK=0.04;   // 광량 기준값 (정전·새벽이 공유)
-const SKY_NIGHT_HEX=BRIGHT_AB?0x0c1424:0x03060c;   // 밤하늘·안개 기저색 — 거리(fog near/far)는 불변 (트럭 가시성)
+// v0.24 공포 전환 (docs/goal/chicken-heist-horror-night.md D1) — 개발자 "이거 일단 너무 밝아".
+// 앰비언트를 거의 0으로: 이제 세계의 빛은 손전등·정직한 등대(문틀·계단·수레·트럭)·주방 보온등뿐이다.
+// HEMI_DARK는 HEMI_LIT보다 항상 작아야 한다 (플리커 공식 HEMI_DARK+j*(HEMI_LIT-HEMI_DARK)의 전제)
+const HEMI_LIT=BRIGHT_AB?0.58:0.03, HEMI_DARK=BRIGHT_AB?0.06:0.015, MOON_LIT=BRIGHT_AB?0.22:0.02, MOON_DARK=BRIGHT_AB?0.04:0.01;
+const SKY_NIGHT_HEX=BRIGHT_AB?0x0c1424:0x02040a;   // 밤하늘·안개 기저색 — 거리(fog near/far)는 불변 (트럭 가시성)
+// v0.24 손전등 (D2) — 렌더 전용 상수: T() 금지 (조명 값은 핸드셰이크 밖 — HEMI_LIT 선례).
+// TORCH_DIST 350 = 원뿔이 "다음 갈림목"까지만. 원뿔 끝의 닭은 이미 240u 전부터 나를 볼 수 있었다 —
+// 원뿔은 안전이 아니라 "내가 감당할 수 있는 앎"이다. LOGIC 접점 0 (S1 검사가 로드타임에 증명)
+const TORCH_DEFAULT=2;             // 삼상태: 0 미소유 / 1 소유-꺼짐 / 2 소유-켜짐. 구매제 전환 = 이 값 0 + E체인 1분기
+const TORCH_DIST=350, TORCH_ANGLE=0.46, TORCH_INT=2.0, TORCH_DECAY=1.5;
+const TORCH_DIE_T=1.2;             // 정전 = 전원 손전등 사망 연출 (스터터 후 소등 — 클라이맥스 계약의 새 몸)
 const WARN_DIP_T=0.12;           // 잔여 30/10초 조명 딥 (flickT 기구 재사용)
 const PATROL_SPD=T('PATROL_SPD',65);             // 순찰 전용 속도 — 배회 42와 invest 110 사이 (신설 상태의 신설 상수)
 const PACK_R=200;                // 무리 경보 반경 (소리 기반 — 앵커 리쉬 600이 자연 상한)
@@ -1340,6 +1349,7 @@ function makePlayerState(i){
     jy:0,jvy:0,swapT:0,glove:false,vx:0,vz:0,running:false,
     stam:1,exhausted:false,held:null,pocket:null,
     sunglasses:false,         // v0.21 감정 도구 (판당 구매 — pl[15])
+    torch:TORCH_DEFAULT,      // v0.24 손전등 삼상태 (pl[16])
     mv:{x:0,z:0,run:false},   // 이동 인텐트 — 로컬은 키보드에서, 원격은 넷에서 채운다
     acts:[]};                 // 원샷 액션 인텐트 큐 — 프레임 시작 일괄 처리 (로컬·원격 동일 경로)
 }
@@ -1437,9 +1447,11 @@ const LAMP_POS=[
   {x:STAIR.B.x0+45, z:(ZA+ZB)/2, i:2.0, b:-FLOOR_H*0.5},   // v0.20 신설: 계단통. 웅덩이화하면 층 이동 경로가 완전 암흑이 된다
 ];
 for(const p of LAMP_POS){
-  const L=new THREE.PointLight(0xffcf92,p.i,LAMP_D,2);   // decay 2 = 역제곱 (구 기본 1 = 선형 필 라이트)
+  // v0.24 (D1): 천장 조명 전면 소등 — 개발자 "천장에 붙어있는 조명을 다 없애줘".
+  // 오브젝트·LAMP_POS·검사는 그대로, 강도만 영구 0 (D29 라이트 수 고정 + applyDark 토글은 구조적 무동작이 된다)
+  const L=new THREE.PointLight(0xffcf92,0,LAMP_D,2);
   L.position.set(p.x,(p.b||0)+LAMP_D*0.33,p.z); scene.add(L); lampLights.push(L);
-  L.userData.lit=p.i;
+  L.userData.lit=0;
 }
 const padLight=new THREE.PointLight(0xffe08a,0.7,150,2);
 padLight.position.set(truckPad.x,60,truckPad.z); scene.add(padLight);
@@ -1448,6 +1460,26 @@ const LANTERNS=[];
 for(let i=0;i<MAX_PLAYERS;i++){
   const L=new THREE.PointLight(0xffd9a8,0,LANTERN_DIST);
   L.position.set(0,-999,0); scene.add(L); LANTERNS.push(L);
+}
+// v0.24 손전등 (D2) — 슬롯당 SpotLight 1개 상주 (D29 재컴파일 히치 방지). 카메라 부착 금지:
+// 3인칭(camMode 1)은 카메라가 스윙하고, 원격 플레이어는 어차피 월드 공간이 필요하다.
+// 위치·강도의 단일 기록자는 updWorldUI — 다른 어디서도 쓰지 않는다 (kitchenLight 이중 기록자 선례의 교훈)
+const TORCHES=[];
+{
+  const bh=TORCH_DIST*0.85;
+  for(let i=0;i<MAX_PLAYERS;i++){
+    const L=new THREE.SpotLight(0xfff0d8,0,TORCH_DIST,TORCH_ANGLE,0.45,TORCH_DECAY);
+    L.position.set(0,-999,0);
+    const tgt=new THREE.Object3D(); tgt.position.set(0,-999,0);
+    scene.add(tgt); L.target=tgt; scene.add(L);
+    // 항상 읽히는 빔 원뿔 — Lambert 정점 조명의 보험 (가산 반투명, 빛을 내지는 않는다)
+    const bg=new THREE.ConeGeometry(TORCH_DIST*Math.tan(TORCH_ANGLE)*0.55,bh,18,1,true);
+    bg.translate(0,-bh/2,0); bg.rotateX(Math.PI/2);   // 꼭짓점을 원점에, 축을 -Z로 (lookAt이 -Z를 표적으로 향한다)
+    const beam=new THREE.Mesh(bg,new THREE.MeshBasicMaterial({color:0xffe9c0,transparent:true,opacity:0.05,
+      blending:THREE.AdditiveBlending,side:THREE.DoubleSide,depthWrite:false}));
+    beam.visible=false; scene.add(beam);
+    TORCHES.push({L,tgt,beam});
+  }
 }
 
 function mat(c,e){ const m=new THREE.MeshLambertMaterial({color:c}); if(e) m.emissive=new THREE.Color(e); return m; }
@@ -1507,7 +1539,8 @@ const MAT={
 function segBox(s,h,material,yBase){
   const dx=s.x2-s.x1, dz=s.z2-s.z1;
   const len=Math.hypot(dx,dz);
-  const m=new THREE.Mesh(new THREE.BoxGeometry(len+4,h,5),material);
+  // v0.24: 길이/60 분할 — Lambert는 정점 조명이라 4정점 벽엔 손전등 원뿔이 아예 안 그려진다 (D2)
+  const m=new THREE.Mesh(new THREE.BoxGeometry(len+4,h,5,Math.max(1,Math.round(len/60)),2,1),material);
   m.position.set((s.x1+s.x2)/2, (yBase||0)+h/2, (s.z1+s.z2)/2);
   m.rotation.y=-Math.atan2(dz,dx);
   return m;
@@ -1522,11 +1555,11 @@ const MAT_CAGE_TALL=mat(0x6c7076), MAT_PLUG_TALL=mat(0x6a5c46);
 function cageBlock(b){
   const g=new THREE.Group();
   const w=b.x1-b.x0, d=b.z1-b.z0, cx=(b.x0+b.x1)/2, cz=(b.z0+b.z1)/2;
-  const base=new THREE.Mesh(new THREE.BoxGeometry(w,40,d),mat(0x5a5f66));
+  const base=new THREE.Mesh(new THREE.BoxGeometry(w,40,d,Math.max(1,Math.round(w/60)),1,Math.max(1,Math.round(d/60))),mat(0x5a5f66));   // v0.24 분할 (D2)
   base.position.set(cx,20,cz); g.add(base);
   const n=Math.max(1,Math.round(w/240));
   for(let i=0;i<n;i++){
-    const cage=new THREE.Mesh(new THREE.BoxGeometry(w/n-10,34,d-16),MAT.cage);
+    const cage=new THREE.Mesh(new THREE.BoxGeometry(w/n-10,34,d-16,Math.max(1,Math.round((w/n)/60)),1,2),MAT.cage);
     cage.position.set(b.x0+w*(i+0.5)/n,57,cz); g.add(cage);
   }
   // v0.6 갑툭튀: 케이지 위 적층 케이지 — 천장까지 시야 차단 (SEG_H 210과 동기)
@@ -1553,7 +1586,7 @@ for(const b of plugBoxes){
 // 천장 전구 줄 (발광 메시 — 실광원은 램프 10개뿐).
 // v0.20: 웅덩이를 좁힌 대가로 "램프가 시야에 없는 셀"에서 정전이 무사건이 된다 —
 // 전구를 두 층 전 셀에 1개씩 깔아, 어디서든 소등 순간이 화면에 보이게 한다 (정전 = 클라이맥스 계약)
-const bulbMat=new THREE.MeshBasicMaterial({color:0xffd9a0});
+const bulbMat=new THREE.MeshBasicMaterial({color:0x241d14});   // v0.24: 영구 소등 (정전 역할은 손전등 사망이 승계)
 {
   const bg=new THREE.SphereGeometry(5,10,8);
   const cordM=mat(0x2f2c28), shadeM=mat(0x3c3833);
@@ -1883,7 +1916,38 @@ function valuePop(v){
 }
 // v0.21 월드 UI 틱 — +N 팝업 수명 + 가격표 노출 (선글라스 낀 로컬 뷰어 · rest 전리품 · 가까운 6개만).
 // 텍스처는 여기서 안 굽는다 — 가시성 토글만 (굽기는 applyEggVisual 이벤트 훅의 몫)
+let torchDieT=0, lastBoTorch=false, torchJ=1, torchJT=0;   // v0.24 정전 사망 연출 상태 (렌더 전용)
 function updWorldUI(dt){
+  // v0.24 손전등 구동 — 위치·강도의 단일 기록자 (D2).
+  // 정전 = 토글 무관 전 플레이어 소등: 1.2s 스터터(무작위 40~120ms 점멸 + 틱 소리) 후 죽는다.
+  // 잔여 30/10초 경고 딥은 램프가 죽었으므로 손전등 마이크로 스터터로 이관 (flickT 기구 재사용)
+  if(blackout&&!lastBoTorch) torchDieT=TORCH_DIE_T;
+  lastBoTorch=blackout;
+  if(torchDieT>0){
+    torchDieT=Math.max(0,torchDieT-dt);
+    torchJT-=dt;
+    if(torchJT<=0){ torchJT=0.04+Math.random()*0.08; torchJ=Math.random()<0.5?0:1; if(!torchJ) clunkS(); }
+  }
+  const warnJ=(flickT>0&&!blackout)?(Math.random()<0.5?0.35:1):1;
+  for(let i=0;i<MAX_PLAYERS;i++){
+    const p=players[i], TC=TORCHES[i];
+    const on=p.active&&!p.dead&&!p.hideJar&&p.torch===2&&phase!=='title'&&phase!=='intro';
+    let f=on?1:0;
+    if(blackout) f*=(torchDieT>0?torchJ:0);
+    else f*=warnJ;
+    TC.L.intensity=TORCH_INT*f;
+    TC.beam.visible=f>0.01;
+    if(on){
+      const cp=Math.cos(p.pitch||0), sp=Math.sin(p.pitch||0);
+      const fx=-Math.sin(p.yaw), fz=-Math.cos(p.yaw);
+      const gy=groundY(p.x,p.z);
+      TC.L.position.set(p.x+fx*10,gy+46+p.jy,p.z+fz*10);
+      TC.tgt.position.set(p.x+fx*cp*TORCH_DIST,gy+46+sp*TORCH_DIST,p.z+fz*cp*TORCH_DIST);
+      TC.beam.position.copy(TC.L.position);
+      TC.beam.lookAt(TC.tgt.position);
+      TC.beam.material.opacity=0.05*f;
+    } else TC.L.position.set(0,-999,0);
+  }
   if(popT>0){
     popT=Math.max(0,popT-dt);
     popSpr.position.set(truckPad.x,70+(1.2-popT)*36,truckPad.z);
@@ -2680,7 +2744,7 @@ function applyDark(on){
   for(const L of lampLights) L.intensity=on?0:L.userData.lit;
   kitchenLight.intensity=on?0:KITCHEN_LIGHT_I;              // v0.15 보온등도 같은 전력망 — 정전=조리 정지의 시각 절반
   kitchenBulbM.color.setHex(on?0x2a201a:0xffa24e);
-  bulbMat.color.setHex(on?0x241d14:0xffd9a0);
+  bulbMat.color.setHex(0x241d14);           // v0.24: 양쪽 다 어둡다 — 전구는 더 이상 전력망의 표시가 아니다
   headA.distance=headB.distance=on?HEADLIGHT_DARK:700;
   doorSpill.visible=on;
   eggGlow(on);
@@ -2807,6 +2871,12 @@ function tryCancelDepart(p){
   headA.intensity=headB.intensity=1.25;
   clunkS();
   bigmsgCast((NET.on?nameSub(p.idx)+' ':'')+'출발을 막았다');
+}
+// v0.24 손전등 토글 (D2) — 소유(1|2)만 토글, 미소유(0)는 무시 (구매제 대비 삼상태).
+// 끄기에 은신 의미는 없다 — LOGIC 동결. 가르침은 링 문턱 0.15→0.05가 한다 (D-DARK3 확장)
+function tryTorch(p){
+  if(phase!=='play'||p.torch===0) return;
+  p.torch=(p.torch===2)?1:2;
 }
 function tryPickOrPlace(p){
   if(phase!=='play'||p.stun>0) return;
@@ -3982,6 +4052,7 @@ function processActs(p){
     else if(a.a==='jump') tryJump(p);
     else if(a.a==='depart') tryDepart(p);
     else if(a.a==='cancelDepart') tryCancelDepart(p);
+    else if(a.a==='torch') tryTorch(p);
     else if(a.a==='shove') tryShove(p,a.yaw);
     else if(a.a==='throw'){
       if(phase==='play'&&p.held&&p.stun<=0){
@@ -4250,6 +4321,7 @@ function resetWorld(){
     p.stam=1; p.exhausted=false;
     p.glove=false; p.held=null; p.pocket=null;
     p.sunglasses=false;                          // v0.21 감정 도구는 판당 구매 — 점수 초기화와 대칭 (이월 = 공짜 안경 버그)
+    p.torch=TORCH_DEFAULT;                       // v0.24 손전등 — 켜진 채로 밤을 시작한다
     p.yaw=-Math.PI/2; p.pitch=0;
     p.mv.x=0; p.mv.z=0; p.mv.run=false; p.acts.length=0;
   }
@@ -4483,7 +4555,7 @@ function render(){
     // 어둠 상수와 반드시 같은 커밋 (D-DARK1)
     hemi.intensity=HEMI_DARK+j*(HEMI_LIT-HEMI_DARK);
     for(const L of lampLights) L.intensity=j>0.5?L.userData.lit*0.7:0;
-    bulbMat.color.setHex(j>0.5?0xffd9a0:0x241d14);
+    // v0.24: 전구 플리커 이관 — 경고 딥의 몸은 손전등 마이크로 스터터 (updWorldUI의 warnJ)
   }
   if(phase==='title'){
     const t=now*0.1;
@@ -4617,12 +4689,15 @@ function render(){
     }
     heldMine.mesh.rotation.set(0,0,wob*0.06);
   }
-  // 랜턴은 든 알에만 — 소지자별 1개 (강탈·바닥 알은 emissive만)
+  // v0.24 (D1): 랜턴 재용도 — 평시엔 "조명은 나한테" 은은광, 정전+든 알은 기존 계란 랜턴 (새 라이트 0개, D29)
   for(let i=0;i<MAX_PLAYERS;i++){
     const p=players[i], L=LANTERNS[i];
     if(blackout&&p.active&&p.held&&p.held.mesh.visible){
-      L.intensity=LANTERN_INT;
+      L.intensity=LANTERN_INT; L.distance=LANTERN_DIST;
       L.position.set(p.held.mesh.position.x,Math.max(30,p.held.mesh.position.y),p.held.mesh.position.z);
+    } else if(p.active&&!p.dead&&!p.hideJar&&phase!=='title'&&phase!=='intro'){
+      L.intensity=0.35; L.distance=90;
+      L.position.set(p.x,groundY(p.x,p.z)+50+p.jy,p.z);
     } else L.intensity=0;
   }
 
@@ -4739,7 +4814,7 @@ function render(){
     // 시야 원 — 뷰어 자신 기준 (내가 소지 중·밝은 구간·LOS·거리 400 이내 — 벽 뒤 링 없음, 갑툭튀 보존).
     // v0.15(D-DARK3): 어두워진 밝은 구간의 유일한 신규 불공정 = "어두우니 안 보이겠지"(SIGHT는 동결이라 틀림).
     // 게이지가 나를 채우기 시작한 닭(det>0.15)은 빈손이어도 링을 보여준다 — 렌더 게이트만, 로직 상수 무접촉
-    const ringOk=(carriesEgg(P())||c.det[me]>0.15)&&!blackout&&phase==='play'&&(eligible||c.state==='alert')&&
+    const ringOk=(carriesEgg(P())||c.det[me]>0.05)&&!blackout&&phase==='play'&&(eligible||c.state==='alert')&&   // v0.24: 0.15→0.05 — 게이지 문턱과 일치 (손전등 꺼도 보는 놈은 본다)
       Math.hypot(c.x-P().x,c.z-P().z)<=RING_MAX_D&&!lineBlocked(P().x,P().z,c.x,c.z);
     m.ring.visible=ringOk;
     if(ringOk){
@@ -4953,7 +5028,8 @@ function buildSnap(){
         q1(p.stam),p.exhausted?1:0,p.held?eggs.indexOf(p.held):-1,p.pocket?eggs.indexOf(p.pocket):-1,
         q1(p.shake),p.running?1:0,
         p.hp,q1(p.shoveCd),
-        p.sunglasses?1:0]),                     // [13][14] v0.20, [15] v0.21 선글라스 — 중간 삽입·삭제 금지 (append-only 관례)
+        p.sunglasses?1:0,
+        p.torch]),                              // [13][14] v0.20, [15] v0.21 선글라스, [16] v0.24 손전등 삼상태 — 중간 삽입·삭제 금지
     ck:chickens.map(c=>[q1(c.x),q1(c.z),q1(c.dir),CK_STATES.indexOf(c.state),c.ko?1:0,
         q1(c.det[0]),q1(c.det[1]),q1(c.det[2]),q1(c.det[3]),c.tgt,
         (c.revengeT>0?1:0)]),                 // [10] v0.22 append — 격노 비트. revengeT는 updChickens 안에만 살아서
@@ -5101,6 +5177,7 @@ function applySnap(s){
     const wasHp=p.hp;
     p.hp=(a[13]===undefined?HP_MAX:a[13]|0); p.shoveCd=a[14]||0;   // v0.20 append 미러 (구 스냅샷 폴백)
     p.sunglasses=!!a[15];                                          // v0.21 append 미러 (undefined 관용)
+    p.torch=(a[16]===undefined?TORCH_DEFAULT:a[16]);               // v0.24 손전등 미러
     if(i===me){
       // 자기 예측 보정 (D17): 데드밴드 밖·벽 불일치·잡힘 순간만 개입
       const hx=a[1],hz=a[2];
@@ -5733,6 +5810,7 @@ window.addEventListener('keydown',e=>{
     return;
   }
   if(e.code==='KeyV'){ camMode=camMode?0:1; tpCur=TP_DIST; return; }
+  if(e.code==='KeyT'){ if(!e.repeat){ pushAct({a:'torch'}); blip(1150,0.05,0.18,'square'); } return; }   // v0.24 손전등 (F는 수레)
   if(e.code==='KeyE'){ pushAct({a:'pick'}); return; }
   if(e.code==='KeyQ'){ pushAct({a:'pocket'}); return; }
   if(e.code==='KeyF'){ pushAct({a:'cart'}); return; }
@@ -5873,7 +5951,7 @@ function mustRoute(){
     for(const f of CHK_WAKE_FRAC) if(!(f>0&&f<1)) bad.push('wake frac out of night'); }
   // 17c) v0.20 HP·연사 — 튜플 폭 잠금 + 상수 부등식 (완충이 카운트다운이 되는 조합을 로드타임에 차단)
   { const t0=buildSnap().pl[0];
-    if(t0.length!==16||t0[12]!==(players[0].running?1:0)) bad.push('pl tuple drift');   // v0.21: [15] 선글라스 append → 16폭
+    if(t0.length!==17||t0[12]!==(players[0].running?1:0)) bad.push('pl tuple drift');   // v0.24: [16] 손전등 append → 17폭
     if(!(PUSH_CD>PUSH_STAGGER)) bad.push('push cd < stagger');
     if(!(SHOVE_ANIM_T<PUSH_CD)) bad.push('shove anim >= cd');
     if(!(KILL_CD>=KO_T)) bad.push('kill cd < ko window');
