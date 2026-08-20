@@ -1447,6 +1447,7 @@ function makePlayerState(i){
     sunglasses:false,         // v0.21 감정 도구 (판당 구매 — pl[15])
     torch:TORCH_DEFAULT,      // v0.24 손전등 삼상태 (pl[16])
     hideJar:-1,               // v0.24 항아리 (pl[17] = idx+1, 0=밖)
+    dead:false,               // v0.24 사망 (pl[18])
     mv:{x:0,z:0,run:false},   // 이동 인텐트 — 로컬은 키보드에서, 원격은 넷에서 채운다
     acts:[]};                 // 원샷 액션 인텐트 큐 — 프레임 시작 일괄 처리 (로컬·원격 동일 경로)
 }
@@ -1474,7 +1475,7 @@ if(!(vol>=0&&vol<=1)) vol=VOL_DEF;
 let camMode=0, tpCur=TP_DIST;      // 시점·카메라 — 뷰어 로컬 (스냅샷 비대상)
 let charge=-1;                     // 던지기 파워 적산 — 뷰어 로컬 (판정은 인텐트의 pw를 호스트가 클램프)
 const eggs=[], chickens=[];
-let stats={t:0,broken:0,delivered:0,caught:0,meat:0,score:0};
+let stats={t:0,broken:0,delivered:0,caught:0,meat:0,score:0,deaths:0};
 // v0.13 출발 상태기계 (D4) — 새 phase가 아니라 필드다 (PHASES 집합 동결, D10)
 let depT=-1, depBy=-1, depCd=0, startN=1;   // startN = 판 시작 시점 활성 인원 (등급 분모)        // 잔여초(-1=미발동) / 개시자 슬롯 / 재개시 쿨다운
 const depUsed=[false,false,false,false]; // 취소권 인당 판당 1회
@@ -2053,6 +2054,7 @@ function setJarAudio(on){
   }catch(e){}
 }
 let jarFxOn=false, heartT=0, scratchT=0;   // 항아리 국소 연출 상태 (전부 렌더/오디오 전용)
+let deathT=0, deadWas=false;               // v0.24 사망 연출 (1.2s 마룻바닥 기울기 → 관전)
 let torchDieT=0, lastBoTorch=false, torchJ=1, torchJT=0;   // v0.24 정전 사망 연출 상태 (렌더 전용)
 function updWorldUI(dt){
   // v0.24 손전등 구동 — 위치·강도의 단일 기록자 (D2).
@@ -2085,6 +2087,11 @@ function updWorldUI(dt){
       TC.beam.material.opacity=0.05*f;
     } else TC.L.position.set(0,-999,0);
   }
+  // v0.24 사망 연출 개시 — 미러 기반 (호스트·클라 동일 경로)
+  if(P().dead&&!deadWas) deathT=1.2;
+  if(!P().dead) deathT=0;
+  deadWas=P().dead;
+  if(deathT>0) deathT=Math.max(0,deathT-dt);
   // v0.24 항아리 국소 연출 (D6) — FOV 조임 + 비네트 + 로우패스 + 심장박동. 전부 렌더/오디오 전용
   {
     const hidNow=isHidden(P());
@@ -3018,7 +3025,7 @@ function nearLever(p){ const L=leverPos(); return Math.hypot(L.x-p.x,L.z-p.z)<LE
 function atTruck(q){ return inPad(q.x,q.z)||nearLever(q); }
 function allAtTruck(){
   let n=0;
-  for(const q of players){ if(!q.active) continue; n++; if(!atTruck(q)) return false; }
+  for(const q of players){ if(!q.active||q.dead) continue; n++; if(!atTruck(q)) return false; }   // v0.24: 죽은 동료는 출발 단축을 안 막는다
   return n>0;
 }
 function tryDepart(p){
@@ -3329,7 +3336,7 @@ function updDet(c,dt){
   let full=-1;
   for(let i=0;i<MAX_PLAYERS;i++){
     const p=players[i];
-    if(!p.active){ c.det[i]=0; c.detG[i]=0; continue; }
+    if(!p.active||p.dead){ c.det[i]=0; c.detG[i]=0; continue; }   // v0.24: 시체는 게이지를 채우지 않는다
     const pd=Math.hypot(c.x-p.x,c.z-p.z);
     if(carriesEgg(p)&&chickenSee(c,p)){
       c.detG[i]=DET_GRACE;
@@ -3499,7 +3506,14 @@ function onCaught(c){
     if(NET.host) NET.ev.push(['big',nameSub(p.idx)+' 쪼였다!',-2,p.idx]);
     return;
   }
-  p.hp=HP_MAX;                            // 넉다운 = 버퍼 재충전 (신규 회복 채널 없음 — 실측 강탈 4.2회/밤 유지)
+  // v0.24 사망 (D5) — 개발자 "hp가 떨어지면 죽어야돼": 세 번째 타격은 재충전이 아니라 끝이다.
+  // 즉사 금지의 정신은 산다: 죽음은 절대 기습이 아니라 완충타 2회 뒤의 세 번째이고(경고 2회),
+  // 숨을 항아리가 어느 셀에서든 1500u 안이다(J1 — 기계 보증). 넉다운 의식(비산·강탈·깃털·수레 해방)은
+  // 전부 그대로 흐른다 — 닭이 네 알을 물고 네 위를 지나간다. 밤의 끝도 개그로 끝난다.
+  // 회복은 트럭 패드뿐 (updPlayer의 유일한 회복 채널 — 검사 26이 재충전 잔재를 잡는다)
+  p.dead=true;
+  stats.deaths++;
+  addSplat(p.x,p.z,0xe8e4d8); addSplat(p.x+10,p.z-8,0xe8e4d8);   // 깃털 더미 — 쓰러진 자리
   stats.caught++;
   p.stun=STUMBLE_T;
   if(p.idx===me){ shake=1; flash=1; }     // 화면 흔들림·섬광은 당사자 뷰어만 (클라는 스냅샷 파생)
@@ -3775,14 +3789,14 @@ function raccEligible(e){
   if(e.state!=='rest') return false;
   if(inCoopPt(e.x,e.z)||zoneOfArea(e.x,e.z)!==0) return false;   // 마당 밖 물건엔 관심 없다
   let near=false;
-  eachP(p=>{ if(Math.hypot(p.x-e.x,p.z-e.z)<RACC_ATTEND_R) near=true; });
+  eachP(p=>{ if(p.dead||isHidden(p)) return; if(Math.hypot(p.x-e.x,p.z-e.z)<RACC_ATTEND_R) near=true; });   // v0.24: 시체·숨은 몸은 짐을 못 지킨다
   return !near;                                                  // "방치" = 곁에 아무도 없다 (끄는 수레는 구조상 안전)
 }
 function cartLootable(){
   if(!cart.slots.length||cart.owner!==-1) return false;
   if(inCoopPt(cart.x,cart.z)||zoneOfArea(cart.x,cart.z)!==0) return false;
   let near=false;
-  eachP(p=>{ if(Math.hypot(p.x-cart.x,p.z-cart.z)<RACC_ATTEND_R) near=true; });
+  eachP(p=>{ if(p.dead||isHidden(p)) return; if(Math.hypot(p.x-cart.x,p.z-cart.z)<RACC_ATTEND_R) near=true; });
   return !near;
 }
 function raccDropCarry(rc){
@@ -3815,7 +3829,7 @@ function updRacc(dt){
           rc.t-=dt;
           if(rc.t<=0){
             let block=false;
-            eachP(p=>{ const d=Math.hypot(p.x-rc.hx,p.z-rc.hz);
+            eachP(p=>{ if(p.dead||isHidden(p)) return; const d=Math.hypot(p.x-rc.hx,p.z-rc.hz);
               if(d<THREAT_ACT_MIN_R||(d<WAKE_SIGHT_R&&!lineBlocked(p.x,p.z,rc.hx,rc.hz))) block=true; });
             if(block) rc.t=WAKE_RETRY;
             else { rc.wakeT=CHK_WAKE_TELE; rc.m.g.visible=true; chitterS(rc.hx,rc.hz); }   // 부스럭 예고 — 전역 방송 없음
@@ -3900,7 +3914,7 @@ function assignCutters(dt){
     const pack=[];
     for(const c of chickens) if(!c.dead&&c.state==='chase'&&c.tgt===pi) pack.push(c);
     for(const c of pack) c.cutter=false;
-    if(!tp.active||pack.length<2) continue;
+    if(!tp.active||tp.dead||pack.length<2) continue;   // v0.24: 시체엔 협공이 없다
     if(cellOf(tp.x,tp.z)<0) continue;                       // 마당·복도엔 앞지를 갈림목이 없다 — 전원 직접 추격
     if(Math.hypot(tp.vx,tp.vz)<20) continue;                // 멈춘 표적은 앞지를 방향이 없다
     let lead=null, ld=1e9;
@@ -3930,7 +3944,7 @@ function updChickens(dt){
             // 보류 술어 = KO 기상과 같은 계보: 140u 이격 + 벽 차단 없는 300u 시선이면 못 깬다 (실체화 갑툭튀 금지).
             // 스케줄은 어떤 이유로도 가속·지연되지 않는다 — 사살·소음과 완전 직교 (죽은 슬롯은 계속 죽어 있다)
             let block=false;
-            eachP(p=>{ const d=Math.hypot(p.x-c.hx,p.z-c.hz);
+            eachP(p=>{ if(p.dead||isHidden(p)) return; const d=Math.hypot(p.x-c.hx,p.z-c.hz);
               if(d<THREAT_ACT_MIN_R||(d<WAKE_SIGHT_R&&!lineBlocked(p.x,p.z,c.hx,c.hz))) block=true; });
             if(block) c.t=WAKE_RETRY;
             else {
@@ -4040,13 +4054,14 @@ function updChickens(dt){
       moving=true;
       if(c.t>0.9 && Math.random()<dt*0.7) squawkS(c.x,c.z);
       c.t+=dt;
-      if(td<CHK_R+PLR_R+3 && tp.invuln<=0 && tp.stun<=0 && !isHidden(tp) && phase==='play') onCaught(c);   // v0.24: 항아리 안은 접촉 무효
+      if(td<CHK_R+PLR_R+3 && tp.invuln<=0 && tp.stun<=0 && !isHidden(tp) && !tp.dead && phase==='play') onCaught(c);   // v0.24: 항아리 안·시체는 접촉 무효
       if(c.state==='chase'){
         if(!see&&!fresh) c.loseT+=dt; else c.loseT=0;
         const arrivedLS=Math.hypot(c.x-c.lsX,c.z-c.lsZ)<30;
         // v0.22 종결 조건 셋 — 거리는 하나도 없다 (리쉬는 chase에서 빠졌다. toInvest 소집 게이트로만 남는다).
         // ① 예산: 갱신되지 않는 시계 = 즉사 금지 밸브 2단 ② 층: 계단을 진짜 자산으로 ③ 해제: 짐을 다 놓았을 때
-        if(c.t>CHASE_BUDGET){ breakChase(c); }
+        if(tp.dead){ breakChase(c); }           // v0.24 (D5): 표적이 죽었다 — 이 추격은 끝났다 (grab으로 알 문 놈은 별도)
+        else if(c.t>CHASE_BUDGET){ breakChase(c); }
         // v0.24 (D8): 계단(존 2)은 통과대로 — 닭이 계단 위까지 따라온다. 종결은 "몸이 반대층 존에 도달"했을 때만.
         // (기계적 필연이기도 하다: NEXT엔 층간 간선이 없어 반대층에선 항법 그래프가 없다. 계단 어귀 정지는 코미디였다)
         else if((()=>{ const zc=zoneOfArea(c.x,c.z); return zc!==2&&zc!==zoneOfArea(c.ax,c.az); })()){ breakChase(c); }
@@ -4208,7 +4223,7 @@ function updChickens(dt){
           // v0.20 활성화 최소 이격: 플레이어가 곁에 있는 한 못 일어난다 — 확인사살하거나 물러나라.
           // "죽은 놈이 내 옆에서 살아난다"(개발자 보고)의 기계적 원인이 바로 이 즉석 기상이었다
           let near=false;
-          eachP(p=>{ if(Math.hypot(p.x-c.x,p.z-c.z)<THREAT_ACT_MIN_R) near=true; });
+          eachP(p=>{ if(p.dead) return; if(Math.hypot(p.x-c.x,p.z-c.z)<THREAT_ACT_MIN_R) near=true; });   // v0.24: 시체 제외
           if(near){ c.wakeT=CHK_WAKE_TELE; }
           else {
             if(c.wakeT===CHK_WAKE_TELE){ squawkS(c.x,c.z); flapS(c.x,c.z); }   // 예고 시작 — 퍼덕이며 꿈틀
@@ -4280,6 +4295,7 @@ function updChickens(dt){
 // 인텐트 큐 소화 — 프레임 시작 일괄 처리. 로컬·원격 입력이 같은 경로를 탄다 (금지선 위반 상환)
 function processActs(p){
   const acts=p.acts; p.acts=[];
+  if(p.dead){ return; }                         // v0.24 사망: 시체는 동사가 없다
   if(isHidden(p)){                              // v0.24: 항아리 안에선 E(나오기)만 동사다
     for(const a of acts) if(a.a==='pick') tryPickOrPlace(p);
     return;
@@ -4304,6 +4320,14 @@ function processActs(p){
 function updPlayer(p,dt){
   if(phase!=='play') return;
   processActs(p);
+  if(p.dead) return;                            // v0.24 사망 (D5): 시체는 시뮬에서 빠진다 (닭 dead와 같은 문법)
+  // v0.24 트럭 패드 = 유일한 회복 채널 (D5) — 깊이가 위험, 집이 안전이라는 지도의 기울기.
+  // 항아리는 절대 회복하지 않는다 (회복 항아리 = 캠핑 상자)
+  if(p.hp<HP_MAX&&inPad(p.x,p.z)){
+    p.hp=HP_MAX;
+    if(p.idx===me) bigmsg('한숨 돌렸다 — 체력 회복');
+    else if(NET.host) NET.ev.push(['big','한숨 돌렸다 — 체력 회복',p.idx]);
+  }
   // v0.24 항아리 안 (D6): 부동·무소음·무입력 (E 나오기만 processActs가 허용). 위치는 항아리에 고정
   if(isHidden(p)){
     const J=JARS[p.hideJar];
@@ -4524,6 +4548,10 @@ function startFail(){
   failS();
   decoyPulse(lastLoss.x,lastLoss.z,null);
 }
+function startDeathFail(){                     // v0.24 (D5) — 실패 진입점 2/2. 짐칸에 실은 것만 점수인 건 공짜다 (원래 그랬다)
+  failWhy='dead';
+  startFail();
+}
 function startDawnFail(){                      // 유예(D3) 종료 시점에 호출된다 — 연출은 이미 dawnCeremony가 시작해 뒀다
   failWhy='dawn';
   missed=[];
@@ -4546,7 +4574,8 @@ function dawnCeremony(){
 function showFailOv(){
   // 새벽 실패 판별 — 호스트는 failWhy, 클라는 동기화된 시계로 파생 (st[0]은 q1 반올림이라 1초 여유)
   const dawn=failWhy==='dawn'||stats.t>=NIGHT_LEN-1;
-  document.querySelector('#failOv .t').textContent=dawn?'트럭은 그냥 갔다':'오늘 장사는 글렀다…';
+  const wiped=failWhy==='dead'||players.every(p2=>!p2.active||p2.dead);   // 클라 파생 (D15 — 판정은 안 오고 결과만 온다)
+  document.querySelector('#failOv .t').textContent=wiped?'전멸 — 닭들이 이겼다':(dawn?'트럭은 그냥 갔다':'오늘 장사는 글렀다…');
   document.getElementById('failStats').innerHTML=
     (dawn?'해가 떴고, 농장이 깨어난다 — 짐칸에 실은 것만 남았다<br>':'')+tallyHTML()+
     (missed.length?'<br><span class="warn">막차를 놓쳤다 — '+missed.join(', ')+'</span>':'');
@@ -4570,6 +4599,7 @@ function resetWorld(){
     p.sunglasses=false;                          // v0.21 감정 도구는 판당 구매 — 점수 초기화와 대칭 (이월 = 공짜 안경 버그)
     p.torch=TORCH_DEFAULT;                       // v0.24 손전등 — 켜진 채로 밤을 시작한다
     p.hideJar=-1;                                // v0.24 항아리
+    p.dead=false;                                // v0.24 사망 — 새 판엔 전원 부활
     p.yaw=-Math.PI/2; p.pitch=0;
     p.mv.x=0; p.mv.z=0; p.mv.run=false; p.acts.length=0;
   }
@@ -4619,7 +4649,7 @@ function resetWorld(){
   for(const J of JARS) J.occupant=-1;            // v0.24 항아리 점유 초기화
   for(const m of splats) m.visible=false;
   for(const m of deliveredMesh) m.visible=false;
-  stats={t:0,broken:0,delivered:0,caught:0,meat:0,score:0};
+  stats={t:0,broken:0,delivered:0,caught:0,meat:0,score:0,deaths:0};
   drawSign();
   shake=0; flash=0; tpCur=TP_DIST;
   waves.length=0;
@@ -4751,6 +4781,12 @@ function update(dt){
   // 이 6초(TRUCK_GO_T) 동안 판은 살아 있고 패드에 닿으면 짐이 실린다 — 몰수를 슬픔이 아니라
   // 전력질주 다이빙으로 바꾼다. 판정은 프레임의 반납 처리 뒤라 막차 반납이 항상 이긴다
   if(phase==='play'){
+    // v0.24 사망 실패 (D5) — 살아있는 사람이 0이면 밤이 끝난다. 판정 위치는 새벽 검사와 같은 곳,
+    // 실패 진입점은 이제 정확히 둘이다 (startDawnFail·startDeathFail — 검사 16이 셋째를 금지한다)
+    let alive=0; eachP(p2=>{ if(!p2.dead) alive++; });
+    if(alive===0) startDeathFail();
+  }
+  if(phase==='play'){
     const dl=NIGHT_LEN-stats.t;
     if(dl<=0){
       if(truckGoT<0){ dawnCeremony(); bigmsgCast('막차다!! — 트럭이 굴러간다'); }
@@ -4848,11 +4884,27 @@ function render(){
     }
     camera.position.set(cx,cy,cz);
   }
+  // v0.24 사망 (D5): 1.2s 마룻바닥으로 기우는 시선 → 관전 (가장 가까운 생존 동료).
+  // 솔로는 전원사망 판정이 즉시 실패 화면을 부르므로 이 분기는 짧게만 산다
+  if(P().dead&&phase==='play'){
+    if(deathT>0){
+      camera.position.set(P().x,groundY(P().x,P().z)+24,P().z);
+      camera.rotation.z+=(0.55-camera.rotation.z)*0.1;
+    } else {
+      let q=null,qd=1e9;
+      eachP(p2=>{ if(p2.dead||p2.idx===me)return; const d=Math.hypot(p2.x-P().x,p2.z-P().z); if(d<qd){qd=d;q=p2;} });
+      if(q){
+        const gy=groundY(q.x,q.z);
+        camera.position.set(q.x+90,gy+150,q.z+90);
+        camera.lookAt(q.x,gy+40,q.z);
+      }
+    }
+  }
 
   // 아바타 ×4 — 뷰어 본인은 3인칭에서만, 원격은 항상 (M1 D29)
   for(let i=0;i<MAX_PLAYERS;i++){
     const p=players[i], av=avatars[i];
-    const show=p.active&&p.hideJar<0&&(phase!=='title'&&phase!=='intro')&&(i!==me||camMode===1);   // v0.24 항아리 안은 아바타 숨김
+    const show=p.active&&p.hideJar<0&&!p.dead&&(phase!=='title'&&phase!=='intro')&&(i!==me||camMode===1);   // v0.24 항아리 안·시체는 아바타 숨김 (깃털 더미가 자리를 말한다)
     av.g.visible=show;
     if(!show) continue;
     av.g.position.set(p.x,p.jy+groundY(p.x,p.z),p.z);
@@ -5140,7 +5192,7 @@ function render(){
         const fl=zn===1?'지하':(zn===2?'계단':(inCoopPt(p.x,p.z)?'1층':'마당'));
         const egg=(p.held?1:0)+(p.pocket?1:0);
         mates+=' · <span style="color:#'+PLAYER_TINTS[p.idx].toString(16).padStart(6,'0')+'">●</span>'+
-          PLAYER_NAMES[p.idx]+' '+fl+(egg?' 🥚'+egg:'')+(p.stun>0?' 넘어짐!':(p.hp<HP_MAX?' 다침':''));
+          PLAYER_NAMES[p.idx]+' '+fl+(egg?' 🥚'+egg:'')+(p.dead?' †':(p.stun>0?' 넘어짐!':(p.hp<HP_MAX?' 다침':'')));
       }
     }
     hud.innerHTML=
@@ -5164,6 +5216,7 @@ function render(){
   if(phase==='intro'){ pr.textContent='아무 키나 누르면 바로 내린다'; }
   else if(phase!=='play'){ pr.textContent=''; }
   else if(NET.on&&!NET.host&&NET.pause){ pr.textContent=''; }
+  else if(v.dead){ pr.textContent=NET.on?'죽었다 — 관전 중 (남은 동료에게 밤이 달렸다)':''; }
   else if(v.stun>0){ pr.textContent='넘어졌다…'; }
   else if(isHidden(v)){ pr.textContent='E — 나오기 (긁는 소리가 멎을 때까지 기다려라)'; }
   else if(blackout&&v.held){
@@ -5274,7 +5327,7 @@ function buildSnap(){
     ph:PHASES.indexOf(phase), bo:blackout?1:0,
     pz:simPaused()?1:0, pw:document.hidden?'호스트 자리 비움':'호스트 일시정지',
     st:[q1(stats.t),stats.broken,stats.delivered,stats.caught,stats.meat,
-        stats.score,q1(depT),depBy,lastVal],              // 5~7 신규, [8] v0.21 마지막 반납 가치 (append-only)
+        stats.score,q1(depT),depBy,lastVal,stats.deaths], // 5~7 신규, [8] v0.21 반납 가치, [9] v0.24 사망 수 (append-only)
     bk:[bank.egg,bank.bigEgg,bank.meat,bank.dark,          // 짐칸 구성 — 클라 랙 렌더용. [0..3] 영구 동결,
         bank.cEgg,bank.cBig,bank.cMeat,bank.burnt],        // [4..7] v0.15 append (구 클라는 앞 4칸만 읽어도 정상 — D-NET1)
     gs:geese.map(g=>[q1(g.x),q1(g.z),q1(g.dir),GS_STATES.indexOf(g.state),g.tgt]),   // v0.14 거위
@@ -5287,7 +5340,8 @@ function buildSnap(){
         p.hp,q1(p.shoveCd),
         p.sunglasses?1:0,
         p.torch,
-        p.hideJar+1]),                          // [13][14] v0.20, [15] 선글라스, [16] 손전등, [17] 항아리(idx+1, 0=밖) — 중간 삽입·삭제 금지
+        p.hideJar+1,
+        p.dead?1:0]),                           // [13][14] v0.20, [15] 선글라스, [16] 손전등, [17] 항아리, [18] 사망 — 중간 삽입·삭제 금지
     ck:chickens.map(c=>[q1(c.x),q1(c.z),q1(c.dir),CK_STATES.indexOf(c.state),c.ko?1:0,
         q1(c.det[0]),q1(c.det[1]),q1(c.det[2]),q1(c.det[3]),c.tgt,
         (c.revengeT>0?1:0)]),                 // [10] v0.22 append — 격노 비트. revengeT는 updChickens 안에만 살아서
@@ -5400,7 +5454,7 @@ function applySnap(s){
   if(!s.st||s.st.length<8) return;        // 최소 길이 가드 (D10) — 구버전 스냅샷을 인덱스로 오독하지 않는다
   NET.lastSnapT=now;
   NET.pause=!!s.pz; NET.pauseWhy=s.pw||'';
-  const nst={t:s.st[0],broken:s.st[1],delivered:s.st[2],caught:s.st[3],meat:s.st[4],score:s.st[5]};
+  const nst={t:s.st[0],broken:s.st[1],delivered:s.st[2],caught:s.st[3],meat:s.st[4],score:s.st[5],deaths:s.st[9]||0};
   depT=s.st[6]; depBy=s.st[7];            // 출발 카운트다운 — D22의 명시적 예외 (파생 불가, goal 문서 기록)
   // 파생 세리머니 (D20/D22): 스냅샷 델타가 곧 이벤트다
   const goneNew=[];
@@ -5438,6 +5492,7 @@ function applySnap(s){
     p.sunglasses=!!a[15];                                          // v0.21 append 미러 (undefined 관용)
     p.torch=(a[16]===undefined?TORCH_DEFAULT:a[16]);               // v0.24 손전등 미러
     p.hideJar=(a[17]===undefined?0:a[17])-1;                       // v0.24 항아리 미러 (점유 렌더는 아바타 숨김이 대신한다)
+    p.dead=!!a[18];                                                // v0.24 사망 미러
     if(i===me){
       // 자기 예측 보정 (D17): 데드밴드 밖·벽 불일치·잡힘 순간만 개입
       const hx=a[1],hz=a[2];
@@ -5569,7 +5624,7 @@ function clientPhase(op,np){
 // ---------- 클라: 프레임 틱 (예측 + 보간 + 송신 — 규칙 코드 없음, D15) ----------
 function clientPredict(dt){
   const p=players[me];
-  if(p.stun>0) return;
+  if(p.stun>0||p.dead) return;
   if(isHidden(p)){ const J=JARS[p.hideJar]; p.x=J.x; p.z=J.z; return; }   // v0.24 항아리 고정 (호스트 판정 미러)
   p.stagger=Math.max(0,p.stagger-dt); p.shoveAnim=Math.max(0,p.shoveAnim-dt);   // v0.20 로컬 감쇠
   // 점프 y — 로컬 체감용 (규칙 판정은 호스트의 jy가 담당. 소음도 호스트 몫)
@@ -6177,9 +6232,13 @@ function mustRoute(){
   // 15) v0.12 하늘이 시간을 말한다 — 물들기 시작이 정전보다 뒤면 밝은 구간에 볼 시간이 안 남는다
   //     v0.13: 분모가 DARK_TIMER → DARK_MIN (정전이 가장 빨리 켜지는 시점 기준으로 봐야 안전하다)
   if(DAWN_SKY_T*NIGHT_LEN>=DARK_MIN-30) bad.push('sky warms too late vs blackout');
-  // 16) v0.13 점수제 — 팀 실패 진입점은 startDawnFail 하나뿐이어야 한다 (쿼터 실패 잔재 금지)
+  // 16) v0.13 점수제 — 팀 실패 진입점은 정확히 둘 (startDawnFail·startDeathFail — v0.24 D5). 셋째 금지
   if(/function\s+checkFail|function\s+checkWin/.test(update.toString()+deliverEgg.toString())) bad.push('quota judgment resurfaced');
   if(typeof NEED_EGGS!=='undefined') bad.push('NEED_EGGS still defined');
+  // 26) v0.24 회복 채널 계약 (D5) — 패드 회복은 존재해야 하고, 넉다운 재충전 잔재는 죽음과 공존 불가
+  if(!/inPad\(p\.x,p\.z\)/.test(updPlayer.toString())) bad.push('패드 회복 소실');
+  if(/p\.hp=HP_MAX/.test(onCaught.toString())) bad.push('넉다운 재충전 잔재 — v0.24 사망과 공존 불가');
+  if(typeof startDeathFail!=='function') bad.push('사망 실패 진입점 소실');
   // 17) v0.13 공급·풀 — 알 18(1F 6/B1 12) + 닭고기 슬롯 10
   if(TRAY_DEF.length*PER_TRAY!==18) bad.push('supply != 18');
   if(eggs.length!==TRAY_DEF.length*PER_TRAY+CHK_COUNT) bad.push('loot pool size');
@@ -6202,7 +6261,7 @@ function mustRoute(){
     if(!(meatLine<rawEggLine&&rawEggLine<cookEggLine)) bad.push('KO-farm expected line inverted'); }
   if(!(SHADES_COST>0&&SHADES_COST<=GRADE[1])) bad.push('shades cost off scale');   // 1회 왕복 규모 — '한탕' 문턱을 넘으면 아무도 못 산다
   { const t=buildSnap();                       // v0.21 무선 폭 잠금 — st 9폭 · rc 5폭
-    if(t.st.length!==9) bad.push('st tuple width');
+    if(t.st.length!==10) bad.push('st tuple width');   // v0.24: [9] 사망 수 append
     if(RACC_N>0&&(!t.rc||t.rc[0].length!==5)) bad.push('rc tuple width'); }
   // 17e) v0.21 몰래 리젠 구조 — 휴면은 자유 순찰자 4마리뿐 (트레이 지킴은 t=0 전원 가동이 계약)
   { const roam=chickens.filter(c=>c.guard===-1&&c.loop);
@@ -6212,7 +6271,7 @@ function mustRoute(){
     for(const f of CHK_WAKE_FRAC) if(!(f>0&&f<1)) bad.push('wake frac out of night'); }
   // 17c) v0.20 HP·연사 — 튜플 폭 잠금 + 상수 부등식 (완충이 카운트다운이 되는 조합을 로드타임에 차단)
   { const t0=buildSnap().pl[0];
-    if(t0.length!==18||t0[12]!==(players[0].running?1:0)) bad.push('pl tuple drift');   // v0.24: [16] 손전등 + [17] 항아리 → 18폭
+    if(t0.length!==19||t0[12]!==(players[0].running?1:0)) bad.push('pl tuple drift');   // v0.24: [16] 손전등 + [17] 항아리 + [18] 사망 → 19폭
     if(!(PUSH_CD>PUSH_STAGGER)) bad.push('push cd < stagger');
     if(!(SHOVE_ANIM_T<PUSH_CD)) bad.push('shove anim >= cd');
     if(!(KILL_CD>=KO_T)) bad.push('kill cd < ko window');
