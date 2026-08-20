@@ -72,6 +72,8 @@
     color:#ffeccd;border-radius:3px;font-size:13px;text-transform:uppercase;letter-spacing:2px;}
   #joinRow button{padding:6px 10px;margin-left:6px;}
   #hpRow #hpPips{margin-left:6px;font-size:12px;letter-spacing:2px;}
+  #jarVig{position:fixed;inset:0;pointer-events:none;z-index:6;opacity:0;transition:opacity .25s;
+    background:radial-gradient(ellipse at center, transparent 26%, rgba(0,0,0,0.88) 72%, #000 100%);}
   #hurt{position:fixed;inset:0;pointer-events:none;z-index:4;opacity:0;
     background:radial-gradient(ellipse at center, transparent 55%, rgba(190,40,30,0.55) 100%);}
   #stamBox{width:174px;height:8px;margin-top:3px;background:rgba(0,0,0,0.5);border-radius:4px;
@@ -111,6 +113,7 @@
 <div id="hud"></div>
 <div id="cookUI"></div>
 <div id="hurt"></div>
+<div id="jarVig"></div>
 <div id="prompt"></div>
 <div id="bigmsg"></div>
 <div id="pw"><div id="pwFill"></div></div>
@@ -1441,6 +1444,7 @@ function makePlayerState(i){
     stam:1,exhausted:false,held:null,pocket:null,
     sunglasses:false,         // v0.21 감정 도구 (판당 구매 — pl[15])
     torch:TORCH_DEFAULT,      // v0.24 손전등 삼상태 (pl[16])
+    hideJar:-1,               // v0.24 항아리 (pl[17] = idx+1, 0=밖)
     mv:{x:0,z:0,run:false},   // 이동 인텐트 — 로컬은 키보드에서, 원격은 넷에서 채운다
     acts:[]};                 // 원샷 액션 인텐트 큐 — 프레임 시작 일괄 처리 (로컬·원격 동일 경로)
 }
@@ -2007,6 +2011,46 @@ function valuePop(v){
 }
 // v0.21 월드 UI 틱 — +N 팝업 수명 + 가격표 노출 (선글라스 낀 로컬 뷰어 · rest 전리품 · 가까운 6개만).
 // 텍스처는 여기서 안 굽는다 — 가시성 토글만 (굽기는 applyEggVisual 이벤트 훅의 몫)
+// ── v0.24 항아리 (D6) — 숨는 곳. 도자기 몸통은 Lambert(불빛 밖 비가시), 테두리만 인광 MeshBasic
+// (정직한 등대 계급 — 수레 인광과 같은 문법: "숨을 곳이 저기 있다"만 말하고 아무것도 비추지 않는다).
+// 충돌 세그 없음 — 항아리는 소품이다 (세그를 주면 셀 중심 추격 경로가 걸려 AI가 벽비비기를 한다)
+const JAR_R=46;                     // 상호작용 반경 (E 프롬프트 체인)
+const JAR_ORBIT_R=60;               // 강등 도착점에서 이 안의 점유 항아리 = 회전 의식 개시
+const JAR_GIVE_T=T('JAR_GIVE_T',4); // 회전 의식 길이(초) — 긁고 쪼다가 포기한다 (J4: +CHASE_CD < CHASE_BUDGET)
+const JARS=LAYOUT.jars.map(j=>{
+  const x=fCellXC(j.f,j.cell[1]), z=fAisleZC(j.f,j.cell[0])+((j.cell[0]%2)?14:-14);
+  const gy=FLOORS[j.f].base;
+  const g=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(15,20,46,12),mat(0x6a4a34,0x14100a));
+  body.position.y=23; g.add(body);
+  const neck=new THREE.Mesh(new THREE.CylinderGeometry(13,15,10,12),mat(0x5a3e2c));
+  neck.position.y=51; g.add(neck);
+  const rim=new THREE.Mesh(new THREE.TorusGeometry(13,2.2,6,16),new THREE.MeshBasicMaterial({color:0x6f8fb0}));
+  rim.rotation.x=Math.PI/2; rim.position.y=56; g.add(rim);
+  g.position.set(x,gy,z); scene.add(g);
+  return {f:j.f,x,z,gy,occupant:-1,g,rim};
+});
+function isHidden(p){ return p.hideJar>=0; }
+function nearestJar(x,z,r){
+  let best=-1,bd=r;
+  for(let i=0;i<JARS.length;i++){
+    const d=Math.hypot(JARS[i].x-x,JARS[i].z-z);
+    if(d<bd){ bd=d; best=i; }
+  }
+  return best;
+}
+// 항아리 국소 오디오 — 마스터를 로우패스로 우회 (숨으면 세계가 먹먹해진다)
+let jarLP=null;
+function setJarAudio(on){
+  if(!AC||!master) return;
+  try{
+    if(on){
+      if(!jarLP){ jarLP=AC.createBiquadFilter(); jarLP.type='lowpass'; jarLP.frequency.value=650; }
+      master.disconnect(); master.connect(jarLP); jarLP.connect(AC.destination);
+    } else if(jarLP){ master.disconnect(); jarLP.disconnect(); master.connect(AC.destination); }
+  }catch(e){}
+}
+let jarFxOn=false, heartT=0, scratchT=0;   // 항아리 국소 연출 상태 (전부 렌더/오디오 전용)
 let torchDieT=0, lastBoTorch=false, torchJ=1, torchJT=0;   // v0.24 정전 사망 연출 상태 (렌더 전용)
 function updWorldUI(dt){
   // v0.24 손전등 구동 — 위치·강도의 단일 기록자 (D2).
@@ -2038,6 +2082,33 @@ function updWorldUI(dt){
       TC.beam.lookAt(TC.tgt.position);
       TC.beam.material.opacity=0.05*f;
     } else TC.L.position.set(0,-999,0);
+  }
+  // v0.24 항아리 국소 연출 (D6) — FOV 조임 + 비네트 + 로우패스 + 심장박동. 전부 렌더/오디오 전용
+  {
+    const hidNow=isHidden(P());
+    if(hidNow!==jarFxOn){
+      jarFxOn=hidNow;
+      camera.fov=hidNow?50:72; camera.updateProjectionMatrix();
+      document.getElementById('jarVig').style.opacity=hidNow?1:0;
+      setJarAudio(hidNow);
+      heartT=0; scratchT=0;
+    }
+    if(hidNow&&phase==='play'){
+      let nd=1e9;
+      for(const c of chickens){ if(c.dead||c.state==='dormant')continue; const d=Math.hypot(c.x-P().x,c.z-P().z); if(d<nd)nd=d; }
+      for(const rc of raccs){ if(rc.state==='dormant'||rc.state==='gone')continue; const d=Math.hypot(rc.x-P().x,rc.z-P().z); if(d<nd)nd=d; }
+      heartT-=dt;
+      const period=0.7+1.8*Math.max(0,Math.min(1,(nd-80)/180));   // 소나 케이던스와 같은 공식 (C6과 한 문법)
+      if(heartT<=0){ heartT=period; blip(70,0.14,0.5,'sine'); setTimeout(()=>blip(58,0.12,0.35,'sine'),140); }
+      if(NET.on&&!NET.host){                    // 긁는 소리 — 클라 로컬 파생 (호스트 전용 판정음이 비트를 놓치지 않게)
+        scratchT-=dt;
+        if(scratchT<=0){
+          let close=false;
+          for(const c of chickens){ if(!c.dead&&c.state!=='dormant'&&Math.hypot(c.x-P().x,c.z-P().z)<70){ close=true; break; } }
+          if(close){ scratchT=0.65; peckS(P().x,P().z); } else scratchT=0.2;
+        }
+      }
+    }
   }
   if(popT>0){
     popT=Math.max(0,popT-dt);
@@ -2360,6 +2431,7 @@ for(let i=0;i<CHK_COUNT;i++){
     // v0.22 추격 — 전부 호스트 전용(무선 0). chaseCd 재추격 금지 / cutter 협공 역할 /
     // searchN·searchV 수색 예산과 도주 벡터 / preChase 밀쳐지기 직전이 추격이었나
     chaseCd:0,cutter:false,searchN:0,searchVX:0,searchVZ:0,preChase:false,
+    jarT:0,jarIdx:-1,jarAng:0,jarPeck:0,       // v0.24 회전 의식 (호스트 전용 — 클라는 위치·상태 미러)
     tgt:0,                                     // 표적 플레이어 인덱스 — targetOf(c)의 유일한 재료
     det:new Float32Array(MAX_PLAYERS),detG:new Float32Array(MAX_PLAYERS),detTicked:false});
 }
@@ -2971,6 +3043,13 @@ function tryTorch(p){
 }
 function tryPickOrPlace(p){
   if(phase!=='play'||p.stun>0) return;
+  // v0.24 항아리 나오기 (D6) — 의식 중이면 닭이 잡힘 반경 안 = 네 리스크. 알고 나오는 건 듣기가 한다
+  if(isHidden(p)){
+    JARS[p.hideJar].occupant=-1; p.hideJar=-1;
+    p.invuln=Math.max(p.invuln,0.4);            // 프레임 겹침 즉잡 방지 반박자 (갑툭튀 금지의 미시판)
+    pickS(sxz(p),szz(p));
+    return;
+  }
   if(nearLever(p)&&!p.held){ tryDepart(p); return; }   // 빈손일 때만 — 반납하러 온 손을 가로채지 않는다
   // 글러브 — 1회 획득, 이후 절대 상실 없음 (재장착 노가다 방지). 배분은 선착순 (D9 // 임시:)
   if(!p.glove && gloveMesh.visible && Math.hypot(GLOVE_POS.x-p.x,GLOVE_POS.z-p.z)<PICK_R+18){
@@ -2994,6 +3073,30 @@ function tryPickOrPlace(p){
       if(p.idx===me) bigmsg(msg); else if(NET.host) NET.ev.push(['big',msg,p.idx]);
     }
     return;
+  }
+  // v0.24 항아리 들어가기 (D6) — 실패 없는 입장(밸브: 장전자야말로 표적)이되 공짜가 아니다:
+  // 든 알은 입구에 소리내며 놓인다 = 회전 의식의 도박판. 수레는 입구에서 놓는다. 품은 같이 탄다(홀드 유지 — 닭이 돌 이유)
+  {
+    const ji=nearestJar(p.x,p.z,JAR_R);
+    if(ji>=0){
+      const J=JARS[ji];
+      if(J.occupant>=0&&J.occupant!==p.idx){
+        const msg='항아리가 찼다 — '+PLAYER_NAMES[J.occupant]+' 먼저';
+        if(p.idx===me) bigmsg(msg); else if(NET.host) NET.ev.push(['big',msg,p.idx]);
+        return;
+      }
+      if(p.held){
+        const dx=p.x-J.x, dz=p.z-J.z, dl=Math.hypot(dx,dz)||1;
+        const e=p.held;
+        e.x=J.x+dx/dl*30; e.z=J.z+dz/dl*30; e.y=groundY(e.x,e.z)+EGG_R;
+        e.vx=e.vy=e.vz=0; e.state='rest'; e.restT=0; e.touched=true;
+        p.held=null; p.shake=0;
+      }
+      if(cart.owner===p.idx) cart.owner=-1;
+      p.hideJar=ji; J.occupant=p.idx;
+      placeS(sxz(p),szz(p));
+      return;
+    }
   }
   const nearCart=Math.hypot(cart.x-p.x,cart.z-p.z)<CART_LOAD_R;
   if(p.held){
@@ -3202,6 +3305,7 @@ function sightRadius(p){
                   : (inFloorRect(p.x,p.z)?SIGHT_IN:SIGHT_OUT);
 }
 function chickenSee(c,p){
+  if(isHidden(p)) return false;                 // v0.24 항아리 — 상태 게이트 (dormant처럼. 반경 무접촉 = 동결 11 증명 유지)
   const d=Math.hypot(c.x-p.x,c.z-p.z);
   if(d>sightRadius(p)) return false;
   return !lineBlocked(c.x,c.z,p.x,p.z);
@@ -3210,7 +3314,7 @@ function chickenSee(c,p){
 function nearestSeenCarrier(c){
   let best=null,bd=1e9;
   eachP(p=>{
-    if(!carriesEgg(p)) return;
+    if(!carriesEgg(p)||isHidden(p)) return;     // v0.24: 숨은 소지자는 정전 즉발에서도 안 팔린다
     const d=Math.hypot(c.x-p.x,c.z-p.z);
     if(d<bd&&chickenSee(c,p)){ bd=d; best=p; }
   });
@@ -3263,6 +3367,7 @@ function toAlertForce(c,pi){ c.tgt=pi; c.state='alert'; c.t=CHK_REACT; c.lsX=pla
 // det[tgt]=0이 핵심 — showG가 det>0.05면 '?' 대신 게이지를 그리므로, DET_DEMOTE를 남기면
 // "포기했다" 대신 "다시 눈치채는 중"이 표시된다. 마커 문법을 갈라 두는 줄이다
 function breakChase(c){
+  c.jarT=0; c.jarIdx=-1;                        // v0.24 의식 뒷정리 (chaseCd가 재개시를 막는다)
   c.state='invest'; c.ivX=c.x; c.ivZ=c.z; c.ivArr=true;
   c.t=CHASE_BREAK_T; c.ivT=0; c.searchN=0;
   c.det[c.tgt]=0; c.detG[c.tgt]=0;
@@ -3930,7 +4035,7 @@ function updChickens(dt){
       moving=true;
       if(c.t>0.9 && Math.random()<dt*0.7) squawkS(c.x,c.z);
       c.t+=dt;
-      if(td<CHK_R+PLR_R+3 && tp.invuln<=0 && tp.stun<=0 && phase==='play') onCaught(c);
+      if(td<CHK_R+PLR_R+3 && tp.invuln<=0 && tp.stun<=0 && !isHidden(tp) && phase==='play') onCaught(c);   // v0.24: 항아리 안은 접촉 무효
       if(c.state==='chase'){
         if(!see&&!fresh) c.loseT+=dt; else c.loseT=0;
         const arrivedLS=Math.hypot(c.x-c.lsX,c.z-c.lsZ)<30;
@@ -3958,8 +4063,40 @@ function updChickens(dt){
         moveToward(c,nav.x,nav.z,INVEST_SPD*dt);
         moving=true; spd=INVEST_SPD;
         if(Math.hypot(c.x-c.ivX,c.z-c.ivZ)<30) c.ivArr=true;
+      } else if(c.jarT>0){
+        // v0.24 회전 의식 (D6) — 점유 항아리를 돌며 긁는다. 입구의 알은 그동안 진짜로 위험하다
+        // (기존 강탈 기계 그대로 — 도박이 실제여야 비트가 산다). 끝은 반드시 breakChase (J3: det=0, "포기했다"가 참)
+        c.jarT-=dt;
+        const J=JARS[c.jarIdx];
+        c.jarAng+=dt*1.7;
+        moveToward(c,J.x+Math.cos(c.jarAng)*34,J.z+Math.sin(c.jarAng)*34,INVEST_SPD*0.7*dt);
+        moving=true; spd=INVEST_SPD*0.7;
+        c.jarPeck-=dt;
+        if(c.jarPeck<=0){ c.jarPeck=0.7; peckS(c.x,c.z); }
+        if(J.occupant<0) c.jarT=0;             // 나왔다 — 의식 중단, 통상 재판정(시야·게이지)으로
+        let mouthEgg=null;
+        for(const e of eggs) if(e.state==='rest'&&Math.hypot(e.x-c.x,e.z-c.z)<40){ mouthEgg=e; break; }
+        if(mouthEgg){                           // 입구의 알을 문다
+          mouthEgg.state='robbed'; mouthEgg.carrier=c; mouthEgg.claimed=false; c.robEgg=mouthEgg;
+          c.state='rob'; c.strutT=0;
+          let bn=null,bd2=Infinity;
+          const cz2=zoneOfArea(c.x,c.z);
+          for(const n2 of NEST_POS){ if(zoneOfArea(n2.x,n2.z)!==cz2)continue; const dd=Math.hypot(n2.x-c.x,n2.z-c.z); if(dd<bd2){bd2=dd;bn=n2;} }
+          if(!bn)bn=NEST_POS[0];
+          c.tx=bn.x; c.tz=bn.z;
+          squawkS(c.x,c.z);
+          c.jarT=0;
+        }
+        else if(c.jarT<=0) breakChase(c);
+        c.t=Math.max(c.t,0.2);                  // 의식 중 invest 만료 금지
       } else {
         c.t-=dt;                               // 두리번 (렌더에서 머리 홱)
+        // v0.24: 도착점 60u 안의 점유 항아리 = 회전 의식. chaseCd>0(포기 비트 직후)면 재개시 금지 — 무한 루프 차단
+        const ji=nearestJar(c.x,c.z,JAR_ORBIT_R);
+        if(ji>=0&&JARS[ji].occupant>=0&&c.chaseCd<=0){
+          c.jarT=JAR_GIVE_T; c.jarIdx=ji; c.jarPeck=0.3;
+          c.jarAng=Math.atan2(c.z-JARS[ji].z,c.x-JARS[ji].x);
+        }
         // v0.22 수색: 도착해서 못 찾았고 예산이 남았으면 도주 방향으로 한 갈림목 더 간다.
         // 새 FSM이 아니라 기존 부품(forwardGap+ivArr)의 재전진이고, searchN이 분기를,
         // INVEST_TRAVEL_T가 각 구간을 유계로 만든다 (A9 — 종료가 구성적으로 보장된다)
@@ -3972,7 +4109,7 @@ function updChickens(dt){
             cluckS(c.x,c.z);                   // 한 번 더 뒤진다는 소리 — 포기 비트와 안 헷갈리게
           }
         }
-        if(c.t<=0){ c.state='return'; }
+        if(c.t<=0&&c.jarT<=0){ c.state='return'; }
       }
       if(blackout && phase==='play'){ const cp=nearestSeenCarrier(c); if(cp) toAlertForce(c,cp.idx); }
     }
@@ -4136,6 +4273,10 @@ function updChickens(dt){
 // 인텐트 큐 소화 — 프레임 시작 일괄 처리. 로컬·원격 입력이 같은 경로를 탄다 (금지선 위반 상환)
 function processActs(p){
   const acts=p.acts; p.acts=[];
+  if(isHidden(p)){                              // v0.24: 항아리 안에선 E(나오기)만 동사다
+    for(const a of acts) if(a.a==='pick') tryPickOrPlace(p);
+    return;
+  }
   for(const a of acts){
     if(a.a==='pick') tryPickOrPlace(p);
     else if(a.a==='pocket') tryPocket(p);
@@ -4156,6 +4297,14 @@ function processActs(p){
 function updPlayer(p,dt){
   if(phase!=='play') return;
   processActs(p);
+  // v0.24 항아리 안 (D6): 부동·무소음·무입력 (E 나오기만 processActs가 허용). 위치는 항아리에 고정
+  if(isHidden(p)){
+    const J=JARS[p.hideJar];
+    p.x=J.x; p.z=J.z; p.vx=0; p.vz=0; p.running=false;
+    p.stam=Math.min(1,p.stam+dt/STAM_REGEN_T);
+    p.stagger=0; p.jy=0; p.jvy=0;
+    return;
+  }
   p.shoveCd=Math.max(0,p.shoveCd-dt);
   p.killCd=Math.max(0,p.killCd-dt);
   p.shoveAnim=Math.max(0,p.shoveAnim-dt);
@@ -4413,6 +4562,7 @@ function resetWorld(){
     p.glove=false; p.held=null; p.pocket=null;
     p.sunglasses=false;                          // v0.21 감정 도구는 판당 구매 — 점수 초기화와 대칭 (이월 = 공짜 안경 버그)
     p.torch=TORCH_DEFAULT;                       // v0.24 손전등 — 켜진 채로 밤을 시작한다
+    p.hideJar=-1;                                // v0.24 항아리
     p.yaw=-Math.PI/2; p.pitch=0;
     p.mv.x=0; p.mv.z=0; p.mv.run=false; p.acts.length=0;
   }
@@ -4442,6 +4592,7 @@ function resetWorld(){
     c.alarmCd=0; c.revengeT=0; c.ko=false; c.snoreT=0; c.wakeT=0;
     c.seeAcc=0; c.predicted=false; c.lsVX=0; c.lsVZ=0;
     c.chaseCd=0; c.cutter=false; c.searchN=0; c.searchVX=0; c.searchVZ=0; c.preChase=false;   // v0.22
+    c.jarT=0; c.jarIdx=-1; c.jarAng=0; c.jarPeck=0;   // v0.24
     c.det.fill(0); c.detG.fill(0); c.detTicked=false; c.ivT=0; c.tgt=0;
     if(c.meatGiven){ c.meatGiven=false; c.m.tail.visible=true; c.m.g.scale.set(1,1,1); }
     if(c.dead){ c.dead=false; c.m.g.rotation.set(0,0,0); c.m.g.visible=true; }   // v0.20 판이 새로 시작하면 닭도 돌아온다
@@ -4458,6 +4609,7 @@ function resetWorld(){
     rc.carry=null; rc.tgtEgg=null; rc.m.g.visible=false; rc.nx=undefined;
   }
   lastVal=0; popT=0; popSpr.visible=false;
+  for(const J of JARS) J.occupant=-1;            // v0.24 항아리 점유 초기화
   for(const m of splats) m.visible=false;
   for(const m of deliveredMesh) m.visible=false;
   stats={t:0,broken:0,delivered:0,caught:0,meat:0,score:0};
@@ -4693,7 +4845,7 @@ function render(){
   // 아바타 ×4 — 뷰어 본인은 3인칭에서만, 원격은 항상 (M1 D29)
   for(let i=0;i<MAX_PLAYERS;i++){
     const p=players[i], av=avatars[i];
-    const show=p.active&&(phase!=='title'&&phase!=='intro')&&(i!==me||camMode===1);
+    const show=p.active&&p.hideJar<0&&(phase!=='title'&&phase!=='intro')&&(i!==me||camMode===1);   // v0.24 항아리 안은 아바타 숨김
     av.g.visible=show;
     if(!show) continue;
     av.g.position.set(p.x,p.jy+groundY(p.x,p.z),p.z);
@@ -5006,6 +5158,7 @@ function render(){
   else if(phase!=='play'){ pr.textContent=''; }
   else if(NET.on&&!NET.host&&NET.pause){ pr.textContent=''; }
   else if(v.stun>0){ pr.textContent='넘어졌다…'; }
+  else if(isHidden(v)){ pr.textContent='E — 나오기 (긁는 소리가 멎을 때까지 기다려라)'; }
   else if(blackout&&v.held){
     const below=zoneOfArea(v.x,v.z)!==0;   // 지하·계단이면 탈출 유도가 다르다
     const nearKitch=Math.hypot(KITCHEN_POS.x-v.x,KITCHEN_POS.z-v.z)<KITCHEN_R+24;
@@ -5017,8 +5170,11 @@ function render(){
   else if(v.held){
     const nearCart=Math.hypot(cart.x-v.x,cart.z-v.z)<CART_LOAD_R;
     const nearKitch=Math.hypot(KITCHEN_POS.x-v.x,KITCHEN_POS.z-v.z)<KITCHEN_R+24;   // v0.15 — 놓기는 기존 E 그대로, 문구만 문맥화
+    const jarH=nearestJar(v.x,v.z,JAR_R);       // v0.24 — 든 손 입장: 값을 노출하는 게 입장료임을 미리 말한다
     pr.textContent=(v.shake>SHAKE_TELE)
       ? '계란이 미끄러진다!! — 걸어!'
+      : (jarH>=0&&JARS[jarH].occupant<0)
+      ? 'E — 항아리에 숨기 (든 알은 입구에 놓인다!)'
       : (nearKitch&&v.held.heat===0
         ? 'E — 보온등 아래 내려놓기 (기다리면 익는다 — 값이 오른다)'
         : nearKitch&&v.held.heat===1
@@ -5041,6 +5197,7 @@ function render(){
     const gloveNear=!v.glove&&gloveMesh.visible&&Math.hypot(GLOVE_POS.x-v.x,GLOVE_POS.z-v.z)<PICK_R+40;
     const nearCart=Math.hypot(cart.x-v.x,cart.z-v.z)<CART_GRAB_R;
     const nearShades=!v.sunglasses&&!v.held&&Math.hypot(SHADES_POS.x-v.x,SHADES_POS.z-v.z)<SHADES_R;   // v0.21
+    const jarI=nearestJar(v.x,v.z,JAR_R);       // v0.24
     let raccBusy=null;   // v0.21 — 눈앞에서 도둑질 중인 너구리 (grab·drag만. 얼쩡거림엔 침묵 — 세계가 말한다)
     for(const rc of raccs) if((rc.state==='grab'||rc.state==='drag')&&Math.hypot(rc.x-v.x,rc.z-v.z)<200){ raccBusy=rc; break; }
     let downed=null;
@@ -5050,6 +5207,8 @@ function render(){
                    : (downed&&v.glove&&v.held) ? '때리려면 빈손이어야 한다 — E로 내려놓고'
                    : robber ? (v.glove?'저 닭이 계란을 훔쳐간다! 좌클릭 — 펀치로 떨구기':'저 닭이 계란을 훔쳐간다! 좌클릭 — 밀쳐서 떨구기')
                    : raccBusy ? '너구리가 짐을 털어간다!! 좌클릭 — 한 대면 다 떨군다'
+                   : (jarI>=0&&JARS[jarI].occupant<0) ? 'E — 항아리에 숨기'
+                   : (jarI>=0) ? '항아리가 찼다'
                    : nearShades ? ('E — 선글라스 사기 ('+SHADES_COST+'점): 물건 값이 보인다'+
                             (stats.score<SHADES_COST?' — 아직 '+Math.max(0,SHADES_COST-stats.score)+'점 모자라다':''))
                    : gloveNear ? 'E — 권투 글러브 줍기'
@@ -5120,7 +5279,8 @@ function buildSnap(){
         q1(p.shake),p.running?1:0,
         p.hp,q1(p.shoveCd),
         p.sunglasses?1:0,
-        p.torch]),                              // [13][14] v0.20, [15] v0.21 선글라스, [16] v0.24 손전등 삼상태 — 중간 삽입·삭제 금지
+        p.torch,
+        p.hideJar+1]),                          // [13][14] v0.20, [15] 선글라스, [16] 손전등, [17] 항아리(idx+1, 0=밖) — 중간 삽입·삭제 금지
     ck:chickens.map(c=>[q1(c.x),q1(c.z),q1(c.dir),CK_STATES.indexOf(c.state),c.ko?1:0,
         q1(c.det[0]),q1(c.det[1]),q1(c.det[2]),q1(c.det[3]),c.tgt,
         (c.revengeT>0?1:0)]),                 // [10] v0.22 append — 격노 비트. revengeT는 updChickens 안에만 살아서
@@ -5189,6 +5349,7 @@ function hostOnFrom(slot,d){
 function dropLeaver(slot){
   const p=players[slot];
   if(!p||!p.active) return;
+  if(p.hideJar>=0){ JARS[p.hideJar].occupant=-1; p.hideJar=-1; }   // v0.24: 나간 사람이 항아리를 잠그고 가지 않게
   for(const e of [p.held,p.pocket]){
     if(!e) continue;
     const t={x:p.x,z:p.z,r:EGG_R+2}; collideCircle(t);
@@ -5269,6 +5430,7 @@ function applySnap(s){
     p.hp=(a[13]===undefined?HP_MAX:a[13]|0); p.shoveCd=a[14]||0;   // v0.20 append 미러 (구 스냅샷 폴백)
     p.sunglasses=!!a[15];                                          // v0.21 append 미러 (undefined 관용)
     p.torch=(a[16]===undefined?TORCH_DEFAULT:a[16]);               // v0.24 손전등 미러
+    p.hideJar=(a[17]===undefined?0:a[17])-1;                       // v0.24 항아리 미러 (점유 렌더는 아바타 숨김이 대신한다)
     if(i===me){
       // 자기 예측 보정 (D17): 데드밴드 밖·벽 불일치·잡힘 순간만 개입
       const hx=a[1],hz=a[2];
@@ -5401,6 +5563,7 @@ function clientPhase(op,np){
 function clientPredict(dt){
   const p=players[me];
   if(p.stun>0) return;
+  if(isHidden(p)){ const J=JARS[p.hideJar]; p.x=J.x; p.z=J.z; return; }   // v0.24 항아리 고정 (호스트 판정 미러)
   p.stagger=Math.max(0,p.stagger-dt); p.shoveAnim=Math.max(0,p.shoveAnim-dt);   // v0.20 로컬 감쇠
   // 점프 y — 로컬 체감용 (규칙 판정은 호스트의 jy가 담당. 소음도 호스트 몫)
   if(p.jy>0||p.jvy!==0){
@@ -6042,7 +6205,7 @@ function mustRoute(){
     for(const f of CHK_WAKE_FRAC) if(!(f>0&&f<1)) bad.push('wake frac out of night'); }
   // 17c) v0.20 HP·연사 — 튜플 폭 잠금 + 상수 부등식 (완충이 카운트다운이 되는 조합을 로드타임에 차단)
   { const t0=buildSnap().pl[0];
-    if(t0.length!==17||t0[12]!==(players[0].running?1:0)) bad.push('pl tuple drift');   // v0.24: [16] 손전등 append → 17폭
+    if(t0.length!==18||t0[12]!==(players[0].running?1:0)) bad.push('pl tuple drift');   // v0.24: [16] 손전등 + [17] 항아리 → 18폭
     if(!(PUSH_CD>PUSH_STAGGER)) bad.push('push cd < stagger');
     if(!(SHOVE_ANIM_T<PUSH_CD)) bad.push('shove anim >= cd');
     if(!(KILL_CD>=KO_T)) bad.push('kill cd < ko window');

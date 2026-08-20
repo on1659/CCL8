@@ -1,7 +1,7 @@
 {
   "_": "양계장 습격 — 몬스터·설정 데이터. dev/tuner.html로 편집한다.",
   "_주의": "값을 빼거나 형이 다르면 그 항목만 게임 내장 기본값으로 떨어진다. 구조값(PER_TRAY·RACC_N·GOOSE_N)과 v0.22 동결 상수는 여기 없다 — 게임 코드에만 있다.",
-  "version": "v0.23.0",
+  "version": "v0.24.0",
   "values": {
     "ABANDON_R": 92,
     "ABANDON_T": 3,
@@ -52,6 +52,7 @@
     "INVEST_DWELL": 2,
     "INVEST_SPD": 110,
     "INVEST_TRAVEL_T": 6,
+    "JAR_GIVE_T": 4,
     "KILL_ALARM_R": 700,
     "KILL_RAGE_T": 9,
     "KO_T": 6,
