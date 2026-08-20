@@ -366,11 +366,33 @@ function BAKED_LAYOUT(){ return {
         {f:1,home:[0,3],guard:-1,loop:[[0,3],[0,2],[1,3]]},
         {f:1,home:[1,1],guard:-1,loop:[[1,1],[1,0],[1,2]]}],
   kitchen:[3,0], baked:true,
+  jars:[{f:0,cell:[5,1]},{f:0,cell:[7,3]},{f:0,cell:[2,3]},{f:0,cell:[0,4]},{f:1,cell:[3,3]},{f:1,cell:[5,0]},{f:1,cell:[3,0]}],   // 그리디 전수시작 최선 (1F 최원 1025 / B1 975 — J1 1500 통과)   // 전수탐색 최선 (1F 최원 925 / B1 975 — J1 1000 통과)   // v0.24 — 구운맵도 J1을 지킨다 (폴백이 밸브를 어기면 안 된다)
 };}
 
 // 단일 술어 소스 — 생성 루프와 로드타임 validate()가 이 함수 하나를 공유한다 (검사 드리프트 원천 차단, D-GEN6).
 // 위협 배치 3원칙의 술어형: ①추출 축 캠핑 금지=척추 무마개·루프 척추 금지 ②우회=지킴 유한 체류(상수 불변)
 // ③선전조=FSM 상수 불변 — 배치 제약 불요
+// v0.24 항아리 (D6) — 구조 상수: 개수는 로드-사망 계급이라 절대 T() 금지. 도달 상한도 순수 기하 상수 —
+// 레이아웃 채택이 튜닝 페이로드에 의존하면 "같은 시드·다른 맵"(해시 층이 잡으라고 있는 그 계급)을 자초한다
+const JAR_N_1F=4, JAR_N_B1=3;      // 패널 초안 3+2는 저밀도 미로에서 도달 보증 불가(실측) — 코너가 늘었으니 숨을 곳도 늘린다
+const JAR_PATH_MAX_U=1500;         // J1: 모든 셀 → 최근접 동층 항아리, 가중 BFS(열 CW=300 / 통로 AH+RH=125) 상한.
+// 패널 초안 700은 실측 불가능이었다: 이 격자의 전수탐색 최선이 구밀도에서 925, 신밀도(코너↑)엔 훨씬 위.
+// 1500 근거 = 도주 산수 J2: 질주 예금 915.6u(+123.6u 볌림) 후 잔여 584.4u를 지속으로 달려도
+// 여유 165.4u > 잡힘 28 (validate의 J2가 파생 기호로 단정) — 숫자 둘은 한 손잡이다
+// 다중 소스 가중 BFS — J1의 몸. 미로 인접(mazeNbrs)을 그대로 쓴다 (경로 술어 단일 소스)
+function jarDistGrid(m,an,cn,jars){
+  const D=Array.from({length:an},()=>Array(cn).fill(Infinity));
+  const q=[];
+  for(const [a,c] of jars){ D[a][c]=0; q.push([a,c]); }
+  while(q.length){
+    const [a,c]=q.shift();
+    for(const [na,nc] of mazeNbrs(m,an,cn,a,c)){
+      const w=(na===a)?CW:(AH+RH);
+      if(D[a][c]+w<D[na][nc]){ D[na][nc]=D[a][c]+w; q.push([na,nc]); }
+    }
+  }
+  return D;
+}
 function layoutChecks(L){
   const bad=[];
   const m0={MH:L.MH0,MV:L.MV0}, m1={MH:L.MH1,MV:L.MV1};
@@ -411,6 +433,33 @@ function layoutChecks(L){
   for(const k of L.chks)if(k.f===0){ used.add(k.home[0]+','+k.home[1]); if(k.loop)for(const [a,c] of k.loop)used.add(a+','+c); }
   if(used.has(ka+','+kc))bad.push('주방 셀 점유');
   if(L.eastHole===SPINE)bad.push('개구멍 척추');
+  // v0.24 항아리 (D6/J1) — 배치 행 + 도달 보증. 여기가 단일 소스: 생성 재시도와 validate()가 같은 술어를 돈다.
+  // J1은 A3(예산 만료 도보 탈출 보증)의 승계자다 — 보증의 몸이 다리에서 항아리로 옮겨갔다 (D9)
+  {
+    const jars=L.jars||[];
+    if(jars.filter(j=>j.f===0).length!==JAR_N_1F)bad.push('항아리 1F 수');
+    if(jars.filter(j=>j.f===1).length!==JAR_N_B1)bad.push('항아리 B1 수');
+    const usedJ=new Set();
+    for(const t of L.trays)usedJ.add(t.f+':'+t.cell[0]+','+t.cell[1]);
+    for(const k of L.chks){ usedJ.add(k.f+':'+k.home[0]+','+k.home[1]); if(k.loop)for(const [a,c] of k.loop)usedJ.add(k.f+':'+a+','+c); }
+    usedJ.add('0:'+ka+','+kc);
+    for(const j of jars){
+      if(j.cell[0]===(j.f===0?SPINE:B1_SPINE))bad.push('항아리 척추');
+      if(usedJ.has(j.f+':'+j.cell[0]+','+j.cell[1]))bad.push('항아리 셀 점유');
+    }
+    for(let i=0;i<jars.length;i++)for(let k2=i+1;k2<jars.length;k2++){
+      const A2=jars[i],B2=jars[k2];
+      if(A2.f===B2.f&&Math.abs(A2.cell[0]-B2.cell[0])+Math.abs(A2.cell[1]-B2.cell[1])<2)bad.push('항아리 밀집');
+    }
+    for(const [f,m,an,cn] of [[0,m0,A_N,C_N],[1,m1,B1_A_N,B1_C_N]]){
+      const js=jars.filter(j=>j.f===f).map(j=>j.cell);
+      if(!js.length)continue;
+      const D=jarDistGrid(m,an,cn,js);
+      let worst=0;
+      for(let a=0;a<an;a++)for(let c=0;c<cn;c++)if(D[a][c]>worst)worst=D[a][c];
+      if(worst>JAR_PATH_MAX_U)bad.push('J1 항아리 사각 f'+f+' 최원 '+Math.round(worst)+'>'+JAR_PATH_MAX_U);
+    }
+  }
   bad.push(...gateChecks(L));       // 관문(정문·계단) — 상주 + 통과 (v0.20)
   return bad;
 }
@@ -447,8 +496,11 @@ function genAttempt(sub){
   const rng=mulberry32(sub);
   const pick=arr=>arr[Math.floor(rng()*arr.length)];
   const shuf=arr=>{ const a=arr.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(rng()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t; } return a; };
-  const m0=genMaze(rng,A_N,C_N,SPINE,57);
-  const m1=genMaze(rng,B1_A_N,B1_C_N,B1_SPINE,28);
+  // v0.24 (D3): 개방 57→50 / 28→25 — 개발자 "코너를 많이 만들어서 헷갈리게".
+  // 막다른길이 곧 공포의 화폐다: 어그로가 안 풀리는 밤엔 잘못 꺾은 길이 진짜 비용이 된다.
+  // 척추는 여전히 무마개 직선 (귀갓길은 읽히고, 사냥은 골목에서 벌어진다 — 공포 페이싱)
+  const m0=genMaze(rng,A_N,C_N,SPINE,50);
+  const m1=genMaze(rng,B1_A_N,B1_C_N,B1_SPINE,25);
   const d0=bfsGrid(m0,A_N,C_N,SPINE,0);           // 정문 셀 (SPINE,0)
   const d1=bfsGrid(m1,B1_A_N,B1_C_N,B1_SPINE,0);  // 계단 입구 셀 (B1_SPINE,0)
   const eastHole=pick([...Array(A_N).keys()].filter(a=>a!==SPINE));
@@ -528,18 +580,57 @@ function genAttempt(sub){
     if(d0[a][c]>=1&&d0[a][c]<=3&&!occ.has(a+','+c))kC.push([a,c]);
   if(!kC.length)return null;
   const kitchen=pick(kC);
-  return {MH0:m0.MH,MV0:m0.MV,MH1:m1.MH,MV1:m1.MV,eastHole,trays,chks,kitchen};
+  // v0.24 항아리 (D6) — 맨 끝 추첨 (최소 제약 객체를 맨 뒤에 — 재시도 원인화 최소의 관례 유지):
+  // 비척추·트레이∪홈∪루프∪주방 제외·동층 상호 격자거리 ≥2. 도달 보증(J1)은 layoutChecks가 잰다
+  occ.add(key(kitchen));
+  // 눈먼 무작위 추첨은 J1을 거의 못 맞춘다(실측 999/1000 폴백) — 탐욕 k-center로 구성적 추첨:
+  // 첫 점은 rng(시드 순수), 이후는 기존 항아리에서 가장 먼 자유 셀 반복 (타이브레이크 = 순회 순서 = 결정론)
+  const jarDraw=(m,an,cn,cells,used,n)=>{
+    const free=cells.filter(c=>!used.has(key(c)));
+    if(free.length<n)return null;
+    let bestSet=null,bestW=Infinity;
+    for(let r2=0;r2<3;r2++){                     // 그리디 3재시작 중 최적 커버리지 채택 — 시도당 J1 기각률을 낮춰 평균 재시도를 게이트(≤4) 안으로
+      const out=[pick(free)];
+      while(out.length<n){
+        const D=jarDistGrid(m,an,cn,out);
+        let best=null,bd=-1;
+        for(const c of free){
+          if(out.some(o=>key(o)===key(c)))continue;
+          if(out.some(o=>Math.abs(o[0]-c[0])+Math.abs(o[1]-c[1])<2))continue;
+          const d=D[c[0]][c[1]];
+          if(d>bd){ bd=d; best=c; }
+        }
+        if(!best)break;
+        out.push(best);
+      }
+      if(out.length!==n)continue;
+      const D2=jarDistGrid(m,an,cn,out);
+      let w=0;
+      for(let a2=0;a2<an;a2++)for(let c2=0;c2<cn;c2++)if(D2[a2][c2]>w)w=D2[a2][c2];
+      if(w<bestW){ bestW=w; bestSet=out; }
+    }
+    return bestSet;
+  };
+  const j0=jarDraw(m0,A_N,C_N,f0cells,occ,JAR_N_1F);
+  if(!j0)return null;
+  const occ1=new Set();
+  for(const t of trays)if(t.f===1)occ1.add(key(t.cell));
+  for(const k2 of chks)if(k2.f===1){ occ1.add(key(k2.home)); if(k2.loop)for(const c of k2.loop)occ1.add(key(c)); }
+  const jB=jarDraw(m1,B1_A_N,B1_C_N,f1cells,occ1,JAR_N_B1);
+  if(!jB)return null;
+  const jars=[...j0.map(cell=>({f:0,cell})),...jB.map(cell=>({f:1,cell}))];
+  return {MH0:m0.MH,MV0:m0.MV,MH1:m1.MH,MV1:m1.MV,eastHole,trays,chks,kitchen,jars};
 }
 
 // 레이아웃 = 시드의 순수 함수. (유계 재시도 × 결정론적 폴백 × 단일 술어 소스) — 셋이 곱해져야
 // "나쁜 시드가 게임을 벽돌로 못 만든다"가 성립한다 (D-GEN6)
 function genLayout(seed){
-  for(let i=0;i<16;i++){
+  for(let i=0;i<32;i++){   // v0.24: 16→32 — 개방 하향+항아리 J1로 시도당 기각률이 올라 상한을 함께 올린다 (1000시드 게이트 실측)
     const sub=(seed+Math.imul(i,0x9E3779B9))>>>0;   // 황금비 스트라이드 — 시도 간 탈상관
     const L=genAttempt(sub);
     if(L&&layoutChecks(L).length===0){ L.attempt=i; return L; }
   }
-  console.error('[생성] 시드 '+seed+' 16회 소진 — 구운 리터럴 폴백');
+  console.error('[생성] 시드 '+seed+' 32회 소진 — 구운 리터럴 폴백');
   const B=BAKED_LAYOUT(); B.attempt=-1;
   return B;
 }
@@ -547,7 +638,7 @@ const LAYOUT=USE_BAKED?BAKED_LAYOUT():genLayout(MAP_SEED);
 // FNV-1a 32 — 레이아웃 전산출물 해시. 같은 시드·다른 빌드(코드 차·비결정 유출)의 발산을
 // 접속 시점에 검출한다 — 시드 동등성만으론 못 잡는 계급 (D-NET3)
 function fnv1a(s){ let h=0x811c9dc5; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,0x01000193); } return h>>>0; }
-const layoutKey=L=>JSON.stringify([L.MH0,L.MV0,L.MH1,L.MV1,L.eastHole,L.trays,L.chks,L.kitchen]);
+const layoutKey=L=>JSON.stringify([L.MH0,L.MV0,L.MH1,L.MV1,L.eastHole,L.trays,L.chks,L.kitchen,L.jars]);   // v0.24: jars 포함 (누락 = 발산 재개방)
 const LAYOUT_HASH=fnv1a(layoutKey(LAYOUT));
 
 const MAZE_H=LAYOUT.MH0, MAZE_V=LAYOUT.MV0;
@@ -906,7 +997,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.23.0'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.24.0'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -6054,7 +6145,8 @@ function mustRoute(){
   // v0.23: 판정을 값으로도 남긴다 — 튜너가 blob: iframe으로 후보 설정을 콜드 부팅한 뒤 이걸 읽는다.
   // 검사를 복사하지 않고 게임 자신의 술어를 그대로 쓰는 유일한 방법 (단일 소스 원칙). 콘솔 출력은 그대로 둔다
   try{ window.CCL8_VERDICT={bad:bad.slice(),seed:MAP_SEED,hash:LAYOUT_HASH,ver:PROTO_V,
-       tune:tuneHash(),src:TUNE_SRC,values:TUNE_USED}; }catch(e){}
+       tune:tuneHash(),src:TUNE_SRC,values:TUNE_USED,
+       attempt:LAYOUT.attempt,baked:!!LAYOUT.baked}; }catch(e){}
   // 설정 출처를 타이틀에 정직하게 (기본값으로 떨어졌으면 그렇다고 말한다 — 조용한 폴백 금지)
   try{ const tb=document.getElementById('tuneBadge');
        if(tb&&TUNE_SRC!=='monsters.json'){ tb.textContent='· '+TUNE_SRC; tb.style.color='#ffb08a'; } }catch(e){}
