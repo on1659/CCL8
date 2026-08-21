@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.24.0</title>
+<title>양계장 습격 — 웹 프로토타입 v0.25.0</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -131,7 +131,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.24.0 <span id="tuneBadge"></span></div>
+  <div class="sub">웹 프로토타입 v0.25.0 <span id="tuneBadge"></span></div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -1008,7 +1008,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.24.0'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.25.0'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -2076,7 +2076,7 @@ function updWorldUI(dt){
   const warnJ=(flickT>0&&!blackout)?(Math.random()<0.5?0.35:1):1;
   for(let i=0;i<MAX_PLAYERS;i++){
     const p=players[i], TC=TORCHES[i];
-    const on=p.active&&!p.dead&&!p.hideJar&&p.torch===2&&phase!=='title'&&phase!=='intro';
+    const on=p.active&&!p.dead&&p.hideJar<0&&p.torch===2&&phase!=='title'&&phase!=='intro';   // v0.25 수리: hideJar는 -1이 "밖" — !p.hideJar는 항상 거짓이라 손전등이 영영 안 켜졌다
     let f=on?1:0;
     if(blackout) f*=(torchDieT>0?torchJ:0);
     else f*=warnJ;
@@ -2445,6 +2445,7 @@ for(let i=0;i<CHK_COUNT;i++){
     guard:CHK_DEF[i].guard,
     loop:(CHK_DEF[i].loop?CHK_DEF[i].loop.map(([a,c])=>({x:fCellXC(CHK_DEF[i].f,c),z:fAisleZC(CHK_DEF[i].f,a)})):null),
     loopI:0,dwell:0,ax:CHK_HOME[i].x,az:CHK_HOME[i].z,
+    roamX:CHK_HOME[i].x,roamZ:CHK_HOME[i].z,roamHas:false,   // v0.25 전층 배회 표적 (호스트 전용 — 클라는 위치 미러)
     alarmCd:0,revengeT:0,ko:false,snoreT:0,meatGiven:false,dead:false,wakeT:0,
     seeAcc:0,predicted:false,lsVX:0,lsVZ:0,
     // v0.22 추격 — 전부 호스트 전용(무선 0). chaseCd 재추격 금지 / cutter 협공 역할 /
@@ -3689,12 +3690,44 @@ function koChicken(c,p){
   }
   burst(c.x,20,c.z,30,COL_FEATHER,26,1.4,6);
 }
-// 배회는 제 셀 안 — 미로에서도 존이 유지된다 (층 디스크립터 기준)
-function pickWander(c){
+// v0.25 전층 배회 (docs/goal/chicken-heist-full-roam.md) — "배회는 제 셀 안" 폐지.
+// 개발자 확정 "전원 층 전체 배회": v0.21 "지키는 알은 항상 지켜진다"의 상주 조항 번복 (반응 guardOrInvest는 생존).
+// 표적 술어 = 정적 배치 술어의 런타임판: 자기 층 · 척추 제외(통과는 허용 — 정적 규칙과 동일 어의) ·
+// 관문(정문·계단) 제외 · 어떤 최단경로도 관문을 지나지 않음(onAnyShortest 보수 판정 — 검사가 실제 이동의 상위집합).
+// 관문 경유로만 닿는 구석 셀은 표적이 안 된다 = 입구·계단 목은 무자극 위협 없이 남는다 (잠입·탈출 밸브 보존)
+const GATE_CID=[gcid(0,SPINE,0),gcid(0,SPINE,C_N-1),gcid(1,B1_SPINE,0)];
+const ROAM_CELLS=[[],[]];
+for(let ci=0;ci<CELLS.length;ci++){
+  const cell=CELLS[ci];
+  if(cell.a===(cell.f===0?SPINE:B1_SPINE)) continue;
+  if(GATE_CID.includes(ci)) continue;
+  ROAM_CELLS[cell.f].push(ci);
+}
+// oc→tc의 "어떤" 최단경로가 관문을 지나는가 — dist 삼각식 (BFS 타이브레이크와 무관하게 보수적)
+function roamPathHitsGate(oc,tc){
+  const D=NEXT[oc].dist;
+  if(D[tc]<0) return true;                     // 도달 불가도 기각
+  for(const g of GATE_CID)
+    if(D[g]>=0&&NEXT[g].dist[tc]>=0&&D[g]+NEXT[g].dist[tc]===D[tc]) return true;
+  return false;
+}
+function pickRoam(c){
+  const oc=cellOf(c.x,c.z), pool=ROAM_CELLS[c.hf];
+  for(let k=0;k<8;k++){
+    const id=pool[Math.floor(Math.random()*pool.length)];
+    if(id===oc) continue;
+    if(oc>=0&&roamPathHitsGate(oc,id)) continue;
+    const cell=CELLS[id], FL=FLOORS[cell.f];
+    c.roamX=Math.max(FL.x0+60,Math.min(FL.x0+FL.cn*CW-60, cell.x+(Math.random()*2-1)*(CW/2-80)));
+    c.roamZ=fAisleZ0(cell.f,cell.a)+30+Math.random()*(AH-60);
+    c.roamHas=true;
+    return;
+  }
+  // 폴백 — 홈 셀 지터 (구 pickWander의 몸): 표적 추첨이 8연속 미끄러져도 닭은 멈추지 않는다
   const [a,cc]=c.homeCell, f=c.hf, FL=FLOORS[f];
-  c.tx=Math.max(FL.x0+60,Math.min(FL.x0+FL.cn*CW-60, fCellXC(f,cc)+(Math.random()*2-1)*(CW/2-80)));
-  c.tz=fAisleZ0(f,a)+30+Math.random()*(AH-60);
-  c.t=2.2+Math.random()*2.6;
+  c.roamX=Math.max(FL.x0+60,Math.min(FL.x0+FL.cn*CW-60, fCellXC(f,cc)+(Math.random()*2-1)*(CW/2-80)));
+  c.roamZ=fAisleZ0(f,a)+30+Math.random()*(AH-60);
+  c.roamHas=true;
 }
 // v0.22: 세 가지 수리. ① 0거리 가드 — atan2(0,0)=0이라 목표에 정확히 닿은 닭이 전속력으로 북쪽으로
 // 달려갔다(플레이어가 남쪽이면 문자 그대로 "혼자 뒤로 감"). 최후 목격점에 도착할 때마다 도달 가능했다.
@@ -3967,7 +4000,7 @@ function updChickens(dt){
       if(phase==='play'&&c.wakeAt>=0&&stats.t>=c.wakeAt){
         if(c.wakeT>0){                                       // 예고 진행 — 퍼덕이며 형체가 생긴다 (0.8s)
           c.wakeT-=dt;
-          if(c.wakeT<=0){ c.state='wander'; pickWander(c); }
+          if(c.wakeT<=0){ c.state='wander'; c.roamHas=false; c.dwell=0; }   // v0.25 깨자마자 배회 표적 추첨
         } else {
           c.t-=dt;
           if(c.t<=0){
@@ -4029,27 +4062,20 @@ function updChickens(dt){
         cluckS(c.x,c.z);
         if(blackout&&nd<CLUCK_WAVE_MAX) waveCast(c.x,c.z,VIS_CLUCK,'cluck');  // 닭도 어둠이 불안하다 (게이트: 최근접 — D20)
       }
-      if(c.loop){
-        // C1 순찰 — 리터럴 루프를 그래프 내비로 순회. 조우는 루프가 정하고 체류 지터만 랜덤
-        if(c.dwell>0){ c.dwell-=dt; }
-        else {
-          const wp=c.loop[c.loopI];
-          const nav=navTo(c,wp.x,wp.z);
-          c.tx=nav.x; c.tz=nav.z;
-          moveToward(c,nav.x,nav.z,PATROL_SPD*dt);
-          moving=true; spd=PATROL_SPD;
-          if(Math.hypot(c.x-wp.x,c.z-wp.z)<30){
-            c.ax=wp.x; c.az=wp.z;             // 앵커 = 도착한 웨이포인트
-            c.loopI=(c.loopI+1)%c.loop.length;
-            c.dwell=2.2+Math.random()*2.6;
-          }
+      // v0.25 전층 배회 — 리터럴 루프·셀 배회 폐지 (loop 데이터는 생성 산출물·휴면 신원으로만 산다).
+      // 전원이 pickRoam 표적을 그래프 내비로 순회 — 지킴도 트레이를 떠난다 (소음 반응 guardOrInvest가 방어를 승계)
+      if(c.dwell>0){ c.dwell-=dt; }
+      else {
+        if(!c.roamHas) pickRoam(c);
+        const nav=navTo(c,c.roamX,c.roamZ);
+        c.tx=nav.x; c.tz=nav.z;
+        moveToward(c,nav.x,nav.z,PATROL_SPD*dt);
+        moving=true; spd=PATROL_SPD;
+        if(Math.hypot(c.x-c.roamX,c.z-c.roamZ)<30){
+          c.ax=c.roamX; c.az=c.roamZ;         // 앵커 = 도착한 웨이포인트 (리쉬 의미 승계)
+          c.dwell=0.6+Math.random()*1.2;      // 구 2.2~4.8은 "서 있는 닭"으로 읽혔다 — 계속 배회가 주문
+          c.roamHas=false;
         }
-      } else {
-        c.t-=dt;
-        if(c.t<=0) pickWander(c);
-        const d=moveToward(c,c.tx,c.tz,CHK_WANDER*dt);
-        moving=true; spd=CHK_WANDER;
-        if(d<12) pickWander(c);
       }
       if(blackout && phase==='play'){ const cp=nearestSeenCarrier(c); if(cp) toAlert(c,cp.idx); }   // 정전 즉발 (밝은 구간은 게이지)
     }
@@ -4301,7 +4327,7 @@ function updChickens(dt){
       c.tx=nav.x; c.tz=nav.z;
       moveToward(c,nav.x,nav.z,CHK_WANDER*1.5*dt);
       moving=true; spd=CHK_WANDER*1.5;
-      if(Math.hypot(c.x-c.ax,c.z-c.az)<14){ c.state='wander'; if(!c.loop) pickWander(c); else c.dwell=0.5; }
+      if(Math.hypot(c.x-c.ax,c.z-c.az)<14){ c.state='wander'; c.roamHas=false; c.dwell=0.5; }   // v0.25 귀환 도착 = 새 배회 표적
       if(blackout && phase==='play'){ const cp=nearestSeenCarrier(c); if(cp) toAlert(c,cp.idx); }
     }
 
@@ -4675,7 +4701,7 @@ function resetWorld(){
     c.det.fill(0); c.detG.fill(0); c.detTicked=false; c.ivT=0; c.tgt=0;
     if(c.meatGiven){ c.meatGiven=false; c.m.tail.visible=true; c.m.g.scale.set(1,1,1); }
     if(c.dead){ c.dead=false; c.m.g.rotation.set(0,0,0); c.m.g.visible=true; }   // v0.20 판이 새로 시작하면 닭도 돌아온다
-    c.m.alert.visible=false; pickWander(c);
+    c.m.alert.visible=false; c.roamHas=false;   // v0.25 배회 표적은 wander 진입 시 지연 추첨
   }
   assignDormant();   // v0.21 몰래 리젠 (D2) — 트레이 지킴 6마리는 t=0 전원 가동, 순찰자 4마리만 휴면 (단일 소스)
   for(const gs of geese){
@@ -5039,7 +5065,7 @@ function render(){
     if(blackout&&p.active&&p.held&&p.held.mesh.visible){
       L.intensity=LANTERN_INT; L.distance=LANTERN_DIST;
       L.position.set(p.held.mesh.position.x,Math.max(30,p.held.mesh.position.y),p.held.mesh.position.z);
-    } else if(p.active&&!p.dead&&!p.hideJar&&phase!=='title'&&phase!=='intro'){
+    } else if(p.active&&!p.dead&&p.hideJar<0&&phase!=='title'&&phase!=='intro'){   // v0.25 수리: -1 센티널 (위 손전등 게이트와 같은 버그)
       L.intensity=0.35; L.distance=90;
       L.position.set(p.x,groundY(p.x,p.z)+50+p.jy,p.z);
     } else L.intensity=0;
@@ -6311,6 +6337,15 @@ function mustRoute(){
     for(const c of roam) if(c.state!=='dormant'||c.wakeAt<0) bad.push('roamer not dormant at t=0');
     for(const c of chickens) if(!(c.guard===-1&&c.loop)&&c.state==='dormant') bad.push('guard dormant');
     for(const f of CHK_WAKE_FRAC) if(!(f>0&&f<1)) bad.push('wake frac out of night'); }
+  // 17f) v0.25 전층 배회 — 표적 풀이 퇴화하지 않았고(층당 ≥8) 척추·관문이 새지 않았다.
+  // layoutChecks()에 넣지 말 것: 생성 게이트에 술어를 더하면 기존 시드의 채택 시도가 바뀌어 레이아웃 해시가 조용히 터진다
+  for(let f2=0;f2<2;f2++){
+    if(ROAM_CELLS[f2].length<8) bad.push('roam pool thin f'+f2+' '+ROAM_CELLS[f2].length);
+    for(const id of ROAM_CELLS[f2]){
+      const cl=CELLS[id];
+      if(cl.f!==f2||cl.a===(f2===0?SPINE:B1_SPINE)||GATE_CID.includes(id)) bad.push('roam pool leak f'+f2);
+    }
+  }
   // 17c) v0.20 HP·연사 — 튜플 폭 잠금 + 상수 부등식 (완충이 카운트다운이 되는 조합을 로드타임에 차단)
   { const t0=buildSnap().pl[0];
     if(t0.length!==19||t0[12]!==(players[0].running?1:0)) bad.push('pl tuple drift');   // v0.24: [16] 손전등 + [17] 항아리 + [18] 사망 → 19폭
