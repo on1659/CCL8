@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.25.0</title>
+<title>양계장 습격 — 웹 프로토타입 v0.25.1</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -131,7 +131,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.25.0 <span id="tuneBadge"></span></div>
+  <div class="sub">웹 프로토타입 v0.25.1 <span id="tuneBadge"></span></div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -273,7 +273,12 @@ const OPEN_W=120;                            // 케이지 열 관통 개구 폭 
 const PLUG_W=60;                             // 통로 마개(이동식 케이지) 폭
 const COOP_W=C_N*CW, COOP_D=A_N*AH+(A_N-1)*RH;   // 1800 × 960 (구 3330 × 2880 — 면적 18%)
 const BARN={x0:640, x1:640+COOP_W, z0:300, z1:300+COOP_D};
-const BARN_H=210;
+// v0.25.1 저천장 (docs/goal/chicken-heist-low-ceiling-fog.md) — 개발자 "천장이 낮아져야 되고 멀리 볼 수 없어야 돼".
+// 210→132: 미로 벽(96) 위 114u 공백이 홀 전체를 읽히게 했다. 132 = 점프 눈높이 최대 98 + 문틀 등대 상단 115 +
+// 전구(103)를 전부 보존하는 최저선. 계란 천장 클램프가 BARN_H를 직접 읽으므로 "렌더+계란 물리 동기"(v0.6)는 구조 보존.
+// ?tall=1 = dev A/B (구 천장 210 + 구 정적 안개 — 친구 링크엔 절대 미포함, bright=1 선례)
+const TALL_AB=/[?&]tall=1/.test(location.search);
+const BARN_H=TALL_AB?210:132;
 const FLOOR_H=150;                                    // 층 렌더 y 오프셋 (B1). 260→150: 램프 길이가 존 이격의 족쇄였다
 const TAU=Math.PI*2;
 
@@ -1008,7 +1013,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.25.0'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.25.1'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -1511,7 +1516,12 @@ const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('gl'),ant
 renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
 const scene=new THREE.Scene();
 scene.background=new THREE.Color(SKY_NIGHT_HEX);
-scene.fog=new THREE.Fog(SKY_NIGHT_HEX,1190,BARN.x1+700);   // v0.20: 축척 동반 (near 2200은 새 축사 대각 2040보다 커서 실내에서 안개가 꺼진다)   // v0.15: 색만 어둡게 — 거리 당기면 축사 문에서 트럭이 안 보인다
+// v0.25.1 실내 근거리 안개 — "거리 불변(트럭 가시성)" 주석의 재해석: 그 근거는 마당에만 산다 (개발자 "멀리 볼 수 없어야 돼").
+// 실외 값은 바이트 동일, 실내(축사·B1·계단통)에서만 70/480으로 조인다 — 손전등 350 + 꼬리 = 다음 갈림목까지만.
+// near/far의 기록자는 updWorldUI 하나 (fog.color는 여전히 updSky 소유 — 소유 분리를 깨지 말 것)
+const FOG_OUT_N=1190, FOG_OUT_F=BARN.x1+700;   // v0.20: 축척 동반 (near 2200은 새 축사 대각 2040보다 커서 실내에서 안개가 꺼진다)
+const FOG_IN_N=TALL_AB?FOG_OUT_N:70, FOG_IN_F=TALL_AB?FOG_OUT_F:480;
+scene.fog=new THREE.Fog(SKY_NIGHT_HEX,FOG_OUT_N,FOG_OUT_F);
 const camera=new THREE.PerspectiveCamera(72,1,1,14000);
 camera.rotation.order='YXZ';
 scene.add(camera);
@@ -1651,7 +1661,7 @@ function segBox(s,h,material,yBase){
 }
 for(const s of walls){
   if(s.kind==='truck'||s.kind==='cage'||s.kind==='plug'||s.kind==='flapIn') continue;
-  if(s.kind==='stair'){ scene.add(segBox(s,480,MAT.barn,-270)); continue; }   // 계단통 — 바닥 -260부터 천장 210까지
+  if(s.kind==='stair'){ scene.add(segBox(s,BARN_H+270,MAT.barn,-270)); continue; }   // 계단통 — 바닥 -260부터 층 천장(BARN_H)까지 (v0.25.1: 리터럴 480 → 천장 추종)
   scene.add(segBox(s,SEG_H[s.kind],MAT[s.kind]||MAT.wall,s.baseY));
 }
 // 케이지 블록 메시
@@ -1700,12 +1710,13 @@ const bulbMat=new THREE.MeshBasicMaterial({color:0x241d14});   // v0.24: 영구 
     const FL=FLOORS[f];
     for(let a=0;a<FL.an;a++) for(let c=0;c<FL.cn;c++){
       const x=fCellXC(f,c), z=fAisleZC(f,a), y0=FL.base+BARN_H;
+      // v0.25.1: 저천장(132)에서 전구 바닥(103)이 점프 눈높이 최대(98) 위에 남도록 부착 높이 상향
       const cord=new THREE.Mesh(cordG,cordM);
-      cord.position.set(x,y0-15,z); scene.add(cord);
+      cord.position.set(x,y0-8,z); scene.add(cord);
       const shade=new THREE.Mesh(shadeG,shadeM);
-      shade.position.set(x,y0-24,z); scene.add(shade);
+      shade.position.set(x,y0-16,z); scene.add(shade);
       const bulb=new THREE.Mesh(bg,bulbMat);
-      bulb.position.set(x,y0-32,z); scene.add(bulb);
+      bulb.position.set(x,y0-24,z); scene.add(bulb);
     }
   }
 }
@@ -1729,7 +1740,7 @@ doorFrame(BARN.x1,ZA,180,0xffc850);                 // 1F → 계단 (하강 호
 doorFrame(B1.x0,ZB,180,0x7fb0ff,-FLOOR_H);          // B1 → 계단 (상승 청색)
 // 정문 외광 스필 — 정전 중 척추에서 보이는 유일한 원경 광점
 const doorSpill=new THREE.Mesh(new THREE.PlaneGeometry(180,120),
-  new THREE.MeshBasicMaterial({color:0x2a2416,transparent:true,opacity:0.9}));
+  new THREE.MeshBasicMaterial({color:0x2a2416,transparent:true,opacity:0.9,fog:false}));   // v0.25.1 안개 면제 — "정전 중 척추의 유일한 원경 광점" 계약이 실내 근거리 안개(far 480)를 이긴다
 doorSpill.rotation.x=-Math.PI/2;
 doorSpill.position.set(BARN.x0+95,0.7,DOOR_Z);
 doorSpill.visible=false; scene.add(doorSpill);
@@ -2063,6 +2074,15 @@ let jarFxOn=false, heartT=0, scratchT=0;   // 항아리 국소 연출 상태 (�
 let deathT=0, deadWas=false;               // v0.24 사망 연출 (1.2s 마룻바닥 기울기 → 관전)
 let torchDieT=0, lastBoTorch=false, torchJ=1, torchJT=0;   // v0.24 정전 사망 연출 상태 (렌더 전용)
 function updWorldUI(dt){
+  // v0.25.1 실내 근거리 안개 — near/far의 유일한 기록자 (fog.color는 updSky 소유).
+  // 실내 판정은 계란 클램프·부감 클램프와 같은 inZoneOrCorr — 계단통(존 2)도 실내라 내려가는 길이 "밖"으로 읽히지 않는다
+  {
+    const ind=inZoneOrCorr(P().x,P().z)&&phase!=='title'&&phase!=='intro';
+    const tn=ind?FOG_IN_N:FOG_OUT_N, tf=ind?FOG_IN_F:FOG_OUT_F;
+    const k=Math.min(1,dt*3.2);                 // ~0.3s 수렴 — 문턱에서 뚝 끊기지 않게
+    scene.fog.near+=(tn-scene.fog.near)*k;
+    scene.fog.far +=(tf-scene.fog.far )*k;
+  }
   // v0.24 손전등 구동 — 위치·강도의 단일 기록자 (D2).
   // 정전 = 토글 무관 전 플레이어 소등: 1.2s 스터터(무작위 40~120ms 점멸 + 틱 소리) 후 죽는다.
   // 잔여 30/10초 경고 딥은 램프가 죽었으므로 손전등 마이크로 스터터로 이관 (flickT 기구 재사용)
