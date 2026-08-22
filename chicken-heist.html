@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>양계장 습격 — 웹 프로토타입 v0.25.1</title>
+<title>양계장 습격 — 웹 프로토타입 v0.26.0</title>
 <style>
   html,body{margin:0;height:100%;background:#0c1424;overflow:hidden;
     font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
@@ -52,6 +52,13 @@
     color:#ffb08a;text-shadow:0 2px 10px rgba(0,0,0,0.85);pointer-events:none;opacity:0;}
   #help{position:fixed;bottom:14px;left:0;right:0;text-align:center;font-size:12px;
     color:rgba(255,250,240,0.5);text-shadow:0 1px 3px rgba(0,0,0,0.6);pointer-events:none;}
+  /* v0.26 (④) 트럭 패널 — 키 구동(포인터락 유지), 클릭 요소 없음 */
+  #truckUI{position:fixed;left:50%;bottom:78px;transform:translateX(-50%);display:none;
+    background:rgba(8,10,16,0.78);border:1px solid rgba(255,224,138,0.4);border-radius:10px;
+    padding:9px 16px;font-size:13px;line-height:1.75;text-align:center;color:#f2e9d8;
+    text-shadow:0 1px 3px rgba(0,0,0,0.7);pointer-events:none;}
+  #truckUI .tt{font-weight:800;color:#ffe08a;}
+  #truckUI .dim{opacity:0.55;}
   #pw{position:fixed;left:50%;bottom:64px;width:220px;height:9px;margin-left:-110px;display:none;
     background:rgba(0,0,0,0.45);border-radius:5px;overflow:hidden;pointer-events:none;}
   #pwFill{height:100%;width:0%;background:#7bd77b;border-radius:5px;}
@@ -109,6 +116,7 @@
 <body>
 <canvas id="gl"></canvas>
 <div id="flash"></div>
+<div id="truckUI"></div>
 <div id="fade"></div>
 <div id="hud"></div>
 <div id="cookUI"></div>
@@ -131,7 +139,7 @@
 
 <div class="ov" id="title">
   <h1>양계장 습격</h1>
-  <div class="sub">웹 프로토타입 v0.25.1 <span id="tuneBadge"></span></div>
+  <div class="sub">웹 프로토타입 v0.26.0 <span id="tuneBadge"></span></div>
   <div class="desc">밤이다. 저녁 수거는 끝났다 — 밤사이 새로 낳은 알만 남았다.<br>털 수 있는 만큼 털어서 트럭까지. 갖다 실을수록 전기가 빨리 나간다.<br>병아리 보온등을 찾으면 구워서 더 받는다 — 익는 동안 닭이 온다.<br>축사는 좁고 어둡다 — 불빛 밖의 닭은 눈에 안 보인다.<br>글러브를 찾으면 닭을 잡을 수 있다. 단 빈손이어야 하고, 소리가 크다.<br><b>트럭은 6시에 뜬다.</b> 농장 사람들이 깨기 전에 — 기사는 안 기다린다.</div>
   <div class="keys">마우스 시점 · WASD 이동 · Shift 달리기 (계란이 흔들리고 숨이 찬다!) · Space 점프<br>E 줍기·내려놓기 · Q 품 · F 수레 · 좌클릭 미끼 던지기 · 빈손 좌클릭 밀치기(글러브를 찾으면 펀치) · V 시점전환</div>
   <div class="go">클릭해서 시작</div>
@@ -805,6 +813,11 @@ const CHASE_BREAK_T=T('CHASE_BREAK_T',1.2);              // 포기 비트: 그 �
 const CHASE_CD=T('CHASE_CD',3);                     // 포기 직후 재추격 금지(초). toAlert만 막는다 — 정전·복수·KO 기상은 못 막는다
 const CUT_RECALC=T('CUT_RECALC',0.5), CUT_MAX=T('CUT_MAX',1);      // 협공: 0.5초마다 역할 재계산, 차단자는 최대 한 마리 (둘 이상은 난이도가 아니라 동전던지기)
 const AGGRO_RUN=130;
+// v0.26 발소리 인지 (docs/goal/chicken-heist-ears-and-bodies.md) — 밝은 구간 인지 LOGIC 불변의 네 번째 예외.
+// 실체는 "걷기 무소음 계약"의 폐지 하나다 (달리기는 v0.4부터 AGGRO_RUN 130으로 이미 들렸다 — 동결 리터럴 무접촉).
+// 배선은 기존 소음 채널(alarmNoise→guardOrInvest/추격 신선 갱신) 그대로 — 새 인지 상태기계 0.
+// 걸음이 곧 소리다: 멈추면 조용하다 = 정지가 은신 동사가 된다. 뒤치기는 소리가 지운다 (개발자 확정 "조사하러 온다")
+const FOOT_R_WALK=T('FOOT_R_WALK',85);   // 걷기 발소리 < 달리기 130 (검사 10 편입 + FOOT<AGGRO_RUN 단정)
 const PICKUP_QUIET=T('PICKUP_QUIET',50), PICKUP_LOUD=T('PICKUP_LOUD',130);
 const SIGHT_IN=110, SIGHT_OUT=73;
 const DECOY_R=T('DECOY_R',110), PECK_T=T('PECK_T',4.0);
@@ -934,7 +947,9 @@ const BRIGHT_AB=/[?&]bright=1/.test(location.search);
 // v0.24 공포 전환 (docs/goal/chicken-heist-horror-night.md D1) — 개발자 "이거 일단 너무 밝아".
 // 앰비언트를 거의 0으로: 이제 세계의 빛은 손전등·정직한 등대(문틀·계단·수레·트럭)·주방 보온등뿐이다.
 // HEMI_DARK는 HEMI_LIT보다 항상 작아야 한다 (플리커 공식 HEMI_DARK+j*(HEMI_LIT-HEMI_DARK)의 전제)
-const HEMI_LIT=BRIGHT_AB?0.58:0.03, HEMI_DARK=BRIGHT_AB?0.06:0.015, MOON_LIT=BRIGHT_AB?0.22:0.02, MOON_DARK=BRIGHT_AB?0.04:0.01;
+// v0.26 (②) 개발자 "손전등 없을 때도 너무 밝아 — 진짜 아무것도 안 보이는 느낌으로": 0.03/0.02 → 0.012/0.008.
+// 플리커 공식(HEMI_DARK+j*(HEMI_LIT-HEMI_DARK))과 같은 커밋 — DARK<LIT 전제 유지. ?bright=1 A/B 값은 불변
+const HEMI_LIT=BRIGHT_AB?0.58:0.012, HEMI_DARK=BRIGHT_AB?0.06:0.006, MOON_LIT=BRIGHT_AB?0.22:0.008, MOON_DARK=BRIGHT_AB?0.04:0.004;
 const SKY_NIGHT_HEX=BRIGHT_AB?0x0c1424:0x02040a;   // 밤하늘·안개 기저색 — 거리(fog near/far)는 불변 (트럭 가시성)
 // v0.24 손전등 (D2) — 렌더 전용 상수: T() 금지 (조명 값은 핸드셰이크 밖 — HEMI_LIT 선례).
 // TORCH_DIST 350 = 원뿔이 "다음 갈림목"까지만. 원뿔 끝의 닭은 이미 240u 전부터 나를 볼 수 있었다 —
@@ -1013,7 +1028,7 @@ const SPAWN_OFFS=[[0,0],[-36,44],[-36,-44],[-78,0]];      // 스폰 4자리 사�
 const PLR_SEP=26;                 // 플레이어끼리 소프트 분리 (겹침 방지 — 표시용, 규칙 아님)
 const PRED_DEADBAND=40;           // 클라 자기 예측 보정 데드밴드 (u)
 const NET_SNAP_R=90;             // 원격 엔티티 하드 스냅 오차 상한 (u)
-const NET_HZ=20, PROTO_V='v0.25.1'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
+const NET_HZ=20, PROTO_V='v0.26.0'; // 스냅샷·인텐트 주기 / 프로토콜 버전 (불일치 = 새로고침 안내) — v0.12: 연출만 바뀌었지만 친구 반응을 빌드에 짝지으려면 전원 같은 빌드여야 한다
 const R_HOLD_T=1.0;               // 멀티 플레이 중 호스트 R 홀드 시간 (오타 재시작 방지. 승패 화면은 즉발)
 
 // ============================================================
@@ -1028,6 +1043,10 @@ const TRUCK_X=170, TRUCK_Z=aisleZC(SPINE);   // v0.20 마당 압축 (하한: SPA
 const truckPad={x:TRUCK_X+130,z:TRUCK_Z,r:45};
 // v0.21 선글라스 카운터 — 트럭 옆구리(레버 반대편). 패드와 57u가 아니라 99u — E 폴스루 없음 (레버 검사 19와 같은 계급)
 const SHADES_POS={x:TRUCK_X+60,z:TRUCK_Z+70};
+// v0.26 (④) 트럭 패널 반경 — 표시(뷰어)와 판정(호스트)이 같은 상수를 쓴다. v0.21 "HUD 상점 메뉴 금지"의
+// 부분 번복 (개발자 확정 "기존 동사 승격만"): 패널이 파는 것은 세계가 이미 팔던 것뿐 — 선글라스 + 출발 동사.
+const TRUCK_UI_R=230;
+function nearTruckUI(p){ return Math.hypot(p.x-TRUCK_X,p.z-TRUCK_Z)<TRUCK_UI_R; }
 // v0.21 너구리 (docs/goal/chicken-heist-regen-appraisal.md D1) — 마당 전담 "재산 포식자".
 // 닭은 '들고 있는 알'을 뺏고(실내), 너구리는 '방치된 짐'을 훔친다(마당) — 생태계에 없던 역할이라
 // 거위 선례 ①(닭 AI 복제 금지)을 통과한다. 플레이어는 절대 안 건드린다. 한 대면 다 떨구고 밤 퇴장.
@@ -1580,23 +1599,21 @@ for(let i=0;i<MAX_PLAYERS;i++){
 // 위치·강도의 단일 기록자는 updWorldUI — 다른 어디서도 쓰지 않는다 (kitchenLight 이중 기록자 선례의 교훈)
 const TORCHES=[];
 {
-  const bh=TORCH_DIST*0.85;
+  // v0.26 (①): 빔 원뿔 메시 삭제 — 개발자 "무슨 삼각형 같은 느낌". 원뿔은 Lambert 정점 조명의 보험이었고,
+  // 재질이 Phong(픽셀 조명)이 된 지금은 SpotLight 웅덩이가 스스로 그려진다. penumbra 0.45→0.6 = 가장자리 연화
   for(let i=0;i<MAX_PLAYERS;i++){
-    const L=new THREE.SpotLight(0xfff0d8,0,TORCH_DIST,TORCH_ANGLE,0.45,TORCH_DECAY);
+    const L=new THREE.SpotLight(0xfff0d8,0,TORCH_DIST,TORCH_ANGLE,0.6,TORCH_DECAY);
     L.position.set(0,-999,0);
     const tgt=new THREE.Object3D(); tgt.position.set(0,-999,0);
     scene.add(tgt); L.target=tgt; scene.add(L);
-    // 항상 읽히는 빔 원뿔 — Lambert 정점 조명의 보험 (가산 반투명, 빛을 내지는 않는다)
-    const bg=new THREE.ConeGeometry(TORCH_DIST*Math.tan(TORCH_ANGLE)*0.55,bh,18,1,true);
-    bg.translate(0,-bh/2,0); bg.rotateX(Math.PI/2);   // 꼭짓점을 원점에, 축을 -Z로 (lookAt이 -Z를 표적으로 향한다)
-    const beam=new THREE.Mesh(bg,new THREE.MeshBasicMaterial({color:0xffe9c0,transparent:true,opacity:0.05,
-      blending:THREE.AdditiveBlending,side:THREE.DoubleSide,depthWrite:false}));
-    beam.visible=false; scene.add(beam);
-    TORCHES.push({L,tgt,beam});
+    TORCHES.push({L,tgt});
   }
 }
 
-function mat(c,e){ const m=new THREE.MeshLambertMaterial({color:c}); if(e) m.emissive=new THREE.Color(e); return m; }
+// v0.26 (①): Lambert(정점 조명) → Phong(픽셀 조명, specular 0 = 순수 확산). 개발자 "손전등이 포인트라이트처럼" —
+// 정점 보간이 만들던 얼룩덜룩한 삼각형 느낌의 절반이 여기서 사라진다 (나머지 절반은 빔 원뿔 메시 삭제).
+// specular 0이라 확산 공식은 Lambert와 동일 — 밝기 총량 불변, 해상도만 정점→픽셀
+function mat(c,e){ const m=new THREE.MeshPhongMaterial({color:c,specular:0x000000,shininess:1}); if(e) m.emissive=new THREE.Color(e); return m; }
 const MAT={
   wall:mat(0x2c3d22), barn:mat(0x6b5a45), cage:mat(0x8d9096), plug:mat(0x7a6a50),
   hay:mat(0x9c8248), trough:mat(0x5c666e), crate:mat(0x6e5638),
@@ -1623,7 +1640,7 @@ const MAT={
   bfloor.rotation.x=-Math.PI/2;
   bfloor.position.set((B1.x0+B1.x1)/2,-FLOOR_H+0.5,(B1.z0+B1.z1)/2); scene.add(bfloor);
   const bceil=new THREE.Mesh(new THREE.PlaneGeometry(B1.x1-B1.x0,B1.z1-B1.z0,24,20),
-    new THREE.MeshLambertMaterial({color:0x3c352c,emissive:0x120f0b,side:THREE.DoubleSide}));
+    new THREE.MeshPhongMaterial({color:0x3c352c,emissive:0x060504,specular:0x000000,shininess:1,side:THREE.DoubleSide}));   // v0.26 (②): 자체발광 근소거 — "조명 없는데 보인다"의 공범
   bceil.rotation.x=Math.PI/2;
   bceil.position.set((B1.x0+B1.x1)/2,-FLOOR_H+BARN_H,(B1.z0+B1.z1)/2); scene.add(bceil);
   // 램프 (경사면) — 로직은 평면, 렌더만 기울인다
@@ -1644,7 +1661,7 @@ const MAT={
   floor.rotation.x=-Math.PI/2;
   floor.position.set((BARN.x0+BARN.x1)/2,0.5,(BARN.z0+BARN.z1)/2); scene.add(floor);
   const roof=new THREE.Mesh(new THREE.PlaneGeometry(COOP_W,COOP_D,32,28),
-    new THREE.MeshLambertMaterial({color:0x4a4034,emissive:0x16120e,side:THREE.DoubleSide}));
+    new THREE.MeshPhongMaterial({color:0x4a4034,emissive:0x060504,specular:0x000000,shininess:1,side:THREE.DoubleSide}));   // v0.26 (②): 자체발광 근소거 — 저천장에서 천장 자광이 전역 조명 행세를 했다
   roof.rotation.x=Math.PI/2;
   roof.position.set((BARN.x0+BARN.x1)/2,BARN_H,(BARN.z0+BARN.z1)/2); scene.add(roof);
   const dirt=new THREE.Mesh(new THREE.PlaneGeometry(520,300,8,6),mat(0x4a3d2a));
@@ -1883,6 +1900,12 @@ for(let i=0;i<LOOT_N;i++){
     spin:0,cracked:false,thrown:false,forceBreak:false,forceSurvive:false,carrier:null,
     claimed:false,restT:0,touched:false,heat:0,cookT:0});   // v0.15: 열 상태 — 필드지 kind가 아니다 (D-KIT4)
 }
+// v0.26 (⑤) E 표적 아웃라인 — 역껍질(BackSide) 1개 상주. 선택 LOGIC 무접촉:
+// tryPickOrPlace가 고를 바로 그 알(최근접 rest, PICK_R 안)을 미리 비출 뿐이다. 선점 분기(레버·글러브·카운터·항아리)가
+// 걸리면 숨긴다 — E가 다른 일을 할 때 알을 비추면 아웃라인이 거짓말이 된다
+const outlineMesh=new THREE.Mesh(EGG_GEO,
+  new THREE.MeshBasicMaterial({color:0xffe9b0,side:THREE.BackSide,transparent:true,opacity:0.55,depthWrite:false}));
+outlineMesh.visible=false; scene.add(outlineMesh);
 // v0.21 가격표 (D4) — 슬롯당 스프라이트 1개. 텍스처는 이벤트 시에만 굽는다(로드·열 변화·정전 토글 — 매 프레임 0회).
 // depthTest true: 벽이 가린다 — 전리품 정보에 벽투시 특권은 없다 (위협 마커와 다른 계급). 미니맵 금지.
 // 정전 중엔 ×2 가격을 금색으로 — bank.dark 문법: 배수를 세계가, 그게 중요해지는 바로 그 순간에 가르친다
@@ -2073,6 +2096,7 @@ function setJarAudio(on){
 let jarFxOn=false, heartT=0, scratchT=0;   // 항아리 국소 연출 상태 (전부 렌더/오디오 전용)
 let deathT=0, deadWas=false;               // v0.24 사망 연출 (1.2s 마룻바닥 기울기 → 관전)
 let torchDieT=0, lastBoTorch=false, torchJ=1, torchJT=0;   // v0.24 정전 사망 연출 상태 (렌더 전용)
+let truckUIHtml='';                                        // v0.26 (④) 트럭 패널 DOM 캐시 (문자열 변화 시에만 기록)
 function updWorldUI(dt){
   // v0.25.1 실내 근거리 안개 — near/far의 유일한 기록자 (fog.color는 updSky 소유).
   // 실내 판정은 계란 클램프·부감 클램프와 같은 inZoneOrCorr — 계단통(존 2)도 실내라 내려가는 길이 "밖"으로 읽히지 않는다
@@ -2082,6 +2106,48 @@ function updWorldUI(dt){
     const k=Math.min(1,dt*3.2);                 // ~0.3s 수렴 — 문턱에서 뚝 끊기지 않게
     scene.fog.near+=(tn-scene.fog.near)*k;
     scene.fog.far +=(tf-scene.fog.far )*k;
+  }
+  // v0.26 (④) 트럭 패널 — 근접 시에만 표시, 문자열이 변할 때만 DOM 기록 (키 구동: 클릭 없음, 포인터락 유지)
+  {
+    const p=P();
+    const show=phase==='play'&&!p.dead&&!isHidden(p)&&nearTruckUI(p);
+    const el=document.getElementById('truckUI');
+    if(!show){
+      if(truckUIHtml!==''){ truckUIHtml=''; el.style.display='none'; }
+    } else {
+      let h='<span class="tt">🚚 푸드트럭</span><br>';
+      h+=p.sunglasses?'<span class="dim">선글라스 보유중</span><br>'
+        :(p.held?'<span class="dim">[1] 선글라스 '+SHADES_COST+'점 — 빈손이어야</span><br>'
+        :'[1] 선글라스 '+SHADES_COST+'점'+(stats.score<SHADES_COST?' <span class="dim">('+(SHADES_COST-stats.score)+'점 부족)</span>':'')+'<br>');
+      h+=depT>=0?'[C] 출발 취소 <span class="dim">('+Math.ceil(depT)+'s)</span>'
+        :(depCd>0?'<span class="dim">재시동 대기 '+Math.ceil(depCd)+'s</span>':'[2] 시동 걸기 — 일찍 출발');
+      if(h!==truckUIHtml){ truckUIHtml=h; el.innerHTML=h; el.style.display='block'; }
+    }
+  }
+  // v0.26 (⑤) E 표적 아웃라인 갱신 — tryPickOrPlace의 선점 순서를 그대로 미러 (뷰어 전용, 판정 아님)
+  {
+    const p=P();
+    let tgt=null;
+    if(phase==='play'&&!p.dead&&!isHidden(p)&&!p.held&&p.stun<=0){
+      const pre=nearLever(p)
+        ||(!p.glove&&gloveMesh.visible&&Math.hypot(GLOVE_POS.x-p.x,GLOVE_POS.z-p.z)<PICK_R+18)
+        ||(!p.sunglasses&&Math.hypot(SHADES_POS.x-p.x,SHADES_POS.z-p.z)<SHADES_R)
+        ||nearestJar(p.x,p.z,JAR_R)>=0;
+      if(!pre){
+        let bd=PICK_R;
+        for(const e of eggs){
+          if(e.state!=='rest') continue;
+          const d=Math.hypot(e.x-p.x,e.z-p.z);
+          if(d<bd){ bd=d; tgt=e; }
+        }
+      }
+    }
+    if(tgt){
+      outlineMesh.position.copy(tgt.mesh.position);
+      outlineMesh.rotation.copy(tgt.mesh.rotation);
+      outlineMesh.scale.copy(tgt.mesh.scale).multiplyScalar(1.3);
+      outlineMesh.visible=true;
+    } else outlineMesh.visible=false;
   }
   // v0.24 손전등 구동 — 위치·강도의 단일 기록자 (D2).
   // 정전 = 토글 무관 전 플레이어 소등: 1.2s 스터터(무작위 40~120ms 점멸 + 틱 소리) 후 죽는다.
@@ -2101,16 +2167,12 @@ function updWorldUI(dt){
     if(blackout) f*=(torchDieT>0?torchJ:0);
     else f*=warnJ;
     TC.L.intensity=TORCH_INT*f;
-    TC.beam.visible=f>0.01;
     if(on){
       const cp=Math.cos(p.pitch||0), sp=Math.sin(p.pitch||0);
       const fx=-Math.sin(p.yaw), fz=-Math.cos(p.yaw);
       const gy=groundY(p.x,p.z);
       TC.L.position.set(p.x+fx*10,gy+46+p.jy,p.z+fz*10);
       TC.tgt.position.set(p.x+fx*cp*TORCH_DIST,gy+46+sp*TORCH_DIST,p.z+fz*cp*TORCH_DIST);
-      TC.beam.position.copy(TC.L.position);
-      TC.beam.lookAt(TC.tgt.position);
-      TC.beam.material.opacity=0.05*f;
     } else TC.L.position.set(0,-999,0);
   }
   // v0.24 사망 연출 개시 — 미러 기반 (호스트·클라 동일 경로)
@@ -3089,6 +3151,20 @@ function tryTorch(p){
   if(phase!=='play'||p.torch===0) return;
   p.torch=(p.torch===2)?1:2;
 }
+// 선글라스 구매 판정 본체 — !p.sunglasses 가드가 스팸 멱등성을 겸한다 (연타 12번 = 차감 1번)
+function doBuyShades(p){
+  if(p.sunglasses) return;
+  if(stats.score>=SHADES_COST){
+    p.sunglasses=true;
+    stats.score=Math.max(0,stats.score-SHADES_COST);
+    drawSign();                                 // 간판 점수가 눈앞에서 깎인다 — 팀 돈을 쓴 게 세계에 보인다
+    dingS();
+    bigmsgCast((NET.on?nameSub(p.idx)+' ':'')+'선글라스를 샀다 (−'+SHADES_COST+'점) — 물건 값이 보인다');
+  } else {
+    const msg='선글라스 '+SHADES_COST+'점 — 아직 '+(SHADES_COST-stats.score)+'점 모자라다';
+    if(p.idx===me) bigmsg(msg); else if(NET.host) NET.ev.push(['big',msg,p.idx]);
+  }
+}
 function tryPickOrPlace(p){
   if(phase!=='play'||p.stun>0) return;
   // v0.24 항아리 나오기 (D6) — 의식 중이면 닭이 잡힘 반경 안 = 네 리스크. 알고 나오는 건 듣기가 한다
@@ -3108,18 +3184,9 @@ function tryPickOrPlace(p){
     return;
   }
   // v0.21 선글라스 구매 (D4) — 빈손 + 카운터 앞. 판정 전부 호스트(기존 'pick' 인텐트 경로 — 새 무선 동사 0).
-  // !p.sunglasses 가드가 스팸 멱등성을 겸한다 (연타 12번 = 차감 1번)
+  // v0.26 (④): 판정 본체는 doBuyShades로 추출 — 카운터 E와 트럭 패널 [1]이 같은 몸을 쓴다 (두 입구, 한 판정)
   if(!p.held&&!p.sunglasses&&Math.hypot(SHADES_POS.x-p.x,SHADES_POS.z-p.z)<SHADES_R){
-    if(stats.score>=SHADES_COST){
-      p.sunglasses=true;
-      stats.score=Math.max(0,stats.score-SHADES_COST);
-      drawSign();                                 // 간판 점수가 눈앞에서 깎인다 — 팀 돈을 쓴 게 세계에 보인다
-      dingS();
-      bigmsgCast((NET.on?nameSub(p.idx)+' ':'')+'선글라스를 샀다 (−'+SHADES_COST+'점) — 물건 값이 보인다');
-    } else {
-      const msg='선글라스 '+SHADES_COST+'점 — 아직 '+(SHADES_COST-stats.score)+'점 모자라다';
-      if(p.idx===me) bigmsg(msg); else if(NET.host) NET.ev.push(['big',msg,p.idx]);
-    }
+    doBuyShades(p);
     return;
   }
   // v0.24 항아리 들어가기 (D6) — 실패 없는 입장(밸브: 장전자야말로 표적)이되 공짜가 아니다:
@@ -4393,7 +4460,8 @@ function processActs(p){
     else if(a.a==='pocket') tryPocket(p);
     else if(a.a==='cart') toggleCart(p);
     else if(a.a==='jump') tryJump(p);
-    else if(a.a==='depart') tryDepart(p);
+    else if(a.a==='depart'){ if(nearTruckUI(p)) tryDepart(p); }   // v0.26 (④): 패널 [2] — 원격 시동 금지 (레버 E는 nearLever가 따로 지킨다)
+    else if(a.a==='buy'){ if(p.stun<=0&&!p.held&&nearTruckUI(p)) doBuyShades(p); }   // v0.26 (④): 패널 [1] — 카운터와 같은 판정, 입구만 다르다
     else if(a.a==='cancelDepart') tryCancelDepart(p);
     else if(a.a==='torch') tryTorch(p);
     else if(a.a==='shove') tryShove(p,a.yaw);
@@ -4483,8 +4551,8 @@ function updPlayer(p,dt){
     if(p.stepAcc>=(run?52:42)){
       p.stepAcc=0; stepS(run,sxz(p),szz(p));
       burst(p.x,2,p.z,run?4:2,COL_DUST,run?10:7,0.35,3);
-      if(run) alarmNoise(p.x,p.z,AGGRO_RUN,p.idx);
-      // 파동: 걷기는 시각 전용(어그로 0 — 무소음 계약), 달리기는 어그로와 동반
+      alarmNoise(p.x,p.z, run?AGGRO_RUN:FOOT_R_WALK, p.idx);   // v0.26: 걷기 무소음 계약 폐지 — 걷기도 85에 들린다 (LOGIC 예외 4호)
+      // 파동: 걷기·달리기 모두 어그로와 동반 (v0.26 전까지 걷기는 시각 전용이었다)
       waveCast(p.x,p.z, run?VIS_RUN:VIS_WALK, run?'run':'dim', p);
       if(cart.owner===p.idx&&run) waveCast(cart.x,cart.z,VIS_RUN,'run');  // 수레 덜컹 — VIS만 (로직은 견인자 소음이 담당)
       if(blackout) fxPool.add(p.x,groundY(p.x,p.z)+1.2,p.z,0.35,0.4,0.5,20,2.6);  // 발자국 빵부스러기
@@ -4509,6 +4577,50 @@ function updPlayer(p,dt){
     if(p.held){ const e=p.held; p.held=null; deliverEgg(e); }
     if(p.pocket){ const e=p.pocket; p.pocket=null; deliverEgg(e); }
   }
+}
+// v0.26 몸 충돌 (⑥, docs/goal/chicken-heist-ears-and-bodies.md) — 개발자 "최대한 자연스럽게" = 질량 차등 상호 밀치기.
+// sepPlayers와 같은 계급(소프트 밀어내기 — 표시용, 규칙 아님). 경계 계약 하나: 몸합 PLR_R+CHK_R(25) < 잡힘 28 —
+// 분리 반경에 패딩을 더하지 말 것 (더하는 순간 잡힘이 물리적으로 불가능해진다. 자가검사가 단정한다)
+function pushPair(a,b,R,wa,wb,mirror){
+  const dx=a.x-b.x, dz=a.z-b.z, d=Math.hypot(dx,dz);
+  if(d>=R||d<1e-4) return;
+  const ov=R-d, ux=dx/d, uz=dz/d;
+  a.x+=ux*ov*wa; a.z+=uz*ov*wa;
+  if(!mirror){ b.x-=ux*ov*wb; b.z-=uz*ov*wb; }   // 클라는 본인만 민다 — 미러 개체를 로컬로 옮기면 스냅샷과 싸운다
+}
+function bodyPush(p,mirror){
+  for(const c of chickens){
+    if(c.dead||c.state==='dormant'||c.ko) continue;         // 시체·휴면(무형체)·KO(엎드림)는 몸이 아니다
+    pushPair(p,c,PLR_R+CHK_R,0.35,0.65,mirror);             // 닭이 가볍다 — 밀치고 나간다
+  }
+  for(const rc of raccs){
+    if(rc.state==='dormant'||rc.state==='gone'||rc.state==='flee') continue;
+    pushPair(p,rc,PLR_R+RACC_R,0.3,0.7,mirror);
+  }
+  if(cart.owner!==p.idx){                                    // 수레는 부동(트레일 권위 보존) — 플레이어만 밀려난다. 견인자는 한 몸
+    const dx=p.x-cart.x, dz=p.z-cart.z, d=Math.hypot(dx,dz), R=PLR_R+cart.r;
+    if(d<R&&d>1e-4){ p.x+=dx/d*(R-d); p.z+=dz/d*(R-d); }
+  }
+}
+// 바닥 알 발차기 — 호스트 전용 (알 위치는 호스트 권위 + eg 미러). touched 미설정: 차인 알이 강탈 대상이 되지 않는다
+function kickEggs(p){
+  for(const e of eggs){
+    if(e.state!=='rest') continue;
+    if(Math.hypot(e.x-KITCHEN_POS.x,e.z-KITCHEN_POS.z)<=KITCHEN_R+PLR_R) continue;   // 조리 중인 알을 팬에서 차지 않는다
+    const dx=e.x-p.x, dz=e.z-p.z, d=Math.hypot(dx,dz), R=PLR_R+EGG_R;
+    if(d>=R||d<1e-4) continue;
+    const t={x:e.x+dx/d*(R-d), z:e.z+dz/d*(R-d), r:EGG_R+2};
+    collideCircle(t);                                        // 벽 안으로 차 넣지 않는다
+    e.x=t.x; e.z=t.z; e.y=groundY(e.x,e.z)+EGG_R;
+  }
+}
+function sepBodies(){
+  eachP(p=>{
+    if(p.dead||isHidden(p)) return;
+    bodyPush(p,false);
+    kickEggs(p);
+    collideCircle(p);                                        // 밀려난 몸의 벽 안전 (5u 벽 관통 방지)
+  });
 }
 // 플레이어끼리 소프트 분리 — 겹침 방지 (표시용 밀어내기, 규칙 아님)
 function sepPlayers(){
@@ -4864,6 +4976,7 @@ function update(dt){
   updChickens(dt);
   updGeese(dt);
   updRacc(dt);     // v0.21 — 마당 경쟁자 (닭·거위와 코드 공유 0)
+  if(phase==='play') sepBodies();   // v0.26 (⑥) — 모든 이동체 갱신 뒤, 파동·판정 전에 몸을 푼다
   updWaves(dt);
   // 새벽 마감 — v0.13(D3): 06:00은 즉시 끝이 아니라 트럭이 굴러가기 시작하는 순간이다.
   // 이 6초(TRUCK_GO_T) 동안 판은 살아 있고 패드에 닿으면 짐이 실린다 — 몰수를 슬픔이 아니라
@@ -5086,7 +5199,7 @@ function render(){
       L.intensity=LANTERN_INT; L.distance=LANTERN_DIST;
       L.position.set(p.held.mesh.position.x,Math.max(30,p.held.mesh.position.y),p.held.mesh.position.z);
     } else if(p.active&&!p.dead&&p.hideJar<0&&phase!=='title'&&phase!=='intro'){   // v0.25 수리: -1 센티널 (위 손전등 게이트와 같은 버그)
-      L.intensity=0.35; L.distance=90;
+      L.intensity=0.08; L.distance=60;   // v0.26 (②): 0.35/90 → 0.08/60 — 손끝만 겨우. 손전등을 꺼도 "보인다"면 어둠 항목이 거짓말이 된다
       L.position.set(p.x,groundY(p.x,p.z)+50+p.jy,p.z);
     } else L.intensity=0;
   }
@@ -5740,6 +5853,7 @@ function clientPredict(dt){
       burst(p.x,2,p.z,run?4:2,COL_DUST,run?10:7,0.35,3);
     }
   } else p.stepAcc=Math.min(p.stepAcc,20);
+  bodyPush(p,true);   // v0.26 (⑥) 클라 자기 예측에도 몸 충돌 — 없으면 닭을 뚫고 걷다 고무줄 (미러 개체는 안 민다)
   collideCircle(p);
 }
 function lerpAngle(a,b,k){
@@ -6215,6 +6329,9 @@ window.addEventListener('keydown',e=>{
   }
   if(e.code==='KeyV'){ camMode=camMode?0:1; tpCur=TP_DIST; return; }
   if(e.code==='KeyT'){ if(!e.repeat){ pushAct({a:'torch'}); blip(1150,0.05,0.18,'square'); } return; }   // v0.24 손전등 (F는 수레)
+  // v0.26 (④) 트럭 패널 키 — 뷰어 게이트는 UX, 진짜 판정은 호스트 processActs의 nearTruckUI가 다시 본다
+  if(e.code==='Digit1'){ if(!e.repeat&&phase==='play'&&nearTruckUI(P())) pushAct({a:'buy'}); return; }
+  if(e.code==='Digit2'){ if(!e.repeat&&phase==='play'&&nearTruckUI(P())&&depT<0) pushAct({a:'depart'}); return; }
   if(e.code==='KeyE'){ pushAct({a:'pick'}); return; }
   if(e.code==='KeyQ'){ pushAct({a:'pocket'}); return; }
   if(e.code==='KeyF'){ pushAct({a:'cart'}); return; }
@@ -6294,8 +6411,8 @@ function mustRoute(){
   for(const b of TROUGHS) if(b.x0>=STAIR.R.x0) bad.push('trough on ramp');
   // 10) 존 이격 ≥620 + 모든 광역 반경 상수 < 이격 (신설 상수가 이격을 넘으면 층 격리 붕괴)
   const gap=B1.x0-BARN.x1;
-  if(gap<Math.max(PACK_R,CHK_LEASH,RING_MAX_D,PROX_R)+50) bad.push('zone gap '+gap);   // v0.20 반경 파생 + v0.24 W1: PROX_R 편입 (튜너가 키우면 여기서 터진다)
-  if(PACK_R>=gap||CHK_LEASH>=gap||RING_MAX_D>=gap||PROX_R>=gap) bad.push('radius exceeds gap');
+  if(gap<Math.max(PACK_R,CHK_LEASH,RING_MAX_D,PROX_R,FOOT_R_WALK)+50) bad.push('zone gap '+gap);   // v0.20 반경 파생 + v0.24 W1: PROX_R 편입 + v0.26 FOOT_R_WALK (튜너가 키우면 여기서 터진다)
+  if(PACK_R>=gap||CHK_LEASH>=gap||RING_MAX_D>=gap||PROX_R>=gap||FOOT_R_WALK>=gap) bad.push('radius exceeds gap');
   // 11) 트레이 좌표의 존 정합 (강탈·둥지 동존 필터의 전제)
   for(const [i,p] of NEST_POS.entries()) if(zoneOfArea(p.x,p.z)!==(p.f===1?1:0)) bad.push('tray'+i+' zone mismatch');
   // 12) 스위치백 접힘 — 두 층 최근접 셀 중심 ≥500
@@ -6401,9 +6518,15 @@ function mustRoute(){
     if(!((INVEST_CHAIN+1)*(INVEST_TRAVEL_T+INVEST_DWELL)<NIGHT_LEN*0.15)) bad.push('A9 수색이 안 끝난다');
     if(!(CHASE_CD>CHASE_BREAK_T)) bad.push('A10 포기 비트 중 재추격 (핑퐁)');
     if(!(CART_CARRY_SPRINT<CHK_CHASE)) bad.push('A12 수레 부등식 반전 — 수레 놓기가 즉시 1회여야 한다');
-    // 인지 반경 동결 확인 — 이번 예외의 범위가 "발각된 뒤"임을 로드타임에 증명한다
+    // 인지 반경 동결 확인 — v0.22 예외의 범위가 "발각된 뒤"임을 로드타임에 증명한다.
+    // v0.26 LOGIC 예외 4호(걷기 발소리 FOOT_R_WALK)는 신설이지 이동이 아니다 — 아래 7개 동결 리터럴은 그대로이며,
+    // 신설 반경의 계약은 "걷기 < 달리기"다 (FOOT_R_WALK < AGGRO_RUN — 튜너가 뒤집으면 여기서 터진다)
     if(!(SIGHT_IN===110&&SIGHT_OUT===73&&DET_NEAR===40&&AGGRO_RUN===130&&PACK_R===200&&REVENGE_R===92&&CHK_LEASH===280))
       bad.push('v0.22 범위 위반: 인지 반경이 움직였다');
+    if(!(FOOT_R_WALK>0&&FOOT_R_WALK<AGGRO_RUN)) bad.push('v0.26 발소리 계약 위반: 걷기가 달리기보다 시끄럽다');
+    // v0.26 몸 충돌 경계 — 분리 반경이 상호작용 반경을 잠그면 동사가 물리적으로 죽는다
+    if(!(PLR_R+cart.r<CART_LOAD_R&&PLR_R+cart.r<CART_GRAB_R)) bad.push('v0.26 충돌: 수레 분리가 적재/견인을 잠근다');
+    if(!(PLR_R+CHK_R<CHK_R+PLR_R+3)) bad.push('v0.26 충돌: 몸합이 잡힘을 잠근다');   // 패딩 추가 시 즉사하는 자리표
     if(!(SPD_WALK===132&&SPD_RUN===218&&CARRY_MULT===0.70&&CART_MULT===0.75))
       bad.push('v0.22 범위 위반: 플레이어 속도가 움직였다');
     // ck 튜플 폭 잠금 (격노 비트 append)
